@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress with a documented product-signal correction. The notification vertical slice is technically proven, including live add/remove behavior under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. A bounded source-owned shell/window/UI Automation vertical slice now works end to end in ordinary unpackaged Tauri; transition and durability testing for the three target applications remains before the final decision.
+In progress with a documented product-signal correction. The notification vertical slice is technically proven, including live add/remove behavior under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. A bounded source-owned shell/window/UI Automation vertical slice now works end to end in ordinary unpackaged Tauri. Telegram and New Outlook expose useful numeric state; Teams exposes a proven qualitative state but not its visible numeric badge. ADR 0004 authorizes one final manual, sanitized Teams accessibility experiment before transition/durability testing and the final decision.
 
 ## Purpose
 
@@ -49,6 +49,7 @@ Inspected on 2026-08-09:
 - Evaluate read-only taskbar/tray/window accessibility signals for Telegram, Teams, and Outlook without requiring new toasts.
 - Normalize only observed attention status/count plus source, signal origin, raw diagnostic label, and confidence/limitations.
 - Display state in a deliberately plain React debug UI.
+- Run one manual, sanitized Teams accessibility diagnostic for exact-count feasibility without changing the proven qualitative signal.
 - Manually test Microsoft Teams, Microsoft Outlook, and Telegram.
 - Compare development and identity/packaging paths needed for the API.
 - Record observed behavior and complete the findings section.
@@ -62,6 +63,7 @@ Inspected on 2026-08-09:
 - Mutating, dismissing, or clearing notifications from Attention Hub.
 - Generalized provider abstractions.
 - OCR/screenshot parsing of taskbar badges, undocumented Explorer internals, and controlling source-application UI during the initial attention-signal feasibility phase.
+- Teams profile/database reads, WebView2 remote debugging, Microsoft Graph authentication, or persistence of Teams accessibility text.
 
 ## Technical questions
 
@@ -141,6 +143,22 @@ Exit gate: the visible debug state changes without restarting Attention Hub and 
 
 Exit gate: at least one useful persistent signal crosses a read-only Windows probe -> normalized model -> Tauri -> React path, and limitations for all three target applications are explicit.
 
+### Phase 4b: bounded Teams exact-count accessibility experiment
+
+- Keep the existing Teams notification-area `New activity` boolean unchanged.
+- Add a separate manual command; do not place the deeper Teams traversal in the two-second attention-snapshot loop.
+- Inspect Teams-owned `AriaProperties`, control type, offscreen state, bounds, and availability of relevant UI Automation patterns in addition to the already-inspected `Name`, `HelpText`, and `ItemStatus` properties.
+- Inspect known structural areas such as Quick views, collapsed sections, and materialized Chat rows without focusing, scrolling, expanding, selecting, or clicking anything.
+- Analyze text only transiently in Rust. Return fixed keyword matches, numeric tokens, ARIA keys, lengths, geometry, and pattern names; never return or log raw Teams text, chat names, senders, previews, bodies, or ARIA values.
+- Compare controlled badge states 0, 1, and 2 or more with Chat visible, another page visible, Teams minimized, and a contributing unread row offscreen where practical.
+- Use the semantic name `badgeItems` or a narrower truthful subset name. Do not call the result unread messages: Microsoft documents that the badge combines several item categories.
+
+Prior evidence: with a visible taskbar badge of `1` while Teams showed Calendar, the full taskbar and Teams descendant scan found no matching number in `Name`, `HelpText`, or `ItemStatus`. This phase tests only the remaining ARIA, pattern, and materialized-content hypothesis.
+
+First controlled-comparison finding on 2026-08-10: the existing qualitative Teams signal correctly changed from false at badge zero to true at badge one. The two screenshots contained the same manual-probe capture timestamp, so they do not yet compare deeper accessibility snapshots. A numeric `1` associated with `activity` was already present at badge zero and matched Teams' permanent `Activity (Ctrl+1)` shortcut shape; shortcut-adjacent digits are now excluded from candidates. See `docs/milestones/evidence/m0/2026-08-10-teams-badge-probe.md`.
+
+Exit gate: either an exact number is derived in at least three controlled states and remains available without keeping Chat visible, or the experiment records a negative/partial result and stops. OCR and credentialed Microsoft Graph access remain separate, unapproved decisions.
+
 ### Phase 5: application matrix and behavior study
 
 - Run the source-owned transition cases below for Teams, Outlook, and Telegram.
@@ -186,6 +204,8 @@ Exit gate: the evidence is sufficient to judge usefulness and reliability for al
 - [x] No additional toast is required to make a source's persistent attention state visible.
 - [x] Telegram, Teams, and Outlook each have a documented taskbar/tray/window signal result, including exact count or qualitative state.
 - [x] The attention-signal probe never focuses, clicks, types into, or otherwise controls a source application.
+- [ ] The manual Teams accessibility diagnostic emits no raw Teams text or account/content identifiers and never runs from the automatic polling path.
+- [ ] The Teams badge experiment records 0, 1, and 2-or-more results, or records why a state could not be created safely.
 
 ## Manual test cases
 
@@ -205,6 +225,9 @@ Use synthetic unit-test inputs for malformed and missing payload shapes. If real
 | S2 | Reload the frontend | A fresh snapshot restores current state. |
 | S3 | Restart Attention Hub | Current notifications reappear without local history. |
 | C1 | Cause and clear one Teams attention state | Accessible qualitative/count state and convergence timing are recorded; no extra toast is required by Attention Hub. |
+| C1a | With Teams Chat visible, compare manual sanitized probe output at badge 0, 1, and 2 or more | Any candidate number changes with the visible badge without exposing raw content. |
+| C1b | Repeat a nonzero Teams badge with another page visible and with Teams minimized | A viable app-level count remains discoverable; a visible-only result is recorded as partial/failed. |
+| C1c | Where practical, leave a contributing unread chat outside the materialized/visible rows | Virtualization dependence and any undercount are recorded. |
 | C2 | Cause and clear one Outlook unread state | Accessible qualitative/count state and convergence timing are recorded; no extra toast is required by Attention Hub. |
 | C3 | Cause and clear one Telegram attention state | Title counter, unread-chat count, badge comparison, and convergence timing are recorded. |
 | C4 | Receive multiple notifications from one source | Count, IDs, order, and grouping assumptions are recorded. |
@@ -236,6 +259,9 @@ Use synthetic unit-test inputs for malformed and missing payload shapes. If real
 | Windows exposes setters but no supported getter for another application's numeric taskbar badge/overlay. | High for exact-count requirements. | Observe source-owned title/accessibility state upstream of the rendered badge; do not claim a generic taskbar-count API exists. |
 | UI Automation state is application-defined, version-sensitive, and localized. | High for reliability and maintenance. | Bound the experiment to three named applications, preserve raw labels/diagnostics, and require explicit per-source evidence before implementation is retained. |
 | A useful qualitative state may exist without an exact count. | Medium product decision. | Report exact and qualitative capabilities separately; do not invent a number from `New activity` or similar labels. |
+| Teams' visible badge combines multiple item categories and is not an unread-message count. | High semantic risk. | Name an exact result `badgeItems` or use a narrower truthful subset name; validate against controlled states. |
+| Deeper Teams accessibility traversal can encounter private chat names or previews. | High privacy risk. | Analyze values transiently in Rust and expose only fixed keyword hits, numbers, ARIA keys, lengths, geometry, and pattern names. Never return or log raw Teams text. |
+| Teams virtualizes pages and rows, so a UI-derived count may exist only while Chat is visible. | High reliability risk. | Test another page, minimized state, and an offscreen contributing unread row; reject visible-only totals as an app-level badge source. |
 
 ## Evidence known before implementation
 

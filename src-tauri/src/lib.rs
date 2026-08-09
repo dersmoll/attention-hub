@@ -2,6 +2,7 @@ mod attention_signals;
 mod notifications;
 
 use attention_signals::AttentionSignalSnapshot;
+use attention_signals::TeamsAccessibilityProbeSnapshot;
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
@@ -22,6 +23,22 @@ async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
     eprintln!(
         "attention signal snapshot: count={}, signals={summary:?}, diagnostics={:?}",
         snapshot.signals.len(),
+        snapshot.diagnostics
+    );
+    snapshot
+}
+
+#[tauri::command]
+async fn get_teams_accessibility_probe() -> TeamsAccessibilityProbeSnapshot {
+    let snapshot = attention_signals::get_teams_accessibility_probe().await;
+    eprintln!(
+        "Teams accessibility probe: process_found={}, windows={}, elements={}, candidates={}, returned={}, truncated={}, diagnostics={:?}",
+        snapshot.process_found,
+        snapshot.windows_scanned,
+        snapshot.elements_scanned,
+        snapshot.total_candidates,
+        snapshot.candidates.len(),
+        snapshot.candidates_truncated,
         snapshot.diagnostics
     );
     snapshot
@@ -69,6 +86,7 @@ pub fn run() {
         .manage(NotificationListenerState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
+            get_teams_accessibility_probe,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,

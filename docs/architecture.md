@@ -41,6 +41,8 @@ Tauri commands/events -> React debug UI
 
 This remains an observer boundary. The probe may read window titles and UI Automation properties but must not click, type, focus, dismiss, or otherwise control source applications.
 
+The deeper Teams exact-count experiment is an explicitly separate manual diagnostic. It performs a broader Teams-owned accessibility traversal only on demand and never enters the normal two-second attention-snapshot loop. Raw Teams accessibility values are inspected transiently in Rust and discarded; only sanitized structural metadata crosses Tauri IPC. This prevents chat names, senders, previews, message bodies, account identifiers, and ARIA values from entering React or application logs.
+
 ## Proposed Milestone 0 components
 
 ### Frontend
@@ -144,6 +146,8 @@ This trades small repeated reads for inspectability and recovery. Milestone 0 no
 
 The source-owned debug UI currently requests a complete attention-signal snapshot every two seconds. Requests do not overlap: the next timer starts only after the previous command completes. This proved recovery after a transient startup failure and avoids fragile incremental frontend state, but full UI Automation traversal every two seconds is not a production recommendation. Before Milestone 1, compare UI Automation property-change/window events, slower adaptive refresh, and refresh-on-resume while retaining complete snapshot recovery.
 
+The Teams accessibility diagnostic is manual because it traverses a larger application tree and exists only to answer a bounded feasibility question. Its result is not merged into `AttentionSignal` unless controlled tests show a stable semantic count. The existing `activityStatus` signal remains the authoritative implemented Teams behavior during the experiment.
+
 ## Permission and threading
 
 Microsoft documents that `UserNotificationListener.RequestAccessAsync` must be called from a UI thread and requires explicit user permission. The implementation phase must prove which Tauri thread/window hook can reliably make that request. Background access must not be requested automatically before an explanatory user action in the debug UI.
@@ -193,6 +197,7 @@ Source-owned parser tests cover Telegram title counts and unread-chat labels, Te
 - One malformed notification must not prevent other notifications from appearing.
 - Listener failure must leave manual snapshot refresh available when possible.
 - Logs must avoid unnecessary duplicate notification content; the debug UI itself is already sensitive and should be used only on the developer machine.
+- The Teams exact-count diagnostic must never log or serialize raw Teams accessibility text. Its DTO contains only fixed keyword matches, numeric tokens, ARIA property keys, lengths, UIA control/pattern metadata, visibility, and bounds.
 
 ## Dependency policy
 

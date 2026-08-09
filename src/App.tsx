@@ -70,11 +70,48 @@ interface AttentionSignal {
   diagnostics: string[];
 }
 
+interface TeamsAccessibilityProbeSnapshot {
+  capturedAt: string;
+  processFound: boolean;
+  windowsScanned: number;
+  elementsScanned: number;
+  totalCandidates: number;
+  candidatesTruncated: boolean;
+  candidates: TeamsAccessibilityCandidate[];
+  diagnostics: string[];
+}
+
+interface TeamsAccessibilityCandidate {
+  property: string;
+  relevance: string;
+  matchedKeywords: string[];
+  numericTokens: number[];
+  ariaKeys: string[];
+  valueLength: number;
+  automationIdPresent: boolean;
+  automationIdLength: number;
+  controlType: number;
+  isOffscreen: boolean | null;
+  bounds: TeamsAccessibilityBounds | null;
+  patterns: string[];
+}
+
+interface TeamsAccessibilityBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 function App() {
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
   const [attentionRefreshing, setAttentionRefreshing] = useState(false);
+  const [teamsProbe, setTeamsProbe] =
+    useState<TeamsAccessibilityProbeSnapshot | null>(null);
+  const [teamsProbePending, setTeamsProbePending] = useState(false);
+  const [teamsProbeError, setTeamsProbeError] = useState<string | null>(null);
   const [report, setReport] = useState<NotificationAccessReport | null>(null);
   const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null);
   const [listenerReport, setListenerReport] = useState<ListenerStartReport | null>(
@@ -101,6 +138,23 @@ function App() {
       setAttentionError(String(error));
     } finally {
       setAttentionRefreshing(false);
+    }
+  }, []);
+
+  const runTeamsProbe = useCallback(async () => {
+    setTeamsProbePending(true);
+    setTeamsProbeError(null);
+
+    try {
+      setTeamsProbe(
+        await invoke<TeamsAccessibilityProbeSnapshot>(
+          "get_teams_accessibility_probe",
+        ),
+      );
+    } catch (error) {
+      setTeamsProbeError(String(error));
+    } finally {
+      setTeamsProbePending(false);
     }
   }, []);
 
@@ -301,6 +355,127 @@ function App() {
           </>
         ) : (
           <p>Reading persistent attention signals…</p>
+        )}
+      </section>
+
+      <section>
+        <div className="section-heading">
+          <div>
+            <h2>Teams exact-count experiment</h2>
+            <p>
+              Manual sanitized accessibility scan. It does not return Teams
+              labels, chat names, senders, previews, message bodies, account
+              identifiers, or ARIA values.
+            </p>
+            <p>
+              Run this probe again after every Teams badge change and verify
+              that the captured timestamp changes before comparing results.
+            </p>
+          </div>
+          <button
+            disabled={teamsProbePending}
+            onClick={() => void runTeamsProbe()}
+            type="button"
+          >
+            {teamsProbePending ? "Scanning…" : "Run Teams probe"}
+          </button>
+        </div>
+
+        {teamsProbeError && (
+          <p className="error">Teams probe error: {teamsProbeError}</p>
+        )}
+
+        {teamsProbe && (
+          <div aria-live="polite">
+            <dl>
+              <dt>Captured</dt>
+              <dd>{teamsProbe.capturedAt}</dd>
+              <dt>Teams process found</dt>
+              <dd>{String(teamsProbe.processFound)}</dd>
+              <dt>Windows / elements</dt>
+              <dd>
+                {teamsProbe.windowsScanned} / {teamsProbe.elementsScanned}
+              </dd>
+              <dt>Candidates</dt>
+              <dd>
+                {teamsProbe.totalCandidates}
+                {teamsProbe.candidatesTruncated
+                  ? `; showing first ${teamsProbe.candidates.length} by relevance`
+                  : ""}
+              </dd>
+            </dl>
+
+            {teamsProbe.candidates.length > 0 ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Property / relevance</th>
+                      <th>Sanitized evidence</th>
+                      <th>UIA structure</th>
+                      <th>Position</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamsProbe.candidates.map((candidate, index) => (
+                      <tr
+                        key={`${candidate.property}-${candidate.controlType}-${candidate.bounds?.left ?? "x"}-${candidate.bounds?.top ?? "y"}-${index}`}
+                      >
+                        <td>
+                          {candidate.property}
+                          <small>{candidate.relevance}</small>
+                          <small>value length: {candidate.valueLength}</small>
+                        </td>
+                        <td>
+                          keywords: {candidate.matchedKeywords.join(", ") || "—"}
+                          <small>
+                            numeric tokens: {candidate.numericTokens.join(", ") || "—"}
+                          </small>
+                          <small>
+                            ARIA keys: {candidate.ariaKeys.join(", ") || "—"}
+                          </small>
+                        </td>
+                        <td>
+                          control type: {candidate.controlType}
+                          <small>
+                            automation ID: {candidate.automationIdPresent
+                              ? `present; length ${candidate.automationIdLength}`
+                              : "absent"}
+                          </small>
+                          <small>
+                            patterns: {candidate.patterns.join(", ") || "—"}
+                          </small>
+                        </td>
+                        <td>
+                          offscreen: {candidate.isOffscreen === null
+                            ? "unknown"
+                            : String(candidate.isOffscreen)}
+                          <small>
+                            bounds: {candidate.bounds
+                              ? `${candidate.bounds.left}, ${candidate.bounds.top}; ${candidate.bounds.width} × ${candidate.bounds.height}`
+                              : "—"}
+                          </small>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>No sanitized candidates found.</p>
+            )}
+
+            {teamsProbe.diagnostics.length > 0 && (
+              <>
+                <h3>Teams probe diagnostics</h3>
+                <ul>
+                  {teamsProbe.diagnostics.map((diagnostic) => (
+                    <li key={diagnostic}>{diagnostic}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         )}
       </section>
 
