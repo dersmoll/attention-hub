@@ -26,15 +26,19 @@ Important updates are easy to miss on a large multi-monitor setup. Traditional t
 
 ## Initial product hypothesis
 
-Windows notification state can provide a useful approximation of which applications currently need attention. If the hypothesis holds, a later product UI may summarize active notification state and subsequently add calendar awareness.
+Windows-owned and application-exposed desktop state can provide a useful approximation of which applications currently need attention without requiring account credentials or producing more interruptions. Current notification state was the first sensor tested; taskbar/tray/window accessibility state is the next bounded sensor because the desired signal is persistent unread/activity state rather than a mirror of Notification Center.
 
 Notification presence is not equivalent to unread state or an obligation to act. Milestone 0 must measure how well current Windows notification state correlates with the user's real attention needs; until that evidence exists, the product must describe the signal as current or active notifications rather than unread work.
+
+Preliminary Milestone 0 evidence confirms the distinction: Telegram Desktop displayed nonzero unread/taskbar badges while `UserNotificationListener` returned no Telegram toast. Windows app-notification state and badge/application-owned unread state are separate signals. Attention Hub must not relabel one as the other or assume the notification listener can recover unread counts.
+
+Attention Hub must not require users to enable or retain extra Windows toasts merely to feed the panel. Notification listening may remain a useful optional signal, but it is not the primary architecture if application-owned attention state can be observed reliably and read-only.
 
 The first milestone is intentionally a technical spike. It must prove that useful state can be obtained reliably before visual design or product expansion begins.
 
 ## Success direction
 
-Attention Hub should eventually be useful at a glance, remain quiet when nothing needs attention, and require no duplicate account configuration. Milestone 0 succeeds more narrowly when it produces enough evidence to decide whether Windows notification state and Tauri are a viable foundation.
+Attention Hub should eventually be useful at a glance, remain quiet when nothing needs attention, and require no duplicate account configuration. Milestone 0 succeeds more narrowly when it produces enough evidence to decide whether source-owned Windows desktop state, optional notification state, and Tauri are a viable foundation.
 
 ## Non-goals for the current milestone
 
