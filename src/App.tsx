@@ -262,7 +262,7 @@ function App() {
                       <tr key={`${signal.sourceKey}-${signal.kind}`}>
                         <td>{signal.displayName}</td>
                         <td>{signal.kind}</td>
-                        <td>{signal.count ?? "—"}</td>
+                        <td>{signal.count ?? "not exposed"}</td>
                         <td>
                           {signal.needsAttention === null
                             ? "unknown"

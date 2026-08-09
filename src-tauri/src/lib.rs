@@ -9,8 +9,18 @@ use notifications::{
 #[tauri::command]
 async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
     let snapshot = attention_signals::get_snapshot().await;
+    let summary = snapshot
+        .signals
+        .iter()
+        .map(|signal| {
+            format!(
+                "{}:{} count={:?} needs_attention={:?}",
+                signal.source_key, signal.kind, signal.count, signal.needs_attention
+            )
+        })
+        .collect::<Vec<_>>();
     eprintln!(
-        "attention signal snapshot: count={}, diagnostics={:?}",
+        "attention signal snapshot: count={}, signals={summary:?}, diagnostics={:?}",
         snapshot.signals.len(),
         snapshot.diagnostics
     );

@@ -28,7 +28,7 @@ The existing notification adapter remains as technical evidence and a possible o
 
 ## Implementation result
 
-The bounded adapter now works through Windows/window UI Automation -> Rust normalized DTOs -> Tauri command -> React debug UI in ordinary unpackaged mode. Telegram produces two distinct numeric signals, Teams produces a qualitative activity signal, and the observed Outlook label produces zero/no-unread state. React uses complete non-overlapping two-second refreshes for spike visibility and recovery. That cadence is explicitly not a production architecture decision.
+The bounded adapter now works through Windows/window UI Automation -> Rust normalized DTOs -> Tauri command -> React debug UI in ordinary unpackaged mode. Telegram produces two distinct numeric signals, Teams produces a qualitative activity signal, and New Outlook produces an aggregate of explicit unread counts from its English Inbox accessibility labels. The initial Outlook notification-area `No unread messages` label was rejected after it contradicted a real unread Inbox. React uses complete non-overlapping two-second refreshes for spike visibility and recovery. That cadence is explicitly not a production architecture decision.
 
 Tauri remains proportionate for this experiment: this path needs neither sparse package identity nor a helper process. The final product decision still depends on transition, localization, version-drift, and long-duration behavior.
 

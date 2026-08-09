@@ -119,6 +119,58 @@ if ($telegram) {
     $diagnostics.Add('Telegram is not running with an accessible top-level window.')
 }
 
+$outlook = Get-Process olk -ErrorAction SilentlyContinue |
+    Where-Object MainWindowHandle -ne ([IntPtr]::Zero) |
+    Select-Object -First 1
+
+if ($outlook) {
+    $outlookRoot = Get-ApplicationRoot -Process $outlook
+    $inboxLabels = [System.Collections.Generic.List[string]]::new()
+
+    if ($outlookRoot) {
+        $elements = $outlookRoot.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+
+        for ($index = 0; $index -lt $elements.Count; $index++) {
+            $name = $elements.Item($index).Current.Name.Trim()
+            if ($name -match '(?i)^Inbox(?:[ ,-]|$)') {
+                $inboxLabels.Add($name)
+            }
+        }
+    }
+
+    $uniqueInboxLabels = @($inboxLabels | Sort-Object -Unique)
+    if ($uniqueInboxLabels.Count -gt 0) {
+        $outlookCount = 0
+        $explicitCountLabels = 0
+
+        foreach ($label in $uniqueInboxLabels) {
+            $unreadMatch = [regex]::Match($label, '(?i)(?<count>\d+)\s+unread')
+            if ($unreadMatch.Success) {
+                $outlookCount += [int]$unreadMatch.Groups['count'].Value
+                $explicitCountLabels++
+            }
+        }
+
+        Add-Signal `
+            -SourceKey 'outlook' `
+            -DisplayName 'Microsoft Outlook' `
+            -Kind 'inboxUnread' `
+            -Count $outlookCount `
+            -NeedsAttention ($outlookCount -gt 0) `
+            -Origin 'applicationUiAutomation' `
+            -RawLabel "$($uniqueInboxLabels.Count) accessible Inbox label(s); $explicitCountLabels with an explicit unread count" `
+            -Confidence 'medium' `
+            -Meaning 'Sum of explicit unread counts in unique English Inbox accessibility labels; account names and message content are not exposed.'
+    } else {
+        $diagnostics.Add('New Outlook is running, but no English Inbox accessibility label was found.')
+    }
+} else {
+    $diagnostics.Add('New Outlook is not running with an accessible top-level window.')
+}
+
 $taskbarHandle = [AttentionHub.WindowLookup]::FindWindow('Shell_TrayWnd', $null)
 if ($taskbarHandle -eq [IntPtr]::Zero) {
     $diagnostics.Add('The primary Windows taskbar window could not be found.')
@@ -130,8 +182,6 @@ if ($taskbarHandle -eq [IntPtr]::Zero) {
     )
 
     $teamsLabel = $null
-    $outlookLabel = $null
-
     for ($index = 0; $index -lt $taskbarElements.Count; $index++) {
         $element = $taskbarElements.Item($index)
         if ($element.Current.AutomationId -ne 'NotifyItemIcon') {
@@ -141,8 +191,6 @@ if ($taskbarHandle -eq [IntPtr]::Zero) {
         $name = $element.Current.Name.Trim()
         if ($name -match '^Microsoft Teams\b') {
             $teamsLabel = $name
-        } elseif ($name -match '^(No |\d+ )?unread messages?$') {
-            $outlookLabel = $name
         }
     }
 
@@ -161,29 +209,6 @@ if ($taskbarHandle -eq [IntPtr]::Zero) {
         $diagnostics.Add('No Microsoft Teams notification-area accessibility label was found.')
     }
 
-    if ($outlookLabel) {
-        $outlookMatch = [regex]::Match($outlookLabel, '^(?<count>\d+) unread messages?$')
-        $outlookCount = if ($outlookMatch.Success) {
-            [int]$outlookMatch.Groups['count'].Value
-        } elseif ($outlookLabel -eq 'No unread messages') {
-            0
-        } else {
-            $null
-        }
-
-        Add-Signal `
-            -SourceKey 'outlook' `
-            -DisplayName 'Microsoft Outlook' `
-            -Kind 'unreadStatus' `
-            -Count $outlookCount `
-            -NeedsAttention ($null -ne $outlookCount -and $outlookCount -gt 0) `
-            -Origin 'notificationAreaUiAutomation' `
-            -RawLabel $outlookLabel `
-            -Confidence 'low' `
-            -Meaning 'Mapped from an app-defined notification-area label; identity and localized wording need validation.'
-    } else {
-        $diagnostics.Add('No Outlook-like unread notification-area accessibility label was found.')
-    }
 }
 
 $report = [pscustomobject]@{

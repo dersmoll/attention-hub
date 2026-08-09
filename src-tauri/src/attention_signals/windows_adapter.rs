@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use windows::{
     core::{w, Error as WindowsError, PCWSTR, PWSTR},
@@ -28,6 +28,7 @@ use windows::{
 use super::{AttentionSignal, AttentionSignalSnapshot};
 
 const TELEGRAM_EXECUTABLE: &str = "telegram.exe";
+const OUTLOOK_EXECUTABLE: &str = "olk.exe";
 const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
 
 pub fn get_snapshot() -> AttentionSignalSnapshot {
@@ -59,7 +60,101 @@ fn capture_signals(
         unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)? };
 
     capture_telegram(&automation, signals, diagnostics)?;
+    capture_outlook(&automation, signals, diagnostics)?;
     capture_notification_area(&automation, signals, diagnostics)?;
+
+    Ok(())
+}
+
+fn capture_outlook(
+    automation: &IUIAutomation,
+    signals: &mut Vec<AttentionSignal>,
+    diagnostics: &mut Vec<String>,
+) -> windows::core::Result<()> {
+    let condition = unsafe { automation.CreateTrueCondition()? };
+    let desktop = unsafe { automation.GetRootElement()? };
+    let windows = unsafe { desktop.FindAll(TreeScope_Children, &condition)? };
+    let length = unsafe { windows.Length()? };
+    let mut outlook_roots = Vec::new();
+
+    for index in 0..length {
+        let element = match unsafe { windows.GetElement(index) } {
+            Ok(element) => element,
+            Err(_) => continue,
+        };
+        let process_id = match unsafe { element.CurrentProcessId() } {
+            Ok(process_id) if process_id > 0 => process_id as u32,
+            _ => continue,
+        };
+        let executable_name = match process_executable_name(process_id) {
+            Ok(executable_name) => executable_name,
+            Err(_) => continue,
+        };
+
+        if executable_name.eq_ignore_ascii_case(OUTLOOK_EXECUTABLE) {
+            outlook_roots.push(element);
+        }
+    }
+
+    if outlook_roots.is_empty() {
+        diagnostics.push("New Outlook is not running with an accessible top-level window.".into());
+        return Ok(());
+    }
+
+    let mut inbox_labels = HashSet::new();
+    for outlook_root in outlook_roots {
+        let descendants = unsafe { outlook_root.FindAll(TreeScope_Descendants, &condition)? };
+        let length = unsafe { descendants.Length()? };
+
+        for index in 0..length {
+            let element = match unsafe { descendants.GetElement(index) } {
+                Ok(element) => element,
+                Err(_) => continue,
+            };
+            let name = match element_name(&element) {
+                Ok(name) => name.trim().to_owned(),
+                Err(_) => continue,
+            };
+
+            if is_outlook_inbox_label(&name) {
+                inbox_labels.insert(name);
+            }
+        }
+    }
+
+    if inbox_labels.is_empty() {
+        diagnostics.push(
+            "New Outlook is running, but no English Inbox accessibility label was found.".into(),
+        );
+        return Ok(());
+    }
+
+    let explicit_counts = inbox_labels
+        .iter()
+        .filter_map(|label| parse_outlook_inbox_unread(label))
+        .collect::<Vec<_>>();
+    let count = explicit_counts
+        .iter()
+        .copied()
+        .fold(0_u32, u32::saturating_add);
+
+    signals.push(AttentionSignal {
+        source_key: "outlook".into(),
+        display_name: "Microsoft Outlook".into(),
+        kind: "inboxUnread".into(),
+        count: Some(count),
+        needs_attention: Some(count > 0),
+        origin: "applicationUiAutomation".into(),
+        raw_label: Some(format!(
+            "{} accessible Inbox label(s); {} with an explicit unread count",
+            inbox_labels.len(),
+            explicit_counts.len()
+        )),
+        confidence: "medium".into(),
+        meaning: "Sum of explicit unread counts in unique English Inbox accessibility labels; account names and message content are not exposed."
+            .into(),
+        diagnostics: Vec::new(),
+    });
 
     Ok(())
 }
@@ -182,7 +277,6 @@ fn capture_notification_area(
     let elements = unsafe { taskbar_root.FindAll(TreeScope_Descendants, &condition)? };
     let length = unsafe { elements.Length()? };
     let mut teams_label = None;
-    let mut outlook_label = None;
 
     for index in 0..length {
         let element = match unsafe { elements.GetElement(index) } {
@@ -204,8 +298,6 @@ fn capture_notification_area(
 
         if name.starts_with("Microsoft Teams") {
             teams_label = Some(name);
-        } else if parse_outlook_unread(&name).is_some() {
-            outlook_label = Some(name);
         }
     }
 
@@ -228,27 +320,6 @@ fn capture_notification_area(
         }
         None => diagnostics
             .push("No Microsoft Teams notification-area accessibility label was found.".into()),
-    }
-
-    match outlook_label {
-        Some(label) => {
-            let count = parse_outlook_unread(&label).flatten();
-            signals.push(AttentionSignal {
-                source_key: "outlook".into(),
-                display_name: "Microsoft Outlook".into(),
-                kind: "unreadStatus".into(),
-                count,
-                needs_attention: count.map(|value| value > 0),
-                origin: "notificationAreaUiAutomation".into(),
-                raw_label: Some(label),
-                confidence: "low".into(),
-                meaning: "Mapped from an app-defined notification-area label; identity and localized wording need validation."
-                    .into(),
-                diagnostics: Vec::new(),
-            });
-        }
-        None => diagnostics
-            .push("No Outlook-like unread notification-area accessibility label was found.".into()),
     }
 
     Ok(())
@@ -304,19 +375,36 @@ fn teams_needs_attention(value: &str) -> bool {
     value.contains("new activity") || value.contains("unread") || value.contains("notification")
 }
 
-fn parse_outlook_unread(value: &str) -> Option<Option<u32>> {
-    if value.eq_ignore_ascii_case("No unread messages") {
-        return Some(Some(0));
-    }
+fn is_outlook_inbox_label(value: &str) -> bool {
+    let value = value.trim();
+    value.eq_ignore_ascii_case("inbox")
+        || value
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("inbox "))
+        || value
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("inbox,"))
+        || value
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("inbox-"))
+}
 
-    let (count, suffix) = value.split_once(' ')?;
-    if !suffix.eq_ignore_ascii_case("unread message")
-        && !suffix.eq_ignore_ascii_case("unread messages")
-    {
+fn parse_outlook_inbox_unread(value: &str) -> Option<u32> {
+    if !is_outlook_inbox_label(value) {
         return None;
     }
 
-    Some(Some(count.parse().ok()?))
+    let tokens = value
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    tokens.windows(2).find_map(|pair| {
+        pair[1]
+            .eq_ignore_ascii_case("unread")
+            .then(|| pair[0].parse().ok())
+            .flatten()
+    })
 }
 
 fn current_time_iso8601() -> String {
@@ -372,8 +460,8 @@ impl Drop for ProcessHandle {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_outlook_unread, parse_telegram_unread_chats, parse_trailing_parenthesized_count,
-        teams_needs_attention,
+        is_outlook_inbox_label, parse_outlook_inbox_unread, parse_telegram_unread_chats,
+        parse_trailing_parenthesized_count, teams_needs_attention,
     };
 
     #[test]
@@ -406,9 +494,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_outlook_unread_status() {
-        assert_eq!(parse_outlook_unread("No unread messages"), Some(Some(0)));
-        assert_eq!(parse_outlook_unread("3 unread messages"), Some(Some(3)));
-        assert_eq!(parse_outlook_unread("Outlook"), None);
+    fn parses_outlook_inbox_unread_status_without_account_details() {
+        assert!(is_outlook_inbox_label("Inbox - account - 1 unread message"));
+        assert_eq!(
+            parse_outlook_inbox_unread("Inbox - account - 1 unread message"),
+            Some(1)
+        );
+        assert_eq!(parse_outlook_inbox_unread("Inbox - account"), None);
+        assert_eq!(parse_outlook_inbox_unread("Archive - 2 unread"), None);
     }
 }

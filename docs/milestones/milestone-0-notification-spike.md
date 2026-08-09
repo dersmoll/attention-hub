@@ -36,6 +36,7 @@ Inspected on 2026-08-09:
 - The first dependency-free read-only attention-signal probe returned Telegram application counter 20, Telegram unread chats 9, Teams `New activity`, and Outlook `No unread messages`/0 without creating notifications or controlling the source applications.
 - Telegram's title-derived application counter advanced from 20 to 26 while the user independently observed 25 on the rendered taskbar badge immediately beforehand, confirming the signal tracks the badge with a timing race while new messages arrive.
 - The source-specific attention adapter now crosses Windows/window/UI Automation -> Rust DTO -> Tauri command -> React debug UI in ordinary unpackaged development mode. After one recorded transient startup error, 15 consecutive complete refreshes returned four signals with no diagnostics.
+- Telegram's counter correctly disappeared after the user read all messages, validating its zero transition. Teams' visible taskbar `1` was not present in taskbar or application accessibility properties, while its `New activity` boolean remained accurate. New Outlook's tray `No unread messages` label contradicted a real unread Inbox and was replaced by an app-owned Inbox accessibility count that correctly returned 1.
 
 ## Scope
 
@@ -272,7 +273,7 @@ The first captured status was already `Allowed`, so the first-run Allow/Deny dia
 | Application | Source identity | Title/body quality | Timestamp/ID behavior | Notes |
 | --- | --- | --- | --- | --- |
 | Microsoft Teams | Pending | Pending | Pending | Pending |
-| Microsoft Outlook | Pending | Pending | Pending | Pending |
+| Microsoft Outlook | `olk.exe` plus English Inbox accessibility labels | Exact aggregate Inbox unread count; no subject/body read | Snapshot count; persistence/zero transition pending | Tray `No unread messages` was observed stale and is not used. |
 | Telegram | Not observed in toast snapshot | Not applicable for existing unread state | Not applicable | Telegram Desktop 7.0.9 displayed unread/taskbar badges without a current Windows toast. A new minimized/unmuted native-notification case is still required. |
 
 The first current snapshot contained five entries and completed the vertical slice. Source-specific details are intentionally not inferred until the redacted application matrix is run.
@@ -299,7 +300,7 @@ The implementation currently needs one Windows-only adapter, Microsoft's `window
 
 A read-only diagnostic probe found Telegram folder unread labels through Windows UI Automation, but taskbar, folder, and toast counts had different values and semantics. UI Automation was outside the original notification phases because it introduces per-application coupling and accessibility-tree fragility; ADR 0003 now permits only a bounded three-application feasibility probe rather than adding it to the notification adapter or creating a generalized framework.
 
-After the product requirement was clarified, ADR 0003 authorized a bounded feasibility phase. The first reusable PowerShell probe and the Rust/Tauri/React vertical slice now demonstrate that source-owned persistent state is readable without notification traffic: Telegram exposes two different numeric states, Teams exposes a qualitative activity state, and Outlook exposes a qualitative/zero-unread state. This materially improves product fit but also confirms that one universal cross-application count contract is unlikely. The current two-second full UI Automation refresh is appropriate for the debug spike only; event-driven or adaptive refresh should be evaluated before production use.
+After the product requirement was clarified, ADR 0003 authorized a bounded feasibility phase. The reusable PowerShell probe and the Rust/Tauri/React vertical slice now demonstrate that source-owned persistent state is readable without notification traffic: Telegram exposes two different numeric states, Teams exposes only a qualitative activity state, and New Outlook exposes English Inbox unread counts in its application accessibility tree. This materially improves product fit but also confirms that one universal cross-application count contract is unlikely. The current two-second full UI Automation refresh is appropriate for the debug spike only; event-driven or adaptive refresh should be evaluated before production use.
 
 ### Decision
 
