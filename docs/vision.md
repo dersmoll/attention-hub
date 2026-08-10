@@ -36,6 +36,8 @@ Attention Hub must not require users to enable or retain extra Windows toasts me
 
 The first milestone is intentionally a technical spike. It must prove that useful state can be obtained reliably before visual design or product expansion begins.
 
+Milestone 0 supports continuing with constraints: Tauri and a small Windows boundary are viable, but there is no universal cross-application unread-count contract. The next product priority is calendar awareness—especially upcoming Outlook/Teams meetings—because time-bound commitments are more actionable than further reverse-engineering of one application's badge. The first calendar hypothesis remains local-first and credential-free through Windows' appointment store; Microsoft Graph requires a separate product-policy decision.
+
 ## Success direction
 
 Attention Hub should eventually be useful at a glance, remain quiet when nothing needs attention, and require no duplicate account configuration. Milestone 0 succeeds more narrowly when it produces enough evidence to decide whether source-owned Windows desktop state, optional notification state, and Tauri are a viable foundation.

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress with a documented product-signal correction. The notification vertical slice is technically proven, including live add/remove behavior under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. A bounded source-owned shell/window/UI Automation vertical slice now works end to end in ordinary unpackaged Tauri. Telegram and New Outlook expose useful numeric state. Teams exposes a proven qualitative state; the bounded exact-count experiment reached its negative stop condition and its temporary diagnostic implementation was removed. Remaining work is final Milestone 0 closure and the development-identity cleanup decision.
+Completed with a **continue with constraints** decision. The notification vertical slice is technically proven, including one live add/remove cycle under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. The source-owned Windows/window/UI Automation slice works end to end in ordinary unpackaged Tauri: Telegram and New Outlook expose useful numeric state, while Teams exposes a proven qualitative state. The bounded Teams exact-count experiment reached its negative stop condition and its temporary diagnostic implementation was removed. Unrun denial/revocation, sleep/resume, and long-duration matrix cases remain documented limitations rather than blockers to the architecture decision. The development identity/certificate is retained temporarily for the planned Windows appointment-store spike and must be reassessed afterward.
 
 ## Purpose
 
@@ -277,7 +277,7 @@ Use synthetic unit-test inputs for malformed and missing payload shapes. If real
 
 ## Final findings
 
-Complete this section after the spike. Do not infer success from compilation alone.
+These findings combine compilation/tests with the recorded live Windows observations. Unrun cases remain explicit rather than being inferred as successful.
 
 ### Environment tested
 
@@ -286,11 +286,11 @@ Preliminary development run on 2026-08-09:
 - Windows client build 26220.9022, version 25H2, x64.
 - Tauri CLI 2.11.4, Tauri Rust crate 2.11.5, `@tauri-apps/api` 2.11.1.
 - Rust/Cargo 1.97.1, MSVC target, Windows SDK 10.0.26100.0.
-- Unpackaged `pnpm tauri dev` executable based on revision `41b8f62` plus the uncommitted Milestone 0 implementation.
+- Unpackaged and sparse-identity development runs across revisions through `1f2c973`.
 
 ### Packaging and identity result
 
-Preliminary result: package identity was not required to obtain `Allowed` or a current snapshot on this machine. `Package::Current` returned `0x80073D54` (“The process has no package identity”), while `UserNotificationListener::Current`, `GetAccessStatus`, `RequestAccessAsync`, and `GetNotificationsAsync` succeeded. Foreground event registration did not succeed unpackaged, so one opt-in package-with-external-location route was added for comparison. It builds, signs, and registers as `AttentionHub.Dev_0.1.0.0_neutral__71pqjrj923s6p`; under that identity, the same adapter registered `NotificationChanged` successfully with no diagnostics. Registration required explicit Local Machine `TrustedPeople` trust because Current User trust alone failed with `0x800B0109`. Real add/remove convergence remains in progress. This is observed behavior on one Windows build, not yet a distribution-wide guarantee.
+Package identity was not required to obtain `Allowed` or a current snapshot on this machine. `Package::Current` returned `0x80073D54` (“The process has no package identity”), while `UserNotificationListener::Current`, `GetAccessStatus`, `RequestAccessAsync`, and `GetNotificationsAsync` succeeded. Foreground event registration did not succeed unpackaged, so one opt-in package-with-external-location route was added for comparison. It builds, signs, and registers as `AttentionHub.Dev_0.1.0.0_neutral__71pqjrj923s6p`; under that identity, the same adapter registered `NotificationChanged` successfully with no diagnostics and completed a real Snipping Tool add/remove cycle. Registration required explicit Local Machine `TrustedPeople` trust because Current User trust alone failed with `0x800B0109`. This is observed behavior on one Windows build, not a distribution-wide guarantee.
 
 ### Permission behavior
 
@@ -300,11 +300,11 @@ The first captured status was already `Allowed`, so the first-run Allow/Deny dia
 
 | Application | Source identity | Title/body quality | Timestamp/ID behavior | Notes |
 | --- | --- | --- | --- | --- |
-| Microsoft Teams | Pending | Pending | Pending | Pending |
-| Microsoft Outlook | `olk.exe` plus English Inbox accessibility labels | Exact aggregate Inbox unread count; no subject/body read | Snapshot count; persistence/zero transition pending | Tray `No unread messages` was observed stale and is not used. |
-| Telegram | Not observed in toast snapshot | Not applicable for existing unread state | Not applicable | Telegram Desktop 7.0.9 displayed unread/taskbar badges without a current Windows toast. A new minimized/unmuted native-notification case is still required. |
+| Microsoft Teams | Notification-area accessibility label | Qualitative `activityStatus`; no exact count or message details | True-to-false transition validated | Passive exact-count experiment found no stable numeric property and was removed. |
+| Microsoft Outlook | `olk.exe` plus English Inbox accessibility labels | Exact aggregate Inbox unread count; no subject/body read | 1-to-0 transition validated | Tray `No unread messages` was observed stale and is not used. |
+| Telegram | Window title plus application accessibility labels | Application counter and unread-chat count with distinct semantics | Nonzero-to-zero transition validated | Telegram Desktop 7.0.9 displayed unread/taskbar badges without a current Windows toast. |
 
-The first current snapshot contained five entries and completed the vertical slice. Source-specific details are intentionally not inferred until the redacted application matrix is run.
+The first current notification snapshot contained five entries and completed that vertical slice. Source-owned results were validated separately and must not be relabeled as equivalent notification counts.
 
 ### Change and removal behavior
 
