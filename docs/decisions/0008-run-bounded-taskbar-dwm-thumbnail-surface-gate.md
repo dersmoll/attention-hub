@@ -94,6 +94,23 @@ Full sanitized evidence is recorded in
 Phase 2 evidence is recorded in
 `docs/milestones/evidence/m0/2026-08-10-teams-taskbar-dwm-reflow.md`.
 
+A separately approved readiness gate replaced repeated full-tree discovery with
+a cached Teams UI Automation element. Full taskbar traversal now occurs only
+after element or taskbar loss, at most once per second. A 612-second debug-build
+run measured 0.018% total CPU, 19.68 MiB average working set, 20.85 MiB maximum
+working set, 2.54 MiB average private memory, and 2.77 MiB maximum private
+memory. Nine idle timing windows performed no rediscoveries and averaged about
+0.7 to 0.9 ms per cached check. Real taskbar movement usually recropped in 0 to
+3 ms after a poll fired, with transient 51 and 92 ms update outliers.
+
+Restarting the Explorer process that owned `Shell_TrayWnd` twice caused the
+mirror to hide, detect a new taskbar HWND, tolerate the temporarily ambiguous
+pin tree, re-register its DWM source, and recover Teams in 208 ms and 270 ms once
+the button became available. Closing the Teams main window preserved its pinned
+taskbar button and background process, so an unpinned Teams-absence transition
+remains untested. Sanitized readiness evidence is recorded in
+`docs/milestones/evidence/m0/2026-08-11-teams-taskbar-dwm-readiness.md`.
+
 ## Consequences
 
 - The DWM taskbar surface and static Teams crop hypotheses pass at rest on the
@@ -101,9 +118,11 @@ Phase 2 evidence is recorded in
 - The existing Teams `activityStatus` boolean remains the authoritative
   semantic signal.
 - The 100 ms UI Automation revalidation experiment dynamically recrops after
-  real taskbar movement, with a user-accepted brief stale-icon flash. Secondary
-  taskbars and product integration remain unimplemented. The static crop must
-  not be retained; the polling tracker remains a diagnostic until a separate
+  real taskbar movement, with a user-accepted brief stale-icon flash. Cached
+  element tracking passes the bounded runtime-cost and primary-taskbar restart
+  gates on the tested machine. Secondary taskbars, an unpinned Teams absence,
+  and product integration remain unimplemented. The static crop must not be
+  retained; the cached tracker remains a diagnostic until a separate
   product-retention decision.
 - Retaining a live source-pixel mirror as product behavior requires a separate
   architecture/product decision even if a later crop spike succeeds.

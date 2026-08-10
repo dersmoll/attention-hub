@@ -190,9 +190,14 @@ was rejected after `STATUS_HEAP_CORRUPTION`. The manual example now contains a
 100 ms semantic UI Automation rectangle revalidation fallback. A supervised
 reflow produced many real rectangle transitions and the DWM crop followed
 Teams, with a brief, user-accepted flash of another icon during movement. The
+readiness pass now retains the discovered Teams element for cheap rectangle
+checks and uses full taskbar traversal only for bounded recovery. A 612-second
+debug run measured 0.018% total CPU and a 20.85 MiB maximum working set. Two
+Explorer taskbar-owner restarts hid the mirror, rebound the new DWM source, and
+recovered Teams after the rebuilt accessibility tree became available. The
 example stays outside Tauri IPC and the normalized signal model; retaining the
-polling mirror in the product still requires an explicit product decision. The
-semantic Teams behavior remains the proven `activityStatus` boolean.
+mirror in the product still requires an explicit product decision. The semantic
+Teams behavior remains the proven `activityStatus` boolean.
 
 The development identity route uses a package with external location mapped to `src-tauri/target/debug`, embeds matching `msix` metadata in the executable manifest through `tauri-build`, and declares `uap3:userNotificationListener`, `runFullTrust`, and `unvirtualizedResources` in the sparse package manifest. The executable metadata is opt-in through `ATTENTION_HUB_DEV_IDENTITY=1`; ordinary builds and tests remain unpackaged. The install and launch scripts set this variable deliberately so a binary that declares identity is never produced accidentally without the matching package registration. On the tested machine, package registration succeeded only after the public development certificate was explicitly trusted in Local Machine `TrustedPeople`; Current User `TrustedPeople` alone produced deployment error `0x800B0109`. This is a development experiment, not a production installer decision. Generated packages and certificates stay under ignored `target` output; scripts provide scoped registration, launch, and removal.
 

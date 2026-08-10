@@ -33,7 +33,11 @@ fn main() {
 
 #[cfg(target_os = "windows")]
 mod windows_probe {
-    use std::{collections::BTreeMap, ffi::c_void, time::Instant};
+    use std::{
+        collections::BTreeMap,
+        ffi::c_void,
+        time::{Duration, Instant},
+    };
 
     use windows::{
         core::{w, Error, Result},
@@ -58,7 +62,8 @@ mod windows_probe {
             },
             UI::{
                 Accessibility::{
-                    CUIAutomation, IUIAutomation, TreeScope_Descendants, UIA_ButtonControlTypeId,
+                    CUIAutomation, IUIAutomation, IUIAutomationElement, TreeScope_Descendants,
+                    UIA_ButtonControlTypeId,
                 },
                 HiDpi::{
                     AreDpiAwarenessContextsEqual, GetThreadDpiAwarenessContext,
@@ -79,8 +84,10 @@ mod windows_probe {
     const E_FAIL: windows::core::HRESULT = windows::core::HRESULT(0x8000_4005_u32 as i32);
     const MINIMUM_WINDOW_CLIENT_WIDTH: i32 = 320;
     const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
+    const REDISCOVERY_INTERVAL: Duration = Duration::from_secs(1);
     const REFLOW_POLL_MILLISECONDS: u32 = 100;
     const REFLOW_TIMER_ID: usize = 1;
+    const RUNTIME_METRICS_INTERVAL: Duration = Duration::from_secs(60);
     const TEAMS_CROP_ARGUMENT: &str = "--teams-crop";
     const TRACK_REFLOW_ARGUMENT: &str = "--track-reflow";
     const WINDOW_CLASS: windows::core::PCWSTR = w!("AttentionHub.TaskbarDwmProbe");
@@ -106,17 +113,40 @@ mod windows_probe {
             ensure_per_monitor_v2_awareness()?;
         }
 
+        let _apartment = if mode != ProbeMode::WholeTaskbar {
+            Some(ComApartment::initialize()?)
+        } else {
+            None
+        };
+        let automation = if mode != ProbeMode::WholeTaskbar {
+            Some(unsafe {
+                CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?
+            })
+        } else {
+            None
+        };
         let taskbar = unsafe { FindWindowW(w!("Shell_TrayWnd"), None)? };
         let taskbar_frame = extended_frame_bounds(taskbar)?;
-        let source_crop = match mode {
+        let teams_button = match mode {
             ProbeMode::WholeTaskbar => None,
             ProbeMode::TeamsStaticCrop | ProbeMode::TeamsTrackedCrop => {
-                Some(discover_teams_button(taskbar, taskbar_frame, true)?)
+                Some(discover_teams_button(
+                    automation
+                        .as_ref()
+                        .expect("Teams modes require UI Automation"),
+                    taskbar,
+                    taskbar_frame,
+                    true,
+                )?)
             }
         };
+        let source_crop = teams_button.as_ref().map(|button| button.source_crop);
         let destination = create_destination_window()?;
-        let thumbnail = Thumbnail::register(destination, taskbar)?;
-        let source_size = thumbnail.source_size()?;
+        let mut thumbnail = Some(Thumbnail::register(destination, taskbar)?);
+        let source_size = thumbnail
+            .as_ref()
+            .expect("newly registered thumbnail must exist")
+            .source_size()?;
 
         if source_size.cx <= 0 || source_size.cy <= 0 {
             return Err(Error::new(
@@ -135,12 +165,15 @@ mod windows_probe {
             thumbnail_size.1,
         );
         resize_destination(destination, destination_size.0, destination_size.1)?;
-        thumbnail.show_source(
-            source_crop,
-            (destination_size.0 - thumbnail_size.0) / 2,
-            thumbnail_size.0,
-            thumbnail_size.1,
-        )?;
+        thumbnail
+            .as_ref()
+            .expect("newly registered thumbnail must exist")
+            .show_source(
+                source_crop,
+                (destination_size.0 - thumbnail_size.0) / 2,
+                thumbnail_size.0,
+                thumbnail_size.1,
+            )?;
 
         println!("probe_mode={}", mode.label());
         println!("taskbar_class=Shell_TrayWnd");
@@ -167,8 +200,16 @@ mod windows_probe {
             let controller = ReflowController::new(
                 taskbar,
                 destination,
-                &thumbnail,
-                source_crop.expect("tracked crop mode requires a source crop"),
+                thumbnail
+                    .take()
+                    .expect("tracked mode requires a registered thumbnail"),
+                automation
+                    .as_ref()
+                    .expect("tracked mode requires UI Automation"),
+                teams_button.expect("tracked mode requires a Teams button"),
+                (destination_size.0 - thumbnail_size.0) / 2,
+                thumbnail_size.0,
+                thumbnail_size.1,
             );
             controller.start()?;
             Some(controller)
@@ -215,13 +256,11 @@ mod windows_probe {
     }
 
     fn discover_teams_button(
+        automation: &IUIAutomation,
         taskbar: HWND,
         taskbar_frame: RECT,
         log_details: bool,
-    ) -> Result<RECT> {
-        let _apartment = ComApartment::initialize()?;
-        let automation: IUIAutomation =
-            unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)? };
+    ) -> Result<TeamsButtonDiscovery> {
         let taskbar_root = unsafe { automation.ElementFromHandle(taskbar)? };
         let condition = unsafe { automation.CreateTrueCondition()? };
         let elements = unsafe { taskbar_root.FindAll(TreeScope_Descendants, &condition)? };
@@ -274,6 +313,7 @@ mod windows_probe {
                 .unwrap_or(false);
             let key = (bounds.left, bounds.top, bounds.right, bounds.bottom);
             let candidate = candidates.entry(key).or_insert(TeamsButtonCandidate {
+                element: element.clone(),
                 bounds,
                 name_match: false,
                 identity_match: false,
@@ -281,6 +321,9 @@ mod windows_probe {
                 name_length: 0,
                 automation_id_length: 0,
             });
+            if button_control && (!candidate.button_control || identity_match) {
+                candidate.element = element;
+            }
             candidate.name_match |= name_match;
             candidate.identity_match |= identity_match;
             candidate.button_control |= button_control;
@@ -314,26 +357,26 @@ mod windows_probe {
         let selected = unique_candidate(
             candidates
                 .values()
-                .copied()
-                .filter(|candidate| candidate.identity_match && candidate.button_control),
+                .filter(|candidate| candidate.identity_match && candidate.button_control)
+                .cloned(),
         )
         .or_else(|| {
             unique_candidate(
                 candidates
                     .values()
-                    .copied()
-                    .filter(|candidate| candidate.identity_match),
+                    .filter(|candidate| candidate.identity_match)
+                    .cloned(),
             )
         })
         .or_else(|| {
             unique_candidate(
                 candidates
                     .values()
-                    .copied()
-                    .filter(|candidate| candidate.name_match && candidate.button_control),
+                    .filter(|candidate| candidate.name_match && candidate.button_control)
+                    .cloned(),
             )
         })
-        .or_else(|| unique_candidate(candidates.values().copied()))
+        .or_else(|| unique_candidate(candidates.values().cloned()))
         .ok_or_else(|| {
             Error::new(
                 E_FAIL,
@@ -354,7 +397,10 @@ mod windows_probe {
             );
         }
 
-        Ok(source_rect)
+        Ok(TeamsButtonDiscovery {
+            element: selected.element,
+            source_crop: source_rect,
+        })
     }
 
     fn is_teams_identity(value: &str) -> bool {
@@ -480,15 +526,23 @@ mod windows_probe {
         }
     }
 
-    struct Thumbnail(isize);
+    struct Thumbnail {
+        id: isize,
+        suppress_cleanup_error: bool,
+    }
 
     impl Thumbnail {
         fn register(destination: HWND, source: HWND) -> Result<Self> {
-            unsafe { DwmRegisterThumbnail(destination, source).map(Self) }
+            unsafe {
+                DwmRegisterThumbnail(destination, source).map(|id| Self {
+                    id,
+                    suppress_cleanup_error: false,
+                })
+            }
         }
 
         fn source_size(&self) -> Result<windows::Win32::Foundation::SIZE> {
-            unsafe { DwmQueryThumbnailSourceSize(self.0) }
+            unsafe { DwmQueryThumbnailSourceSize(self.id) }
         }
 
         fn show_source(
@@ -519,7 +573,7 @@ mod windows_probe {
                 properties.rcSource = source;
             }
 
-            unsafe { DwmUpdateThumbnailProperties(self.0, &properties) }
+            unsafe { DwmUpdateThumbnailProperties(self.id, &properties) }
         }
 
         fn hide(&self) -> Result<()> {
@@ -528,7 +582,7 @@ mod windows_probe {
                 fVisible: false.into(),
                 ..Default::default()
             };
-            unsafe { DwmUpdateThumbnailProperties(self.0, &properties) }
+            unsafe { DwmUpdateThumbnailProperties(self.id, &properties) }
         }
 
         fn update_source_and_show(&self, source: RECT) -> Result<()> {
@@ -538,39 +592,66 @@ mod windows_probe {
                 fVisible: true.into(),
                 ..Default::default()
             };
-            unsafe { DwmUpdateThumbnailProperties(self.0, &properties) }
+            unsafe { DwmUpdateThumbnailProperties(self.id, &properties) }
+        }
+
+        fn suppress_cleanup_error(&mut self) {
+            self.suppress_cleanup_error = true;
         }
     }
 
     impl Drop for Thumbnail {
         fn drop(&mut self) {
-            if let Err(error) = unsafe { DwmUnregisterThumbnail(self.0) } {
-                eprintln!("taskbar DWM thumbnail cleanup failed: {error:?}");
+            if let Err(error) = unsafe { DwmUnregisterThumbnail(self.id) } {
+                if !self.suppress_cleanup_error {
+                    eprintln!("taskbar DWM thumbnail cleanup failed: {error:?}");
+                }
             }
         }
     }
 
     struct ReflowController<'a> {
+        automation: &'a IUIAutomation,
         taskbar: HWND,
         destination: HWND,
-        thumbnail: &'a Thumbnail,
-        current_crop: RECT,
+        thumbnail: Option<Thumbnail>,
+        teams_element: Option<IUIAutomationElement>,
+        current_crop: Option<RECT>,
+        destination_left: i32,
+        destination_width: i32,
+        destination_height: i32,
         visible: bool,
+        unavailable_logged: bool,
+        last_rediscovery: Instant,
+        metrics: RuntimeMetrics,
     }
 
     impl<'a> ReflowController<'a> {
+        #[allow(clippy::too_many_arguments)]
         fn new(
             taskbar: HWND,
             destination: HWND,
-            thumbnail: &'a Thumbnail,
-            current_crop: RECT,
+            thumbnail: Thumbnail,
+            automation: &'a IUIAutomation,
+            teams_button: TeamsButtonDiscovery,
+            destination_left: i32,
+            destination_width: i32,
+            destination_height: i32,
         ) -> Self {
             Self {
+                automation,
                 taskbar,
                 destination,
-                thumbnail,
-                current_crop,
+                thumbnail: Some(thumbnail),
+                teams_element: Some(teams_button.element),
+                current_crop: Some(teams_button.source_crop),
+                destination_left,
+                destination_width,
+                destination_height,
                 visible: true,
+                unavailable_logged: false,
+                last_rediscovery: Instant::now(),
+                metrics: RuntimeMetrics::new(),
             }
         }
 
@@ -587,50 +668,235 @@ mod windows_probe {
                 return Err(Error::from_win32());
             }
             println!(
-                "taskbar_reflow_tracking=periodic_uia poll_interval_ms:{REFLOW_POLL_MILLISECONDS}"
+                "taskbar_reflow_tracking=cached_uia poll_interval_ms:{REFLOW_POLL_MILLISECONDS} rediscovery_interval_ms:{} metrics_interval_ms:{} process_id:{}",
+                REDISCOVERY_INTERVAL.as_millis(),
+                RUNTIME_METRICS_INTERVAL.as_millis(),
+                std::process::id()
             );
             Ok(())
         }
 
         fn check(&mut self) -> Result<()> {
             let started = Instant::now();
-            let taskbar_frame = extended_frame_bounds(self.taskbar)?;
+            let mut used_rediscovery = false;
 
-            match discover_teams_button(self.taskbar, taskbar_frame, false) {
-                Ok(source_crop) => {
-                    let changed = !rects_equal(self.current_crop, source_crop);
-                    if changed || !self.visible {
-                        self.thumbnail.hide()?;
-                        self.thumbnail.update_source_and_show(source_crop)?;
-                        println!(
-                            "taskbar_reflow_refreshed=poll_interval_ms:{REFLOW_POLL_MILLISECONDS} update_elapsed_ms:{} old:{},{},{},{} new:{},{},{},{} changed:{changed}",
-                            started.elapsed().as_millis(),
-                            self.current_crop.left,
-                            self.current_crop.top,
-                            self.current_crop.right,
-                            self.current_crop.bottom,
-                            source_crop.left,
-                            source_crop.top,
-                            source_crop.right,
-                            source_crop.bottom,
-                        );
-                        self.current_crop = source_crop;
-                        self.visible = true;
+            let current_taskbar = match unsafe { FindWindowW(w!("Shell_TrayWnd"), None) } {
+                Ok(taskbar) => taskbar,
+                Err(error) => {
+                    self.mark_unavailable("taskbar_absent", &error);
+                    self.finish_check(started, used_rediscovery);
+                    return Ok(());
+                }
+            };
+
+            if current_taskbar.0 != self.taskbar.0 {
+                self.rebind_taskbar(current_taskbar);
+            }
+
+            let taskbar_frame = match extended_frame_bounds(self.taskbar) {
+                Ok(frame) => frame,
+                Err(error) => {
+                    self.mark_unavailable("taskbar_frame", &error);
+                    self.finish_check(started, used_rediscovery);
+                    return Ok(());
+                }
+            };
+
+            let cached_crop = self
+                .teams_element
+                .as_ref()
+                .map(|element| source_crop_for_element(element, taskbar_frame))
+                .transpose();
+
+            match cached_crop {
+                Ok(Some(source_crop)) => {
+                    if let Err(error) = self.apply_crop(source_crop, started) {
+                        self.invalidate_thumbnail();
+                        self.mark_unavailable("dwm_update", &error);
+                    }
+                }
+                Ok(None) => {
+                    if self.last_rediscovery.elapsed() >= REDISCOVERY_INTERVAL {
+                        used_rediscovery = true;
+                        self.rediscover(taskbar_frame, started)?;
                     }
                 }
                 Err(error) => {
-                    if self.visible {
-                        self.thumbnail.hide()?;
-                        self.visible = false;
-                        eprintln!(
-                            "taskbar_reflow_unavailable=poll_interval_ms:{REFLOW_POLL_MILLISECONDS} update_elapsed_ms:{} error:{error:?}",
-                            started.elapsed().as_millis()
-                        );
-                    }
+                    self.teams_element = None;
+                    self.mark_unavailable("cached_element", &error);
                 }
             }
 
+            self.finish_check(started, used_rediscovery);
             Ok(())
+        }
+
+        fn rediscover(&mut self, taskbar_frame: RECT, started: Instant) -> Result<()> {
+            self.last_rediscovery = Instant::now();
+            match discover_teams_button(self.automation, self.taskbar, taskbar_frame, false) {
+                Ok(button) => {
+                    self.teams_element = Some(button.element);
+                    match self.apply_crop(button.source_crop, started) {
+                        Ok(()) => println!(
+                            "taskbar_reflow_recovered=source:full_rediscovery elapsed_ms:{}",
+                            started.elapsed().as_millis()
+                        ),
+                        Err(error) => {
+                            self.invalidate_thumbnail();
+                            self.mark_unavailable("dwm_rebind", &error);
+                        }
+                    }
+                }
+                Err(error) => self.mark_unavailable("rediscovery", &error),
+            }
+            Ok(())
+        }
+
+        fn apply_crop(&mut self, source_crop: RECT, started: Instant) -> Result<()> {
+            let changed = self
+                .current_crop
+                .map(|current| !rects_equal(current, source_crop))
+                .unwrap_or(true);
+            if !changed && self.visible {
+                return Ok(());
+            }
+
+            let newly_registered = self.ensure_thumbnail(source_crop)?;
+            if !newly_registered {
+                let thumbnail = self
+                    .thumbnail
+                    .as_ref()
+                    .expect("ensure_thumbnail must register a thumbnail");
+                if self.visible {
+                    thumbnail.hide()?;
+                }
+                thumbnail.update_source_and_show(source_crop)?;
+            }
+
+            if let Some(old_crop) = self.current_crop {
+                println!(
+                    "taskbar_reflow_refreshed=poll_interval_ms:{REFLOW_POLL_MILLISECONDS} update_elapsed_ms:{} old:{},{},{},{} new:{},{},{},{} changed:{changed}",
+                    started.elapsed().as_millis(),
+                    old_crop.left,
+                    old_crop.top,
+                    old_crop.right,
+                    old_crop.bottom,
+                    source_crop.left,
+                    source_crop.top,
+                    source_crop.right,
+                    source_crop.bottom,
+                );
+            }
+            self.current_crop = Some(source_crop);
+            self.visible = true;
+            self.unavailable_logged = false;
+            Ok(())
+        }
+
+        fn ensure_thumbnail(&mut self, source_crop: RECT) -> Result<bool> {
+            if self.thumbnail.is_some() {
+                return Ok(false);
+            }
+            let thumbnail = Thumbnail::register(self.destination, self.taskbar)?;
+            let source_size = thumbnail.source_size()?;
+            if source_size.cx <= 0 || source_size.cy <= 0 {
+                return Err(Error::new(
+                    E_FAIL,
+                    "DWM returned an invalid taskbar thumbnail source size",
+                ));
+            }
+            thumbnail.show_source(
+                Some(source_crop),
+                self.destination_left,
+                self.destination_width,
+                self.destination_height,
+            )?;
+            self.thumbnail = Some(thumbnail);
+            println!("taskbar_reflow_source=rebound");
+            Ok(true)
+        }
+
+        fn rebind_taskbar(&mut self, taskbar: HWND) {
+            self.invalidate_thumbnail();
+            self.taskbar = taskbar;
+            self.teams_element = None;
+            self.current_crop = None;
+            self.visible = false;
+            self.unavailable_logged = false;
+            self.last_rediscovery = Instant::now() - REDISCOVERY_INTERVAL;
+            println!("taskbar_reflow_taskbar=changed");
+        }
+
+        fn invalidate_thumbnail(&mut self) {
+            if let Some(mut thumbnail) = self.thumbnail.take() {
+                let _ = thumbnail.hide();
+                thumbnail.suppress_cleanup_error();
+            }
+        }
+
+        fn mark_unavailable(&mut self, reason: &str, error: &Error) {
+            if let Some(thumbnail) = self.thumbnail.as_ref() {
+                let _ = thumbnail.hide();
+            }
+            self.visible = false;
+            if !self.unavailable_logged {
+                eprintln!("taskbar_reflow_unavailable=reason:{reason} error:{error:?}");
+                self.unavailable_logged = true;
+            }
+        }
+
+        fn finish_check(&mut self, started: Instant, used_rediscovery: bool) {
+            self.metrics.record(started.elapsed(), used_rediscovery);
+            self.metrics.maybe_log();
+        }
+    }
+
+    struct RuntimeMetrics {
+        window_started: Instant,
+        checks: u64,
+        rediscoveries: u64,
+        total_check_time: Duration,
+        maximum_check_time: Duration,
+    }
+
+    impl RuntimeMetrics {
+        fn new() -> Self {
+            Self {
+                window_started: Instant::now(),
+                checks: 0,
+                rediscoveries: 0,
+                total_check_time: Duration::ZERO,
+                maximum_check_time: Duration::ZERO,
+            }
+        }
+
+        fn record(&mut self, elapsed: Duration, used_rediscovery: bool) {
+            self.checks = self.checks.saturating_add(1);
+            self.rediscoveries = self
+                .rediscoveries
+                .saturating_add(u64::from(used_rediscovery));
+            self.total_check_time = self.total_check_time.saturating_add(elapsed);
+            self.maximum_check_time = self.maximum_check_time.max(elapsed);
+        }
+
+        fn maybe_log(&mut self) {
+            let window = self.window_started.elapsed();
+            if window < RUNTIME_METRICS_INTERVAL {
+                return;
+            }
+            let average_check_microseconds = if self.checks == 0 {
+                0
+            } else {
+                self.total_check_time.as_micros() / u128::from(self.checks)
+            };
+            println!(
+                "taskbar_runtime_metrics=window_ms:{} checks:{} rediscoveries:{} average_check_us:{average_check_microseconds} maximum_check_us:{}",
+                window.as_millis(),
+                self.checks,
+                self.rediscoveries,
+                self.maximum_check_time.as_micros()
+            );
+            *self = Self::new();
         }
     }
 
@@ -639,6 +905,30 @@ mod windows_probe {
             && left.top == right.top
             && left.right == right.right
             && left.bottom == right.bottom
+    }
+
+    fn source_crop_for_element(
+        element: &IUIAutomationElement,
+        taskbar_frame: RECT,
+    ) -> Result<RECT> {
+        let bounds = unsafe { element.CurrentBoundingRectangle()? };
+        let is_offscreen = unsafe { element.CurrentIsOffscreen()? }.as_bool();
+        if is_offscreen
+            || bounds.right <= bounds.left
+            || bounds.bottom <= bounds.top
+            || !rect_is_within(bounds, taskbar_frame)
+        {
+            return Err(Error::new(
+                E_FAIL,
+                "Cached Teams taskbar element is unavailable",
+            ));
+        }
+        Ok(RECT {
+            left: bounds.left - taskbar_frame.left,
+            top: bounds.top - taskbar_frame.top,
+            right: bounds.right - taskbar_frame.left,
+            bottom: bounds.bottom - taskbar_frame.top,
+        })
     }
 
     struct ComApartment;
@@ -656,8 +946,14 @@ mod windows_probe {
         }
     }
 
-    #[derive(Clone, Copy)]
+    struct TeamsButtonDiscovery {
+        element: IUIAutomationElement,
+        source_crop: RECT,
+    }
+
+    #[derive(Clone)]
     struct TeamsButtonCandidate {
+        element: IUIAutomationElement,
         bounds: RECT,
         name_match: bool,
         identity_match: bool,
