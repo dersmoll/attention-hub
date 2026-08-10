@@ -120,7 +120,31 @@ interface CalendarAppointment {
   diagnostics: string[];
 }
 
+type GraphEnvironmentStatus =
+  | "ready"
+  | "notConfigured"
+  | "unavailable"
+  | "error";
+
+interface GraphEnvironmentReport {
+  status: GraphEnvironmentStatus;
+  helperAvailable: boolean;
+  windowsSupported: boolean;
+  clientIdConfigured: boolean;
+  tenantIdConfigured: boolean;
+  dotnetRuntimeVersion: string | null;
+  msalVersion: string | null;
+  brokerVersion: string | null;
+  diagnostics: string[];
+}
+
 function App() {
+  const [graphEnvironment, setGraphEnvironment] =
+    useState<GraphEnvironmentReport | null>(null);
+  const [graphEnvironmentPending, setGraphEnvironmentPending] = useState(false);
+  const [graphEnvironmentError, setGraphEnvironmentError] = useState<
+    string | null
+  >(null);
   const [calendarReport, setCalendarReport] =
     useState<CalendarAccessReport | null>(null);
   const [calendarSnapshot, setCalendarSnapshot] =
@@ -144,6 +168,21 @@ function App() {
     "refresh" | "request" | "snapshot" | null
   >(null);
   const [frontendError, setFrontendError] = useState<string | null>(null);
+
+  const refreshGraphEnvironment = useCallback(async () => {
+    setGraphEnvironmentPending(true);
+    setGraphEnvironmentError(null);
+
+    try {
+      setGraphEnvironment(
+        await invoke<GraphEnvironmentReport>("get_graph_calendar_environment"),
+      );
+    } catch (error) {
+      setGraphEnvironmentError(String(error));
+    } finally {
+      setGraphEnvironmentPending(false);
+    }
+  }, []);
 
   const runCalendarCommand = useCallback(
     async (
@@ -227,6 +266,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    void refreshGraphEnvironment();
+  }, [refreshGraphEnvironment]);
+
+  useEffect(() => {
     void runCalendarCommand("get_calendar_access_status");
   }, [runCalendarCommand]);
 
@@ -308,7 +351,81 @@ function App() {
   return (
     <main>
       <h1>Attention Hub</h1>
-      <p>Milestone 1 Windows calendar-access diagnostic</p>
+      <p>Milestone 2 Microsoft Graph calendar-provider diagnostic</p>
+
+      <section aria-live="polite">
+        <div className="section-heading">
+          <div>
+            <h2>Microsoft Graph helper environment</h2>
+            <p>
+              Phase 0 checks the local MSAL.NET/WAM helper and registration
+              configuration only. It does not sign in or contact Microsoft Graph.
+            </p>
+          </div>
+          <button
+            disabled={graphEnvironmentPending}
+            onClick={() => void refreshGraphEnvironment()}
+            type="button"
+          >
+            {graphEnvironmentPending ? "Checking…" : "Refresh Graph environment"}
+          </button>
+        </div>
+
+        {graphEnvironmentError && (
+          <p className="error">
+            Graph environment error: {graphEnvironmentError}
+          </p>
+        )}
+
+        {graphEnvironment ? (
+          <>
+            <dl>
+              <dt>Environment status</dt>
+              <dd data-status={graphEnvironment.status}>
+                {graphEnvironment.status}
+              </dd>
+
+              <dt>Helper available</dt>
+              <dd>{String(graphEnvironment.helperAvailable)}</dd>
+
+              <dt>Windows/WAM supported</dt>
+              <dd>{String(graphEnvironment.windowsSupported)}</dd>
+
+              <dt>Client ID configured</dt>
+              <dd>{String(graphEnvironment.clientIdConfigured)}</dd>
+
+              <dt>Tenant ID configured</dt>
+              <dd>{String(graphEnvironment.tenantIdConfigured)}</dd>
+
+              <dt>.NET runtime</dt>
+              <dd>{graphEnvironment.dotnetRuntimeVersion ?? "—"}</dd>
+
+              <dt>MSAL.NET</dt>
+              <dd>{graphEnvironment.msalVersion ?? "—"}</dd>
+
+              <dt>WAM broker package</dt>
+              <dd>{graphEnvironment.brokerVersion ?? "—"}</dd>
+            </dl>
+
+            <h3>Graph helper diagnostics</h3>
+            {graphEnvironment.diagnostics.length > 0 ? (
+              <ul>
+                {graphEnvironment.diagnostics.map((diagnostic) => (
+                  <li key={diagnostic}>{diagnostic}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>None.</p>
+            )}
+          </>
+        ) : (
+          <p>Inspecting the local Graph helper…</p>
+        )}
+      </section>
+
+      <hr />
+
+      <p>Milestone 1 Windows appointment-store evidence</p>
 
       <section aria-live="polite">
         <div className="section-heading">

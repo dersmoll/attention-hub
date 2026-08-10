@@ -1,6 +1,6 @@
 # ADR 0006: Require an explicit provider decision for New Outlook calendar data
 
-- Status: Proposed; awaiting product-policy approval
+- Status: Accepted for a bounded spike
 - Date: 2026-08-10
 
 ## Context
@@ -35,9 +35,13 @@ Tauri/Rust. Implementing OAuth and token storage directly in Rust would keep one
 native language but would increase security-sensitive custom code and would not
 use Microsoft's recommended desktop authentication library.
 
-## Decision required
+## Decision
 
-Choose one of these product policies before further calendar implementation:
+On 2026-08-10, the user explicitly approved option 1: a bounded Microsoft Graph
+spike using delegated `Calendars.ReadBasic`, MSAL.NET/WAM, local token handling,
+no backend, and no write access.
+
+The available product policies remain:
 
 1. **Allow a bounded Microsoft Graph exception (recommended if current work
    calendar awareness is essential).** Use delegated `Calendars.ReadBasic`, a

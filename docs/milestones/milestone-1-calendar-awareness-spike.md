@@ -214,9 +214,8 @@ including a Teams meeting absent from the OS snapshot. Meeting URLs found in
 `Location` are now omitted in Rust before IPC.
 
 Decision: stop `AppointmentStore` invalidation work. Calendar implementation is
-paused pending ADR 0006: approve a bounded local Microsoft Graph delegated-OAuth
-spike, or accept that New Outlook calendar awareness is unavailable under the
-original no-account-authorization rule.
+closed for `AppointmentStore`. ADR 0006 option 1 was approved on 2026-08-10;
+Milestone 2 owns the separate bounded Microsoft Graph delegated-OAuth spike.
 
 ## Official references
 

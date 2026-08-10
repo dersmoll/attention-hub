@@ -197,6 +197,15 @@ as the product's calendar provider, and `StoreChanged` work is stopped. ADR 0006
 defines the required policy choice between a least-privilege Microsoft Graph
 exception and no New Outlook calendar support.
 
+ADR 0006 option 1 was approved. The Graph spike's Phase 0 uses a Windows-only
+.NET 8 helper with official MSAL.NET/WAM 4.87.0 packages and a bounded JSON
+process protocol. In the verified unconfigured state, the helper returns only
+Windows support, registration-coordinate presence, and component versions; it
+does not authenticate or contact Graph. Rust locates the development helper,
+enforces a five-second timeout and 64 KiB stream limit, parses the expected
+protocol version/operation, and exposes an application-owned environment report
+through Tauri. Tokens and raw provider responses are not part of this boundary.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.

@@ -1,9 +1,11 @@
 mod attention_signals;
 mod calendar;
+mod graph_calendar;
 mod notifications;
 
 use attention_signals::AttentionSignalSnapshot;
 use calendar::{CalendarAccessReport, CalendarSnapshot};
+use graph_calendar::GraphEnvironmentReport;
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
@@ -57,6 +59,13 @@ async fn get_calendar_snapshot() -> CalendarSnapshot {
 }
 
 #[tauri::command]
+async fn get_graph_calendar_environment() -> GraphEnvironmentReport {
+    let report = graph_calendar::get_environment().await;
+    eprintln!("Graph calendar helper environment: {report:?}");
+    report
+}
+
+#[tauri::command]
 async fn get_notification_access_status(app: tauri::AppHandle) -> NotificationAccessReport {
     let report = notifications::get_access_status(app).await;
     eprintln!("notification access status: {report:?}");
@@ -101,6 +110,7 @@ pub fn run() {
             get_calendar_access_status,
             request_calendar_read_access,
             get_calendar_snapshot,
+            get_graph_calendar_environment,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,
