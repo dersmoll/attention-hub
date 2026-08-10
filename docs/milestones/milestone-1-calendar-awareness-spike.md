@@ -2,7 +2,9 @@
 
 ## Status
 
-Planned. Do not implement until the Milestone 0 closeout and the appointment-capability manifest change are reviewed.
+In progress. Phase 0 was approved on 2026-08-10. Test unpackaged first; add the
+public `appointments` capability to the development sparse manifest only if the
+unpackaged request fails for identity or capability reasons.
 
 ## Purpose
 
@@ -108,6 +110,12 @@ IDs are spike-only current-snapshot metadata. No body, attendee, organizer addre
 
 Exit gate: one supported launch path returns an `AppointmentStore`, or a reproducible permission/identity/capability blocker is recorded.
 
+Result on 2026-08-10: passed unpackaged on Windows build 26220.9022. The API was
+available, the process had no package identity (`Package::Current` returned
+`0x80073D54`), and the explicit `AllCalendarsReadOnly` request returned an
+`AppointmentStore`. Do not add `uap:Capability Name="appointments"` for the
+snapshot phase; sparse-package comparison A2 is not required by this result.
+
 ### Phase 1: snapshot usefulness
 
 - Query the next seven days using `FindAppointmentsAsync`.
@@ -117,6 +125,14 @@ Exit gate: one supported launch path returns an `AppointmentStore`, or a reprodu
 - Record missing calendars/events rather than compensating with another source.
 
 Exit gate: at least one real, upcoming, useful appointment crosses Windows -> Rust -> Tauri -> React and matches New Outlook, or the Windows store is proven unsuitable on this machine.
+
+Initial result on 2026-08-10: the unpackaged seven-day query returned 11
+calendars and 13 appointments and rendered real upcoming appointment metadata
+in React. The first diagnostic exposed that an ordinary `Location` value can
+itself contain a meeting URL. Rust normalization now omits URL-like locations
+before IPC; `OnlineMeetingLink`, `Uri`, details/body, and people fields are not
+read. Direct New Outlook coverage and naturally occurring Teams-meeting matches
+still require user comparison before this phase is closed.
 
 ### Phase 2: invalidation and recovery
 
@@ -136,8 +152,8 @@ Exit gate: the frontend converges without restart and complete refresh recovers 
 
 ## Acceptance criteria
 
-- [ ] Access/availability/identity status is visible and failures are diagnostics, not crashes.
-- [ ] Access is requested explicitly and read-only.
+- [x] Access/availability/identity status is visible and failures are diagnostics, not crashes.
+- [x] Access is requested explicitly and read-only.
 - [ ] React receives no WinRT or Windows-specific objects.
 - [ ] A complete upcoming snapshot can be requested at any time.
 - [ ] At least one real New Outlook appointment is matched, or an explicit platform blocker is recorded.
@@ -153,8 +169,8 @@ Exit gate: the frontend converges without restart and complete refresh recovers 
 
 | ID | Case | Expected observation |
 | --- | --- | --- |
-| A1 | Request all-calendars read-only access unpackaged | Exact success, denial, or identity/capability error is recorded. |
-| A2 | Repeat with sparse identity and public `appointments` capability if needed | Difference from unpackaged behavior is explicit. |
+| A1 | Request all-calendars read-only access unpackaged | Passed: `Allowed`; API available; no identity; `AppointmentStore` returned. |
+| A2 | Repeat with sparse identity and public `appointments` capability if needed | Not required after A1 succeeded; capability remains absent. |
 | S1 | Query the next seven days | Returned calendars/events are compared with New Outlook. |
 | S2 | Include a naturally occurring Teams meeting | Whether it appears and which safe metadata identifies it are recorded. |
 | S3 | Private/sensitive event | OS redaction and normalized sensitivity behavior are recorded without committing private content. |
@@ -183,7 +199,12 @@ Do not commit screenshots or fixtures containing private calendar content. Evide
 
 ## Final findings
 
-Complete after the spike. Record exact access results, visible-vs-returned calendar coverage, New Outlook/Teams behavior, privacy redaction, change/recovery behavior, identity cost, and the continue/Graph-review/stop decision.
+In progress. Phase 0 proves that read-only `AppointmentStore` acquisition works
+in the ordinary unpackaged Tauri executable on this machine. Package identity
+and the manifest `appointments` capability are unnecessary for this step.
+Visible-vs-returned calendar coverage, New Outlook/Teams behavior, privacy
+redaction, change/recovery behavior, and the final continue/Graph-review/stop
+decision remain open.
 
 ## Official references
 

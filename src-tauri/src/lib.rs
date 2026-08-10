@@ -1,7 +1,9 @@
 mod attention_signals;
+mod calendar;
 mod notifications;
 
 use attention_signals::AttentionSignalSnapshot;
+use calendar::{CalendarAccessReport, CalendarSnapshot};
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
@@ -22,6 +24,33 @@ async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
     eprintln!(
         "attention signal snapshot: count={}, signals={summary:?}, diagnostics={:?}",
         snapshot.signals.len(),
+        snapshot.diagnostics
+    );
+    snapshot
+}
+
+#[tauri::command]
+async fn get_calendar_access_status() -> CalendarAccessReport {
+    let report = calendar::get_access_status().await;
+    eprintln!("calendar access status: {report:?}");
+    report
+}
+
+#[tauri::command]
+async fn request_calendar_read_access() -> CalendarAccessReport {
+    let report = calendar::request_read_access().await;
+    eprintln!("calendar read-access request result: {report:?}");
+    report
+}
+
+#[tauri::command]
+async fn get_calendar_snapshot() -> CalendarSnapshot {
+    let snapshot = calendar::get_snapshot().await;
+    eprintln!(
+        "calendar snapshot: status={:?}, calendars={}, appointments={}, diagnostics={:?}",
+        snapshot.access_status,
+        snapshot.calendars.len(),
+        snapshot.appointments.len(),
         snapshot.diagnostics
     );
     snapshot
@@ -69,6 +98,9 @@ pub fn run() {
         .manage(NotificationListenerState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
+            get_calendar_access_status,
+            request_calendar_read_access,
+            get_calendar_snapshot,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,

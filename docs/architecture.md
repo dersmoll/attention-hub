@@ -176,6 +176,18 @@ Plan update: the product requirement was clarified to prefer persistent taskbar/
 
 The development identity route uses a package with external location mapped to `src-tauri/target/debug`, embeds matching `msix` metadata in the executable manifest through `tauri-build`, and declares `uap3:userNotificationListener`, `runFullTrust`, and `unvirtualizedResources` in the sparse package manifest. The executable metadata is opt-in through `ATTENTION_HUB_DEV_IDENTITY=1`; ordinary builds and tests remain unpackaged. The install and launch scripts set this variable deliberately so a binary that declares identity is never produced accidentally without the matching package registration. On the tested machine, package registration succeeded only after the public development certificate was explicitly trusted in Local Machine `TrustedPeople`; Current User `TrustedPeople` alone produced deployment error `0x800B0109`. This is a development experiment, not a production installer decision. Generated packages and certificates stay under ignored `target` output; scripts provide scoped registration, launch, and removal.
 
+Calendar Phase 0 finding on Windows build 26220.9022: the ordinary unpackaged
+Tauri executable successfully obtained
+`AppointmentManager.RequestStoreAsync(AllCalendarsReadOnly)` even though
+`Package::Current` returned `0x80073D54` (no package identity). Calendar
+snapshot work therefore stays unpackaged and the sparse manifest does not gain
+an `appointments` capability. Rust normalizes the appointment-store data before
+IPC; details/body, people, organizer data, URI, and meeting links are excluded
+from the Milestone 1 contract. Because meeting URLs can also appear inside the
+ordinary appointment `Location` property, URL-like location values are omitted
+in Rust before serialization rather than relying only on avoiding the dedicated
+online-meeting and URI properties.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.

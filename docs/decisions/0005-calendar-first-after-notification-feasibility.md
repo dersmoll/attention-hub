@@ -1,6 +1,6 @@
 # ADR 0005: Make calendar awareness the next technical spike
 
-- Status: Accepted for planning
+- Status: Accepted; implementation in progress
 - Date: 2026-08-10
 
 ## Context
@@ -32,3 +32,14 @@ Retain the existing development identity and certificate only through the appoin
 - Calendar work remains local-first and credential-free during its first hypothesis test.
 - Package capability and New Outlook interoperability are explicit spike variables rather than assumed facts.
 - A negative appointment-store result is allowed and will trigger a user-visible architecture decision instead of an unapproved Graph pivot.
+
+## Phase 0 finding
+
+On Windows build 26220.9022, the ordinary unpackaged Tauri executable reported
+that `AppointmentManager` was available and
+`RequestStoreAsync(AllCalendarsReadOnly)` returned an `AppointmentStore`.
+`Package::Current` independently returned `0x80073D54`, confirming that the
+successful process had no package identity. The public `appointments`
+capability and sparse identity are therefore not required for read-only store
+acquisition on this tested machine and will not be added unless later snapshot
+or change-event evidence demonstrates a narrower requirement.

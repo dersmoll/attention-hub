@@ -70,7 +70,64 @@ interface AttentionSignal {
   diagnostics: string[];
 }
 
+type CalendarAccessStatus =
+  | "unspecified"
+  | "allowed"
+  | "denied"
+  | "unsupported"
+  | "error";
+
+interface CalendarAccessReport {
+  accessStatus: CalendarAccessStatus;
+  apiAvailable: boolean;
+  packageIdentity: {
+    present: boolean;
+    fullName: string | null;
+  };
+  storeAvailable: boolean;
+  diagnostics: string[];
+}
+
+interface CalendarSnapshot {
+  accessStatus: CalendarAccessStatus;
+  capturedAt: string;
+  rangeStart: string;
+  rangeEnd: string;
+  calendars: CalendarSource[];
+  appointments: CalendarAppointment[];
+  diagnostics: string[];
+}
+
+interface CalendarSource {
+  id: string;
+  displayName: string;
+  sourceDisplayName: string | null;
+  hidden: boolean;
+  diagnostics: string[];
+}
+
+interface CalendarAppointment {
+  id: string;
+  calendarId: string;
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+  subject: string | null;
+  location: string | null;
+  busyStatus: string | null;
+  sensitivity: string | null;
+  isRecurring: boolean;
+  diagnostics: string[];
+}
+
 function App() {
+  const [calendarReport, setCalendarReport] =
+    useState<CalendarAccessReport | null>(null);
+  const [calendarSnapshot, setCalendarSnapshot] =
+    useState<CalendarSnapshot | null>(null);
+  const [calendarPending, setCalendarPending] = useState(false);
+  const [calendarSnapshotPending, setCalendarSnapshotPending] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
@@ -87,6 +144,39 @@ function App() {
     "refresh" | "request" | "snapshot" | null
   >(null);
   const [frontendError, setFrontendError] = useState<string | null>(null);
+
+  const runCalendarCommand = useCallback(
+    async (
+      command: "get_calendar_access_status" | "request_calendar_read_access",
+    ) => {
+      setCalendarPending(true);
+      setCalendarError(null);
+
+      try {
+        setCalendarReport(await invoke<CalendarAccessReport>(command));
+      } catch (error) {
+        setCalendarError(String(error));
+      } finally {
+        setCalendarPending(false);
+      }
+    },
+    [],
+  );
+
+  const refreshCalendarSnapshot = useCallback(async () => {
+    setCalendarSnapshotPending(true);
+    setCalendarError(null);
+
+    try {
+      setCalendarSnapshot(
+        await invoke<CalendarSnapshot>("get_calendar_snapshot"),
+      );
+    } catch (error) {
+      setCalendarError(String(error));
+    } finally {
+      setCalendarSnapshotPending(false);
+    }
+  }, []);
 
   const refreshAttentionSignals = useCallback(async () => {
     setAttentionRefreshing(true);
@@ -135,6 +225,10 @@ function App() {
       setPendingAction(null);
     }
   }, []);
+
+  useEffect(() => {
+    void runCalendarCommand("get_calendar_access_status");
+  }, [runCalendarCommand]);
 
   useEffect(() => {
     void runCommand("get_notification_access_status", "refresh");
@@ -214,7 +308,206 @@ function App() {
   return (
     <main>
       <h1>Attention Hub</h1>
-      <p>Milestone 0 persistent attention-signal diagnostic</p>
+      <p>Milestone 1 Windows calendar-access diagnostic</p>
+
+      <section aria-live="polite">
+        <div className="section-heading">
+          <div>
+            <h2>Windows calendar access</h2>
+            <p>
+              Read-only access to calendars already available through Windows.
+              The seven-day debug snapshot excludes bodies, people, and meeting
+              links.
+            </p>
+          </div>
+          <button
+            disabled={calendarPending || calendarReport?.apiAvailable === false}
+            onClick={() =>
+              void runCalendarCommand("request_calendar_read_access")
+            }
+            type="button"
+          >
+            {calendarPending ? "Waiting for Windows…" : "Request read-only access"}
+          </button>
+        </div>
+
+        {calendarError && (
+          <p className="error">Calendar diagnostic error: {calendarError}</p>
+        )}
+
+        {calendarReport ? (
+          <>
+            <dl>
+              <dt>Access result</dt>
+              <dd data-status={calendarReport.accessStatus}>
+                {calendarReport.accessStatus}
+              </dd>
+
+              <dt>WinRT API available</dt>
+              <dd>{String(calendarReport.apiAvailable)}</dd>
+
+              <dt>Package identity present</dt>
+              <dd>{String(calendarReport.packageIdentity.present)}</dd>
+
+              <dt>Package full name</dt>
+              <dd>{calendarReport.packageIdentity.fullName ?? "—"}</dd>
+
+              <dt>Appointment store returned</dt>
+              <dd>{String(calendarReport.storeAvailable)}</dd>
+            </dl>
+
+            <h3>Calendar diagnostics</h3>
+            {calendarReport.diagnostics.length > 0 ? (
+              <ul>
+                {calendarReport.diagnostics.map((diagnostic) => (
+                  <li key={diagnostic}>{diagnostic}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>None.</p>
+            )}
+
+            <button
+              disabled={calendarPending}
+              onClick={() =>
+                void runCalendarCommand("get_calendar_access_status")
+              }
+              type="button"
+            >
+              Refresh environment diagnostic
+            </button>
+
+            <button
+              disabled={
+                calendarSnapshotPending ||
+                calendarReport.accessStatus !== "allowed"
+              }
+              onClick={() => void refreshCalendarSnapshot()}
+              type="button"
+            >
+              {calendarSnapshotPending
+                ? "Reading calendars…"
+                : "Refresh seven-day snapshot"}
+            </button>
+          </>
+        ) : (
+          <p>Inspecting Windows calendar API availability…</p>
+        )}
+
+        {calendarSnapshot && (
+          <>
+            <h3>Current seven-day calendar snapshot</h3>
+            <p>
+              Calendars: <strong>{calendarSnapshot.calendars.length}</strong>;
+              appointments: <strong>{calendarSnapshot.appointments.length}</strong>;
+              captured: <time>{calendarSnapshot.capturedAt}</time>
+            </p>
+            <p>
+              UTC range: <time>{calendarSnapshot.rangeStart}</time> to{" "}
+              <time>{calendarSnapshot.rangeEnd}</time>
+            </p>
+
+            {calendarSnapshot.calendars.length > 0 ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Calendar</th>
+                      <th>Source</th>
+                      <th>Hidden</th>
+                      <th>Calendar ID / diagnostics</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calendarSnapshot.calendars.map((calendar) => (
+                      <tr key={calendar.id}>
+                        <td>{calendar.displayName}</td>
+                        <td>{calendar.sourceDisplayName ?? "—"}</td>
+                        <td>{String(calendar.hidden)}</td>
+                        <td>
+                          {calendar.id}
+                          {calendar.diagnostics.length > 0 && (
+                            <pre>{JSON.stringify(calendar.diagnostics, null, 2)}</pre>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>No appointment calendars returned.</p>
+            )}
+
+            {calendarSnapshot.appointments.length > 0 ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Start / end (UTC)</th>
+                      <th>Subject / location</th>
+                      <th>State</th>
+                      <th>Calendar / appointment ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calendarSnapshot.appointments.map((appointment) => (
+                      <tr
+                        key={`${appointment.calendarId}-${appointment.id}-${appointment.startAt}`}
+                      >
+                        <td>
+                          {appointment.startAt}
+                          <small>{appointment.endAt}</small>
+                        </td>
+                        <td>
+                          {appointment.subject ?? "—"}
+                          <small>{appointment.location ?? "No location"}</small>
+                        </td>
+                        <td>
+                          {appointment.busyStatus ?? "unknown"}
+                          <small>
+                            sensitivity: {appointment.sensitivity ?? "unknown"}
+                          </small>
+                          <small>all day: {String(appointment.allDay)}</small>
+                          <small>
+                            recurring: {String(appointment.isRecurring)}
+                          </small>
+                        </td>
+                        <td>
+                          {appointment.calendarId}
+                          <small>{appointment.id}</small>
+                          {appointment.diagnostics.length > 0 && (
+                            <pre>
+                              {JSON.stringify(appointment.diagnostics, null, 2)}
+                            </pre>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>No appointments returned in the current seven-day range.</p>
+            )}
+
+            {calendarSnapshot.diagnostics.length > 0 && (
+              <>
+                <h3>Snapshot diagnostics</h3>
+                <ul>
+                  {calendarSnapshot.diagnostics.map((diagnostic) => (
+                    <li key={diagnostic}>{diagnostic}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+      </section>
+
+      <hr />
+
+      <p>Milestone 0 persistent attention-signal evidence</p>
 
       <section aria-live="polite">
         <div className="section-heading">
