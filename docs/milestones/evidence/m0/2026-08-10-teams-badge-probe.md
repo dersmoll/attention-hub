@@ -1,8 +1,8 @@
-# Teams badge accessibility probe: first controlled comparison
+# Teams badge accessibility probe: controlled comparison
 
 - Date: 2026-08-10 Europe/Kyiv
 - Cases: C1, C1a
-- Result: partial; qualitative transition passed, exact-count comparison must be repeated
+- Result: exact-count path stopped; qualitative transition passed
 
 ## Observed states
 
@@ -16,6 +16,14 @@ At badge zero, the returned candidates already included an `activity` keyword wi
 
 The supplied screenshots contain visible private chat names and are not committed. This note records only redacted structural observations.
 
-## Next test
+## Final bounded test
 
-Repeat the manual probe at badge states zero and one, clicking **Run Teams probe** after each change and confirming that the captured timestamps differ. Add a state of two or more when it can be created naturally. No additional messages need to be generated solely for the spike.
+A naturally occurring Teams state displayed badge `2`, comprising a visible Activity item and a Chat indicator. A fresh scan at `2026-08-10T08:32:30.103Z` traversed one Teams window and 31 elements. All six returned candidates were structural ARIA metadata with no numeric token.
+
+Opening Activity cleared both visible indicators, so the expected intermediate state of `1` could not be isolated. The Activity-page screenshot still displayed the earlier probe timestamp and is treated only as UI-state evidence, not a second probe result.
+
+A final fresh scan at `2026-08-10T08:34:56.315Z`, after the visible badges cleared, traversed one Teams window and 438 elements. It exposed qualitative `activity` structure but no useful count in the highest-relevance candidates. Attention Hub's existing Teams signal returned to `activityStatus=false`.
+
+## Decision
+
+The passive UI Automation exact-count path reached its stop condition. Retain the proven Teams `activityStatus` boolean, remove the experimental diagnostic implementation, and defer exact counts or message details until a future source-specific technique is explicitly justified. No additional Teams messages or tests are required for Milestone 0.

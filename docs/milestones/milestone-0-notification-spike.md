@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress with a documented product-signal correction. The notification vertical slice is technically proven, including live add/remove behavior under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. A bounded source-owned shell/window/UI Automation vertical slice now works end to end in ordinary unpackaged Tauri. Telegram and New Outlook expose useful numeric state; Teams exposes a proven qualitative state but not its visible numeric badge. ADR 0004 authorizes one final manual, sanitized Teams accessibility experiment before transition/durability testing and the final decision.
+In progress with a documented product-signal correction. The notification vertical slice is technically proven, including live add/remove behavior under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. A bounded source-owned shell/window/UI Automation vertical slice now works end to end in ordinary unpackaged Tauri. Telegram and New Outlook expose useful numeric state. Teams exposes a proven qualitative state; the bounded exact-count experiment reached its negative stop condition and its temporary diagnostic implementation was removed. Remaining work is final Milestone 0 closure and the development-identity cleanup decision.
 
 ## Purpose
 
@@ -157,6 +157,8 @@ Prior evidence: with a visible taskbar badge of `1` while Teams showed Calendar,
 
 First controlled-comparison finding on 2026-08-10: the existing qualitative Teams signal correctly changed from false at badge zero to true at badge one. The two screenshots contained the same manual-probe capture timestamp, so they do not yet compare deeper accessibility snapshots. A numeric `1` associated with `activity` was already present at badge zero and matched Teams' permanent `Activity (Ctrl+1)` shortcut shape; shortcut-adjacent digits are now excluded from candidates. See `docs/milestones/evidence/m0/2026-08-10-teams-badge-probe.md`.
 
+Final experiment finding: at a naturally occurring visible badge of `2`, a fresh scan of one Teams window/31 elements returned six structural ARIA candidates and no numeric token. Opening Activity cleared both visible Activity and Chat indicators, preventing isolation of the expected intermediate `1` state. A fresh zero-state scan traversed 438 elements, showed qualitative activity structure without a useful count, and the implemented Teams signal returned to false. The exact-count path therefore stopped and the temporary diagnostic code was removed.
+
 Exit gate: either an exact number is derived in at least three controlled states and remains available without keeping Chat visible, or the experiment records a negative/partial result and stops. OCR and credentialed Microsoft Graph access remain separate, unapproved decisions.
 
 ### Phase 5: application matrix and behavior study
@@ -204,8 +206,8 @@ Exit gate: the evidence is sufficient to judge usefulness and reliability for al
 - [x] No additional toast is required to make a source's persistent attention state visible.
 - [x] Telegram, Teams, and Outlook each have a documented taskbar/tray/window signal result, including exact count or qualitative state.
 - [x] The attention-signal probe never focuses, clicks, types into, or otherwise controls a source application.
-- [ ] The manual Teams accessibility diagnostic emits no raw Teams text or account/content identifiers and never runs from the automatic polling path.
-- [ ] The Teams badge experiment records 0, 1, and 2-or-more results, or records why a state could not be created safely.
+- [x] The manual Teams accessibility diagnostic emitted no raw Teams text or account/content identifiers and never ran from the automatic polling path; it was removed after the experiment.
+- [x] The Teams badge experiment recorded fresh 0 and 2-or-more results and recorded that opening Activity cleared both indicators before an intermediate 1 state could be isolated.
 
 ## Manual test cases
 
@@ -330,11 +332,18 @@ After the product requirement was clarified, ADR 0003 authorized a bounded feasi
 
 ### Decision
 
-Pending: continue / continue with constraints / change native boundary or desktop technology / stop.
+Continue with constraints.
+
+Tauri plus a small Rust Windows boundary is proportionate for the source-owned signals proven so far. Do not treat Windows Notification Center as the primary product model and do not introduce a universal unread-count contract. Retain explicit source-specific semantics: Telegram numeric counters, New Outlook Inbox unread count, and Teams qualitative `activityStatus`. Keep the notification-listener adapter as technical evidence/optional input; its sparse identity cost is not required by the primary source-owned path.
+
+Exact Teams counts and sender/message details are deferred. The bounded passive UI Automation experiment found no stable number, and OCR, Microsoft Graph authentication, Teams profile reads, or WebView debugging remain outside the approved architecture.
 
 ### Follow-up work
 
-Pending. Any proposed next milestone must be reviewed before implementation.
+- Finish the Milestone 0 development identity/package cleanup decision and any minimum closure checks still considered valuable.
+- Plan a calendar-first next milestone because upcoming commitments are a higher-value attention source than further Teams badge reverse-engineering.
+- Treat additional applications as explicit source-specific adapters with truthful signal semantics; do not build a generalized provider framework yet.
+- Review the next milestone plan before implementation.
 
 ## References
 

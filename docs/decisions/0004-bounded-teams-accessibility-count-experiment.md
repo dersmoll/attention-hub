@@ -1,6 +1,6 @@
 # ADR 0004: Run one bounded Teams accessibility count experiment
 
-- Status: Accepted for Milestone 0 feasibility
+- Status: Completed with a negative exact-count result
 - Date: 2026-08-10
 
 ## Context
@@ -39,6 +39,15 @@ OCR or credentialed Microsoft Graph access requires a separate architecture revi
 
 ## Consequences
 
-- The proven qualitative Teams signal remains unchanged while the exact-count hypothesis is tested.
-- React receives a sanitized, application-owned diagnostic contract rather than UI Automation objects or private Teams content.
-- A negative result is useful evidence: it supports shipping a boolean Teams indicator or explicitly choosing a separately reviewed fallback instead of inventing an unreliable count.
+- The proven qualitative Teams `activityStatus` signal remains the implemented behavior.
+- The experiment returned only sanitized, application-owned metadata and did not persist or commit private Teams content.
+- The experimental native command, DTOs, and React table were removed after the stop condition was reached; they are not a production subsystem.
+- Exact Teams counts and sender/message details are deferred. Reopening them requires a separate decision about OCR, credentialed Microsoft Graph access, or another source-specific technique.
+
+## Outcome
+
+At a naturally occurring visible Teams badge of `2`, the fresh sanitized scan traversed one Teams window and 31 elements. Its six candidates contained structural ARIA keys but no numeric token. Opening Activity cleared both the Activity and Chat indicators, so a stable intermediate badge of `1` could not be isolated from that state. A later fresh zero-state scan traversed 438 elements and showed qualitative `activity` structure without an exposed count. The existing notification-area signal changed back to `activityStatus=false` correctly.
+
+The earlier apparent `activity` numeric token `1` was present at badge zero and matched the permanent `Activity (Ctrl+1)` navigation shortcut. Filtering shortcut-adjacent digits removed that false lead.
+
+This satisfies the experiment's negative stop condition: exact badge state was not available through a stable, passive UI Automation property within the bounded effort. Attention Hub will use a truthful boolean for Teams and spend the next product effort on broader source coverage and calendar awareness.
