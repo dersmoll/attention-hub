@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning complete; Phase 0 toolchain verification is substantially complete. Native notification integration has not started.
+Completed with a **continue with constraints** decision. The notification vertical slice is technically proven, including one live add/remove cycle under sparse identity, but Telegram unread/taskbar state is not present in the toast snapshot and requiring more Notification Center traffic conflicts with the intended quiet product. The source-owned Windows/window/UI Automation slice works end to end in ordinary unpackaged Tauri: Telegram and New Outlook expose useful numeric state, while Teams exposes a proven qualitative state. The bounded Teams exact-count experiment reached its negative stop condition and its temporary diagnostic implementation was removed. Unrun denial/revocation, sleep/resume, and long-duration matrix cases remain documented limitations rather than blockers to the architecture decision. The development identity/certificate is retained temporarily for the planned Windows appointment-store spike and must be reassessed afterward.
 
 ## Purpose
 
@@ -22,8 +22,21 @@ Inspected on 2026-08-09:
 - Tauri diagnostics report Windows build 26220 x64 and WebView2 152.0.4191.10.
 - Rust 1.97.1, Cargo 1.97.1, and the stable `x86_64-pc-windows-msvc` toolchain are installed. The current long-lived shell predates installation, so `%USERPROFILE%\.cargo\bin` must be added to `PATH` in that shell or the shell must be restarted.
 - Visual Studio Build Tools 18 with MSVC 14.51.36231 and Windows SDK 10.0.26100.0 are installed.
-- `cargo check` and `pnpm tauri build --no-bundle` pass for the minimal Tauri shell, producing `src-tauri/target/release/attention-hub.exe`. A complete interactive `tauri dev` launch is still outstanding.
-- No Windows notification integration, listener capability manifest, or identity package has been added.
+- `cargo check`, `cargo test`, `pnpm build`, and the earlier `pnpm tauri build --no-bundle` baseline pass. Interactive `tauri dev` launches the native application successfully.
+- The Windows-only adapter now reports API/access/identity state, requests access from Tauri's main thread, reads and normalizes the current toast snapshot, and exposes only application-owned DTOs to React.
+- On Windows build 26220.9022, ordinary unpackaged `tauri dev` reports no package identity (`0x80073D54`) while `UserNotificationListener` is available and access is `Allowed`.
+- `RequestAccessAsync`, started on Tauri's main thread and completed on Tauri's blocking pool, returned `Allowed` without adding a capability manifest or identity package.
+- `GetNotificationsAsync(NotificationKinds.Toast)` returned five current notifications through the full Windows -> Rust -> Tauri -> React path. Notification content was not written to logs or committed evidence.
+- The native `NotificationChanged` subscription and React invalidation listener are implemented, but unpackaged subscription currently fails with HRESULT `0x80070490` (“Element not found”). Repeating subscription from an explicitly initialized MTA produced the same result, ruling out the initial UI-apartment hypothesis.
+- A sparse package-with-external-location manifest containing `uap3:userNotificationListener`, matching executable `msix` identity metadata, and repeatable development install/uninstall scripts have been added. The identity package builds, signs, and registers after explicit approval to trust its public development certificate in Local Machine `TrustedPeople`; Current User trust alone failed with `0x800B0109` on this machine.
+- Identity metadata is opt-in through `ATTENTION_HUB_DEV_IDENTITY=1`. `install-dev-identity.ps1` builds and registers that variant, while `run-dev-with-identity.ps1` launches it; normal Cargo/Tauri commands remain unpackaged and testable.
+- The registered identity run reports package identity present, access `Allowed`, a seven-item snapshot, and `NotificationChanged` listener active with no diagnostics.
+- A Snipping Tool notification completed one real foreground add/remove cycle: it appeared immediately in the React snapshot and disappeared when dismissed from Windows Notification Center.
+- Telegram Desktop 7.0.9 displayed nonzero unread/taskbar badges but had no corresponding current Windows toast. This directly confirms that `UserNotificationListener` does not expose Telegram's application-owned unread state.
+- The first dependency-free read-only attention-signal probe returned Telegram application counter 20, Telegram unread chats 9, Teams `New activity`, and Outlook `No unread messages`/0 without creating notifications or controlling the source applications.
+- Telegram's title-derived application counter advanced from 20 to 26 while the user independently observed 25 on the rendered taskbar badge immediately beforehand, confirming the signal tracks the badge with a timing race while new messages arrive.
+- The source-specific attention adapter now crosses Windows/window/UI Automation -> Rust DTO -> Tauri command -> React debug UI in ordinary unpackaged development mode. After one recorded transient startup error, 15 consecutive complete refreshes returned four signals with no diagnostics.
+- Telegram's counter correctly disappeared after the user read all messages, validating its zero transition. Teams' visible taskbar `1` was not present in taskbar or application accessibility properties, while its `New activity` boolean remained accurate. New Outlook's tray `No unread messages` label contradicted a real unread Inbox and was replaced by an app-owned Inbox accessibility count that correctly returned 1.
 
 ## Scope
 
@@ -33,7 +46,10 @@ Inspected on 2026-08-09:
 - Expose normalized data through Tauri IPC.
 - Detect notification add/remove changes while the app runs.
 - Refresh the complete snapshot after a change.
+- Evaluate read-only taskbar/tray/window accessibility signals for Telegram, Teams, and Outlook without requiring new toasts.
+- Normalize only observed attention status/count plus source, signal origin, raw diagnostic label, and confidence/limitations.
 - Display state in a deliberately plain React debug UI.
+- Run one manual, sanitized Teams accessibility diagnostic for exact-count feasibility without changing the proven qualitative signal.
 - Manually test Microsoft Teams, Microsoft Outlook, and Telegram.
 - Compare development and identity/packaging paths needed for the API.
 - Record observed behavior and complete the findings section.
@@ -46,6 +62,8 @@ Inspected on 2026-08-09:
 - Settings, source filters, themes, tray, autostart, global shortcuts, privacy mode, application launching/focusing, installer/updater productionization, cloud features, analytics, or telemetry.
 - Mutating, dismissing, or clearing notifications from Attention Hub.
 - Generalized provider abstractions.
+- OCR/screenshot parsing of taskbar badges, undocumented Explorer internals, and controlling source-application UI during the initial attention-signal feasibility phase.
+- Teams profile/database reads, WebView2 remote debugging, Microsoft Graph authentication, or persistence of Teams accessibility text.
 
 ## Technical questions
 
@@ -63,6 +81,10 @@ Inspected on 2026-08-09:
 12. Can snapshot refresh recover cleanly after frontend reload, listener interruption, or missed events?
 13. Is the required Tauri/Windows packaging complexity proportionate to the product value?
 14. What is the smallest correct integration for the UI-thread permission operation, WinRT async completion, and long-lived `NotificationChanged` subscription within Tauri's event loop/runtime?
+15. Can a numeric or qualitative attention signal be read from Telegram, Teams, and Outlook window/tray/accessibility state without generating toasts or using credentials?
+16. Do those signals update while applications are minimized, and can changes be detected without high-frequency polling?
+17. Are the exposed labels stable enough across application versions, account states, and UI languages to justify source-specific observers?
+18. Is exact count required for every source, or is a trustworthy `needs attention` state sufficient when an application exposes no count?
 
 ## Implementation phases
 
@@ -110,18 +132,52 @@ Exit gate: at least one real notification crosses the complete Windows -> Rust -
 
 Exit gate: the visible debug state changes without restarting Attention Hub and converges to the current Windows snapshot.
 
-### Phase 4: application matrix and behavior study
+### Phase 4: persistent attention-signal feasibility
 
-- Run the manual cases below for Teams, Outlook, and Telegram.
+- Confirm whether Windows exposes a supported cross-application taskbar badge getter; record absence rather than inferring from rendered pixels.
+- Probe taskbar/tray UI Automation names, top-level window titles, and source-application accessibility labels for exactly Telegram, Teams, and Outlook.
+- Start with snapshot acquisition. Add event hooks or bounded low-frequency refresh only after a useful signal is demonstrated.
+- Keep source-specific extraction explicit and small; do not build a generalized provider framework.
+- Do not enable notifications, capture taskbar screenshots, OCR pixels, or interact with source application UI in this phase.
+- Record app-running/minimized/closed behavior, localization dependence, semantic meaning, and discrepancies between visible counts and accessible values.
+
+Exit gate: at least one useful persistent signal crosses a read-only Windows probe -> normalized model -> Tauri -> React path, and limitations for all three target applications are explicit.
+
+### Phase 4b: bounded Teams exact-count accessibility experiment
+
+- Keep the existing Teams notification-area `New activity` boolean unchanged.
+- Add a separate manual command; do not place the deeper Teams traversal in the two-second attention-snapshot loop.
+- Inspect Teams-owned `AriaProperties`, control type, offscreen state, bounds, and availability of relevant UI Automation patterns in addition to the already-inspected `Name`, `HelpText`, and `ItemStatus` properties.
+- Inspect known structural areas such as Quick views, collapsed sections, and materialized Chat rows without focusing, scrolling, expanding, selecting, or clicking anything.
+- Analyze text only transiently in Rust. Return fixed keyword matches, numeric tokens, ARIA keys, lengths, geometry, and pattern names; never return or log raw Teams text, chat names, senders, previews, bodies, or ARIA values.
+- Compare controlled badge states 0, 1, and 2 or more with Chat visible, another page visible, Teams minimized, and a contributing unread row offscreen where practical.
+- Use the semantic name `badgeItems` or a narrower truthful subset name. Do not call the result unread messages: Microsoft documents that the badge combines several item categories.
+
+Prior evidence: with a visible taskbar badge of `1` while Teams showed Calendar, the full taskbar and Teams descendant scan found no matching number in `Name`, `HelpText`, or `ItemStatus`. This phase tests only the remaining ARIA, pattern, and materialized-content hypothesis.
+
+First controlled-comparison finding on 2026-08-10: the existing qualitative Teams signal correctly changed from false at badge zero to true at badge one. The two screenshots contained the same manual-probe capture timestamp, so they do not yet compare deeper accessibility snapshots. A numeric `1` associated with `activity` was already present at badge zero and matched Teams' permanent `Activity (Ctrl+1)` shortcut shape; shortcut-adjacent digits are now excluded from candidates. See `docs/milestones/evidence/m0/2026-08-10-teams-badge-probe.md`.
+
+Final experiment finding: at a naturally occurring visible badge of `2`, a fresh scan of one Teams window/31 elements returned six structural ARIA candidates and no numeric token. Opening Activity cleared both visible Activity and Chat indicators, preventing isolation of the expected intermediate `1` state. A fresh zero-state scan traversed 438 elements, showed qualitative activity structure without a useful count, and the implemented Teams signal returned to false. The exact-count path therefore stopped and the temporary diagnostic code was removed.
+
+Exit gate: either an exact number is derived in at least three controlled states and remains available without keeping Chat visible, or the experiment records a negative/partial result and stops. OCR and credentialed Microsoft Graph access remain separate, unapproved decisions.
+
+### Phase 5: application matrix and behavior study
+
+- Run the source-owned transition cases below for Teams, Outlook, and Telegram.
 - Capture observed source IDs, text shapes, timestamp behavior, duplicate/replacement behavior, and removal latency.
 - Repeat meaningful cases with the Attention Hub window foregrounded, backgrounded/minimized, and after sleep/resume.
 - Record the exact application version and installation/package source for each target application.
-- Run at least three add/remove cycles per target application and record success count plus observed convergence latency; this is a small-spike consistency check, not a production reliability claim.
+- Run at least three attention-state transitions per target application where the application exposes a useful signal, and record success count plus observed convergence latency; this is a small-spike consistency check, not a production reliability claim.
 - Record differences between unpackaged and identity-enabled runs.
+
+Do not generate additional toasts solely to satisfy the original notification
+matrix. The notification-center vertical slice is already proven; further tests
+must exercise source-owned attention state or answer a remaining reliability
+question.
 
 Exit gate: the evidence is sufficient to judge usefulness and reliability for all three target applications, including explicit failures.
 
-### Phase 5: findings and decision
+### Phase 6: findings and decision
 
 - Complete the findings section.
 - Update architecture assumptions invalidated by implementation.
@@ -131,22 +187,27 @@ Exit gate: the evidence is sufficient to judge usefulness and reliability for al
 
 ## Acceptance criteria
 
-- [ ] A documented, repeatable local launch method reaches the notification API or a reproducible platform blocker is demonstrated.
-- [ ] Access status is visible as unspecified, allowed, denied, unsupported, or error.
-- [ ] Permission is requested from an explicit debug-UI action and the result is shown.
-- [ ] The current snapshot can be requested at any time.
-- [ ] React receives no WinRT/Windows-specific objects.
-- [ ] Each visible row shows notification ID, source, timestamp, title, body/raw text, and parsing diagnostics where available.
-- [ ] Additions and removals update the frontend without application restart.
-- [ ] A complete refresh recovers after frontend reload and does not rely solely on past incremental events.
-- [ ] Teams, Outlook, and Telegram each have documented observed results.
-- [ ] Each target application completes at least three recorded add/remove cycles, with success count and convergence latency captured.
+- [x] A documented, repeatable local launch method reaches the notification API or a reproducible platform blocker is demonstrated.
+- [x] Access status is visible as unspecified, allowed, denied, unsupported, or error.
+- [x] Permission is requested from an explicit debug-UI action and the result is shown.
+- [x] The current snapshot can be requested at any time.
+- [x] React receives no WinRT/Windows-specific objects.
+- [x] Each visible row shows notification ID, source, timestamp, title, body/raw text, and parsing diagnostics where available.
+- [x] Additions and removals update the notification frontend without application restart.
+- [x] A complete refresh recovers after application restart and does not rely solely on past incremental events.
+- [x] Teams, Outlook, and Telegram each have a documented initial source-owned signal result.
+- [ ] Each target application with a useful source-owned signal completes at least three recorded transitions, with success count and convergence latency captured.
 - [ ] Permission denial/revocation and malformed or missing text do not crash the application.
-- [ ] Pure normalization tests cover missing source identity, empty/missing text, multiple text elements, and isolated conversion failure.
+- [x] Pure normalization tests cover missing source identity, empty/missing text, multiple text elements, and isolated conversion failure.
 - [ ] The complete manual matrix produces zero Attention Hub crashes; any API or parsing failure is represented as data/diagnostics.
-- [ ] No notification is cleared, dismissed, or mutated by the spike.
-- [ ] No network backend, telemetry, account credential, database, or out-of-scope product feature is introduced.
+- [x] No notification is cleared, dismissed, or mutated by Attention Hub.
+- [x] No network backend, telemetry, account credential, database, or out-of-scope product feature is introduced.
 - [ ] Findings explicitly assess Tauri plus the required identity/packaging complexity.
+- [x] No additional toast is required to make a source's persistent attention state visible.
+- [x] Telegram, Teams, and Outlook each have a documented taskbar/tray/window signal result, including exact count or qualitative state.
+- [x] The attention-signal probe never focuses, clicks, types into, or otherwise controls a source application.
+- [x] The manual Teams accessibility diagnostic emitted no raw Teams text or account/content identifiers and never ran from the automatic polling path; it was removed after the experiment.
+- [x] The Teams badge experiment recorded fresh 0 and 2-or-more results and recorded that opening Activity cleared both indicators before an intermediate 1 state could be isolated.
 
 ## Manual test cases
 
@@ -165,9 +226,12 @@ Use synthetic unit-test inputs for malformed and missing payload shapes. If real
 | S1 | Launch with existing Notification Center entries | Debug UI shows the current snapshot without waiting for a new event. |
 | S2 | Reload the frontend | A fresh snapshot restores current state. |
 | S3 | Restart Attention Hub | Current notifications reappear without local history. |
-| C1 | Receive one Teams notification | Source, timestamp, title/body shape, ID, and add timing are recorded. |
-| C2 | Receive one Outlook notification | Same fields and timing are recorded. |
-| C3 | Receive one Telegram notification | Same fields and timing are recorded. |
+| C1 | Cause and clear one Teams attention state | Accessible qualitative/count state and convergence timing are recorded; no extra toast is required by Attention Hub. |
+| C1a | With Teams Chat visible, compare manual sanitized probe output at badge 0, 1, and 2 or more | Any candidate number changes with the visible badge without exposing raw content. |
+| C1b | Repeat a nonzero Teams badge with another page visible and with Teams minimized | A viable app-level count remains discoverable; a visible-only result is recorded as partial/failed. |
+| C1c | Where practical, leave a contributing unread chat outside the materialized/visible rows | Virtualization dependence and any undercount are recorded. |
+| C2 | Cause and clear one Outlook unread state | Accessible qualitative/count state and convergence timing are recorded; no extra toast is required by Attention Hub. |
+| C3 | Cause and clear one Telegram attention state | Title counter, unread-chat count, badge comparison, and convergence timing are recorded. |
 | C4 | Receive multiple notifications from one source | Count, IDs, order, and grouping assumptions are recorded. |
 | C5 | Receive notifications from all three sources | Snapshot remains complete and source identities remain distinguishable. |
 | R1 | Dismiss a toast popup | Whether/when the entry disappears is recorded. |
@@ -194,6 +258,12 @@ Use synthetic unit-test inputs for malformed and missing payload shapes. If real
 | Sleep/resume and application lifecycle may invalidate subscriptions. | Medium. | Test lifecycle cases and reinitialize/re-snapshot if evidence requires it. |
 | WinRT UI-thread permission, async completion, COM apartment rules, and event-subscription lifetime may not align cleanly with Tauri's event loop/runtime. | High: incorrect integration can hang, fail with apartment/thread errors, or silently lose events. | Prove the smallest direct integration in Phases 1 and 3. Add a dedicated thread/channel only when observed behavior requires it; add no async runtime speculatively. |
 | If `UserNotificationListener` is not viable, Windows exposes no equivalent official API that directly answers attention state across arbitrary apps within the current privacy/scope constraints. | High for the product premise. | Record a stop/reconsider outcome rather than silently pivoting to UI Automation, taskbar scraping, calendar, or credentialed app APIs. |
+| Windows exposes setters but no supported getter for another application's numeric taskbar badge/overlay. | High for exact-count requirements. | Observe source-owned title/accessibility state upstream of the rendered badge; do not claim a generic taskbar-count API exists. |
+| UI Automation state is application-defined, version-sensitive, and localized. | High for reliability and maintenance. | Bound the experiment to three named applications, preserve raw labels/diagnostics, and require explicit per-source evidence before implementation is retained. |
+| A useful qualitative state may exist without an exact count. | Medium product decision. | Report exact and qualitative capabilities separately; do not invent a number from `New activity` or similar labels. |
+| Teams' visible badge combines multiple item categories and is not an unread-message count. | High semantic risk. | Name an exact result `badgeItems` or use a narrower truthful subset name; validate against controlled states. |
+| Deeper Teams accessibility traversal can encounter private chat names or previews. | High privacy risk. | Analyze values transiently in Rust and expose only fixed keyword hits, numbers, ARIA keys, lengths, geometry, and pattern names. Never return or log raw Teams text. |
+| Teams virtualizes pages and rows, so a UI-derived count may exist only while Chat is visible. | High reliability risk. | Test another page, minimized state, and an offscreen contributing unread row; reject visible-only totals as an app-level badge source. |
 
 ## Evidence known before implementation
 
@@ -207,47 +277,73 @@ Use synthetic unit-test inputs for malformed and missing payload shapes. If real
 
 ## Final findings
 
-Complete this section after the spike. Do not infer success from compilation alone.
+These findings combine compilation/tests with the recorded live Windows observations. Unrun cases remain explicit rather than being inferred as successful.
 
 ### Environment tested
 
-Pending.
+Preliminary development run on 2026-08-09:
+
+- Windows client build 26220.9022, version 25H2, x64.
+- Tauri CLI 2.11.4, Tauri Rust crate 2.11.5, `@tauri-apps/api` 2.11.1.
+- Rust/Cargo 1.97.1, MSVC target, Windows SDK 10.0.26100.0.
+- Unpackaged and sparse-identity development runs across revisions through `1f2c973`.
 
 ### Packaging and identity result
 
-Pending.
+Package identity was not required to obtain `Allowed` or a current snapshot on this machine. `Package::Current` returned `0x80073D54` (“The process has no package identity”), while `UserNotificationListener::Current`, `GetAccessStatus`, `RequestAccessAsync`, and `GetNotificationsAsync` succeeded. Foreground event registration did not succeed unpackaged, so one opt-in package-with-external-location route was added for comparison. It builds, signs, and registers as `AttentionHub.Dev_0.1.0.0_neutral__71pqjrj923s6p`; under that identity, the same adapter registered `NotificationChanged` successfully with no diagnostics and completed a real Snipping Tool add/remove cycle. Registration required explicit Local Machine `TrustedPeople` trust because Current User trust alone failed with `0x800B0109`. This is observed behavior on one Windows build, not a distribution-wide guarantee.
 
 ### Permission behavior
 
-Pending.
+The first captured status was already `Allowed`, so the first-run Allow/Deny dialog behavior was not observed. Repeated explicit requests returned `Allowed`. Revocation behavior remains pending.
 
 ### Snapshot quality by application
 
 | Application | Source identity | Title/body quality | Timestamp/ID behavior | Notes |
 | --- | --- | --- | --- | --- |
-| Microsoft Teams | Pending | Pending | Pending | Pending |
-| Microsoft Outlook | Pending | Pending | Pending | Pending |
-| Telegram | Pending | Pending | Pending | Pending |
+| Microsoft Teams | Notification-area accessibility label | Qualitative `activityStatus`; no exact count or message details | True-to-false transition validated | Passive exact-count experiment found no stable numeric property and was removed. |
+| Microsoft Outlook | `olk.exe` plus English Inbox accessibility labels | Exact aggregate Inbox unread count; no subject/body read | 1-to-0 transition validated | Tray `No unread messages` was observed stale and is not used. |
+| Telegram | Window title plus application accessibility labels | Application counter and unread-chat count with distinct semantics | Nonzero-to-zero transition validated | Telegram Desktop 7.0.9 displayed unread/taskbar badges without a current Windows toast. |
+
+The first current notification snapshot contained five entries and completed that vertical slice. Source-owned results were validated separately and must not be relabeled as equivalent notification counts.
 
 ### Change and removal behavior
 
-Pending.
+Native subscription and frontend invalidation-refresh behavior are implemented. Unpackaged subscription failed with `0x80070490` from both the Tauri UI thread and an explicitly initialized MTA worker, while snapshots continued to succeed. The identity-enabled application registered the listener successfully and returned a seven-item initial snapshot. A later Snipping Tool notification produced an `Added` event, appeared immediately as a normalized React row, then disappeared when dismissed from Windows Notification Center. One add/remove cycle therefore passes; repeated cycles and target-app cases remain in progress.
 
 ### Reliability and recovery
 
-Pending.
+Manual refresh and application restart both recover through a complete snapshot in the development runs completed so far. Frontend reload, sleep/resume, burst behavior, and repeated target-app cycles remain pending.
+
+Existing Telegram unread state did not recover into the snapshot because it was not represented by current Windows toasts. This is a signal-coverage limitation, not a snapshot-recovery failure.
+
+The unpackaged source-owned vertical slice initially returned UI Automation
+`0x80004005` during application startup, exposed that failure as diagnostics,
+and recovered on the next complete two-second refresh. Fifteen subsequent
+refreshes returned four signals without diagnostics. This is promising recovery
+evidence, not yet a long-duration reliability result.
 
 ### Complexity assessment
 
-Pending.
+The implementation currently needs one Windows-only adapter, Microsoft's `windows` crate, Tauri's existing async/blocking runtime, and a small main-thread result bridge. Snapshot access does not require identity on the tested machine, but foreground events may require the sparse identity/capability route. No helper process, dedicated runtime, database, or provider framework has been introduced.
+
+A read-only diagnostic probe found Telegram folder unread labels through Windows UI Automation, but taskbar, folder, and toast counts had different values and semantics. UI Automation was outside the original notification phases because it introduces per-application coupling and accessibility-tree fragility; ADR 0003 now permits only a bounded three-application feasibility probe rather than adding it to the notification adapter or creating a generalized framework.
+
+After the product requirement was clarified, ADR 0003 authorized a bounded feasibility phase. The reusable PowerShell probe and the Rust/Tauri/React vertical slice now demonstrate that source-owned persistent state is readable without notification traffic: Telegram exposes two different numeric states, Teams exposes only a qualitative activity state, and New Outlook exposes English Inbox unread counts in its application accessibility tree. This materially improves product fit but also confirms that one universal cross-application count contract is unlikely. The current two-second full UI Automation refresh is appropriate for the debug spike only; event-driven or adaptive refresh should be evaluated before production use.
 
 ### Decision
 
-Pending: continue / continue with constraints / change native boundary or desktop technology / stop.
+Continue with constraints.
+
+Tauri plus a small Rust Windows boundary is proportionate for the source-owned signals proven so far. Do not treat Windows Notification Center as the primary product model and do not introduce a universal unread-count contract. Retain explicit source-specific semantics: Telegram numeric counters, New Outlook Inbox unread count, and Teams qualitative `activityStatus`. Keep the notification-listener adapter as technical evidence/optional input; its sparse identity cost is not required by the primary source-owned path.
+
+Exact Teams counts and sender/message details are deferred. The bounded passive UI Automation experiment found no stable number, and OCR, Microsoft Graph authentication, Teams profile reads, or WebView debugging remain outside the approved architecture.
 
 ### Follow-up work
 
-Pending. Any proposed next milestone must be reviewed before implementation.
+- Finish the Milestone 0 development identity/package cleanup decision and any minimum closure checks still considered valuable.
+- Plan a calendar-first next milestone because upcoming commitments are a higher-value attention source than further Teams badge reverse-engineering.
+- Treat additional applications as explicit source-specific adapters with truthful signal semantics; do not build a generalized provider framework yet.
+- Review the next milestone plan before implementation.
 
 ## References
 
