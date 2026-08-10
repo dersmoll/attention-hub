@@ -174,6 +174,26 @@ Product-signal finding: Telegram Desktop 7.0.9 showed nonzero taskbar and applic
 
 Plan update: the product requirement was clarified to prefer persistent taskbar/application state without creating Notification Center noise. Microsoft exposes methods for applications to set their own taskbar overlay or badge, but no supported getter for another application's numeric badge. On the tested desktop, generic taskbar UI Automation identified source buttons but omitted rendered badge numbers. The bounded implementation therefore reads source-owned window/accessibility state upstream of the rendered badge: Telegram exposes a title count and unread-chat labels; New Outlook exposes per-Inbox unread counts; Teams exposes only a tray `New activity` label. The Outlook tray's `No unread messages` label was rejected after it contradicted a real unread Inbox. These are application-specific feasibility contracts, not universal Windows state.
 
+Visual-fallback Phase 0 finding on Windows build 26220.9022: a manual native
+Cargo example successfully registered the primary vertical `Shell_TrayWnd` as
+a DWM thumbnail source. The complete taskbar surface rendered live in an
+Attention Hub-owned native destination, included the real Teams badge, and
+reflected badge changes without pixel readback or re-registration. This proves
+taskbar-surface feasibility on the tested machine. A separately approved static
+crop pass then found exactly one Teams taskbar button, excluded its notification
+area icon, and translated its physical UI Automation bounds into the correct
+unpadded DWM source rectangle. The isolated icon and badge were correct at rest.
+After taskbar reordering, the fixed crop displayed the icon that moved into the
+old rectangle. An Explorer WinEvent invalidation attempt missed a controlled
+new taskbar button, and a taskbar-descendant UI Automation event subscription
+was rejected after `STATUS_HEAP_CORRUPTION`. The manual example now contains a
+100 ms semantic UI Automation rectangle revalidation fallback. A supervised
+reflow produced many real rectangle transitions and the DWM crop followed
+Teams, with a brief, user-accepted flash of another icon during movement. The
+example stays outside Tauri IPC and the normalized signal model; retaining the
+polling mirror in the product still requires an explicit product decision. The
+semantic Teams behavior remains the proven `activityStatus` boolean.
+
 The development identity route uses a package with external location mapped to `src-tauri/target/debug`, embeds matching `msix` metadata in the executable manifest through `tauri-build`, and declares `uap3:userNotificationListener`, `runFullTrust`, and `unvirtualizedResources` in the sparse package manifest. The executable metadata is opt-in through `ATTENTION_HUB_DEV_IDENTITY=1`; ordinary builds and tests remain unpackaged. The install and launch scripts set this variable deliberately so a binary that declares identity is never produced accidentally without the matching package registration. On the tested machine, package registration succeeded only after the public development certificate was explicitly trusted in Local Machine `TrustedPeople`; Current User `TrustedPeople` alone produced deployment error `0x800B0109`. This is a development experiment, not a production installer decision. Generated packages and certificates stay under ignored `target` output; scripts provide scoped registration, launch, and removal.
 
 Calendar Phase 0 finding on Windows build 26220.9022: the ordinary unpackaged
