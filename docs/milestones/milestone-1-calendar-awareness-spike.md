@@ -2,9 +2,10 @@
 
 ## Status
 
-In progress. Phase 0 was approved on 2026-08-10. Test unpackaged first; add the
-public `appointments` capability to the development sparse manifest only if the
-unpackaged request fails for identity or capability reasons.
+Paused at the provider-policy decision. Phase 0 passed unpackaged, but Phase 1
+proved that the returned legacy Mail and Calendar store is not authoritative for
+the current New Outlook work calendar. ADR 0006 requires an explicit decision
+before any Microsoft Graph/OAuth work.
 
 ## Purpose
 
@@ -126,17 +127,21 @@ snapshot phase; sparse-package comparison A2 is not required by this result.
 
 Exit gate: at least one real, upcoming, useful appointment crosses Windows -> Rust -> Tauri -> React and matches New Outlook, or the Windows store is proven unsuitable on this machine.
 
-Initial result on 2026-08-10: the unpackaged seven-day query returned 11
+Final Phase 1 result on 2026-08-10: the unpackaged seven-day query returned 11
 calendars and 13 appointments and rendered real upcoming appointment metadata
 in React. The first diagnostic exposed that an ordinary `Location` value can
 itself contain a meeting URL. Rust normalization now omits URL-like locations
 before IPC; `OnlineMeetingLink`, `Uri`, details/body, and people fields are not
-read. Direct New Outlook coverage and naturally occurring Teams-meeting matches
-still require user comparison before this phase is closed.
+read. Direct comparison then showed that all returned calendars belonged to the
+legacy Mail and Calendar source and the schedule materially differed from the
+current New Outlook and Microsoft 365 views. Some recurring work events
+overlapped, but current events were missing or stale. The Windows store is not a
+useful authoritative provider for this product. Phase 2 store-change work is
+stopped; ADR 0006 owns the Graph-or-stop decision.
 
-### Phase 2: invalidation and recovery
+### Phase 2: invalidation and recovery — stopped for this provider
 
-- Only after Phase 1 passes, subscribe to `AppointmentStore.StoreChanged`.
+- Do not subscribe to `AppointmentStore.StoreChanged`; Phase 1 coverage failed.
 - Emit a small invalidation event and request a complete fresh snapshot.
 - Verify cleanup, restart recovery, one add/edit/remove transition, and background behavior.
 - Keep manual refresh available when event subscription fails.
@@ -156,8 +161,8 @@ Exit gate: the frontend converges without restart and complete refresh recovers 
 - [x] Access is requested explicitly and read-only.
 - [ ] React receives no WinRT or Windows-specific objects.
 - [ ] A complete upcoming snapshot can be requested at any time.
-- [ ] At least one real New Outlook appointment is matched, or an explicit platform blocker is recorded.
-- [ ] Naturally occurring Teams meeting coverage is recorded without creating a meeting solely for the spike.
+- [x] At least one real New Outlook appointment is matched, or an explicit platform blocker is recorded. The explicit blocker is stale legacy-store coverage.
+- [x] Naturally occurring Teams meeting coverage is recorded without creating a meeting solely for the spike. A current Teams meeting was absent from the stale OS snapshot.
 - [ ] Times, durations, all-day state, recurrence, sensitivity, and time-zone behavior are documented accurately enough for the debug slice.
 - [ ] No event body, attendee, organizer address, attachment, or join URL crosses IPC.
 - [ ] No appointment is created, edited, accepted, declined, dismissed, or deleted.
@@ -171,8 +176,8 @@ Exit gate: the frontend converges without restart and complete refresh recovers 
 | --- | --- | --- |
 | A1 | Request all-calendars read-only access unpackaged | Passed: `Allowed`; API available; no identity; `AppointmentStore` returned. |
 | A2 | Repeat with sparse identity and public `appointments` capability if needed | Not required after A1 succeeded; capability remains absent. |
-| S1 | Query the next seven days | Returned calendars/events are compared with New Outlook. |
-| S2 | Include a naturally occurring Teams meeting | Whether it appears and which safe metadata identifies it are recorded. |
+| S1 | Query the next seven days | Failed coverage: 11 legacy-source calendars and 13 stale/partial events differed materially from New Outlook. |
+| S2 | Include a naturally occurring Teams meeting | Failed coverage: a current New Outlook Teams meeting was not represented in the OS snapshot. |
 | S3 | Private/sensitive event | OS redaction and normalized sensitivity behavior are recorded without committing private content. |
 | S4 | Recurring event instance | Instance time/ID/recurrence behavior is recorded. |
 | S5 | All-day and non-local-time-zone events | Boundary and conversion behavior is recorded. |
@@ -199,12 +204,19 @@ Do not commit screenshots or fixtures containing private calendar content. Evide
 
 ## Final findings
 
-In progress. Phase 0 proves that read-only `AppointmentStore` acquisition works
-in the ordinary unpackaged Tauri executable on this machine. Package identity
-and the manifest `appointments` capability are unnecessary for this step.
-Visible-vs-returned calendar coverage, New Outlook/Teams behavior, privacy
-redaction, change/recovery behavior, and the final continue/Graph-review/stop
-decision remain open.
+The WinRT/Tauri hypothesis is technically viable but not useful for the active
+work calendar. Read-only `AppointmentStore` acquisition and seven-day snapshots
+work unpackaged without an `appointments` manifest capability, and 11 calendars
+plus 13 appointments crossed the full boundary. However, Windows returned the
+legacy Mail and Calendar source, not an authoritative New Outlook schedule.
+Current Outlook and Microsoft 365 views contained materially different events,
+including a Teams meeting absent from the OS snapshot. Meeting URLs found in
+`Location` are now omitted in Rust before IPC.
+
+Decision: stop `AppointmentStore` invalidation work. Calendar implementation is
+paused pending ADR 0006: approve a bounded local Microsoft Graph delegated-OAuth
+spike, or accept that New Outlook calendar awareness is unavailable under the
+original no-account-authorization rule.
 
 ## Official references
 

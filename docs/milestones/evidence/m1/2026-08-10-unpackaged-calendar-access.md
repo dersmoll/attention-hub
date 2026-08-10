@@ -28,5 +28,12 @@ The first seven-day unpackaged snapshot returned 11 calendars and 13
 appointments and displayed real upcoming metadata in React. A meeting URL was
 observed inside an ordinary appointment `Location` field. The implementation
 was immediately tightened to omit URL-like location values in Rust before IPC;
-the URL itself is not recorded here. New Outlook and Teams coverage comparison
-remains pending user confirmation.
+the URL itself is not recorded here.
+
+Direct comparison with current New Outlook and Microsoft 365 calendar views
+subsequently failed coverage. All returned calendars were attributed to the
+legacy Windows Mail and Calendar source. A few recurring work appointments
+overlapped, but the current schedule materially differed and a naturally
+occurring Teams meeting visible in New Outlook was absent from the OS snapshot.
+No account address, calendar name, event subject, location, participant, or
+meeting link is recorded here.

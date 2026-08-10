@@ -188,6 +188,15 @@ ordinary appointment `Location` property, URL-like location values are omitted
 in Rust before serialization rather than relying only on avoiding the dedicated
 online-meeting and URI properties.
 
+Calendar Phase 1 coverage finding: all returned appointment calendars were
+attributed to the legacy Windows Mail and Calendar source. Comparison with the
+current New Outlook and Microsoft 365 views showed a materially stale/partial
+schedule, including a current Teams meeting absent from the Windows snapshot.
+`AppointmentStore` is therefore retained as spike evidence rather than selected
+as the product's calendar provider, and `StoreChanged` work is stopped. ADR 0006
+defines the required policy choice between a least-privilege Microsoft Graph
+exception and no New Outlook calendar support.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.
