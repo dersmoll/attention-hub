@@ -32,6 +32,7 @@ const OUTLOOK_EXECUTABLE: &str = "olk.exe";
 const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
 
 pub fn get_snapshot() -> AttentionSignalSnapshot {
+    let _uia_guard = crate::uia_gate::lock_background();
     let captured_at = current_time_iso8601();
     let mut signals = Vec::new();
     let mut diagnostics = Vec::new();
