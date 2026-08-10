@@ -195,9 +195,20 @@ checks and uses full taskbar traversal only for bounded recovery. A 612-second
 debug run measured 0.018% total CPU and a 20.85 MiB maximum working set. Two
 Explorer taskbar-owner restarts hid the mirror, rebound the new DWM source, and
 recovered Teams after the rebuilt accessibility tree became available. The
-example stays outside Tauri IPC and the normalized signal model; retaining the
-mirror in the product still requires an explicit product decision. The semantic
-Teams behavior remains the proven `activityStatus` boolean.
+manual example and product adapter now share one native tracker. ADR 0009
+retains it as an opt-in Windows visual companion, while the Tauri boundary
+exposes only start, stop, and lifecycle/status commands. The companion uses its
+own Attention Hub-owned top-level window because a DWM thumbnail attached to
+Tauri's outer window would render behind the webview child. It is owned by the
+main panel, initially opens beside it, and remains movable by its native caption.
+Start is asynchronous: IPC returns `starting` immediately and the existing
+status poll observes the native thread's transition. A process-wide UI
+Automation gate prevents the mirror tracker and the existing attention-signal
+snapshot from traversing providers concurrently. Initial mirror discovery is a
+priority waiter; cached 100 ms checks skip while another traversal holds the
+gate rather than blocking the native window message loop.
+The mirror still does not enter the normalized signal model; the semantic Teams
+behavior remains the proven `activityStatus` boolean.
 
 The development identity route uses a package with external location mapped to `src-tauri/target/debug`, embeds matching `msix` metadata in the executable manifest through `tauri-build`, and declares `uap3:userNotificationListener`, `runFullTrust`, and `unvirtualizedResources` in the sparse package manifest. The executable metadata is opt-in through `ATTENTION_HUB_DEV_IDENTITY=1`; ordinary builds and tests remain unpackaged. The install and launch scripts set this variable deliberately so a binary that declares identity is never produced accidentally without the matching package registration. On the tested machine, package registration succeeded only after the public development certificate was explicitly trusted in Local Machine `TrustedPeople`; Current User `TrustedPeople` alone produced deployment error `0x800B0109`. This is a development experiment, not a production installer decision. Generated packages and certificates stay under ignored `target` output; scripts provide scoped registration, launch, and removal.
 

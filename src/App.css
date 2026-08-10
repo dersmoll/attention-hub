@@ -31,6 +31,11 @@ section + section {
   margin-top: 0;
 }
 
+.section-heading > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 hr {
   margin-block: 2rem;
   border: 0;
@@ -63,7 +68,8 @@ dd {
   overflow-wrap: anywhere;
 }
 
-[data-status="allowed"] {
+[data-status="allowed"],
+[data-status="running"] {
   color: #176b2c;
 }
 

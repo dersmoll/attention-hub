@@ -138,6 +138,15 @@ interface GraphEnvironmentReport {
   diagnostics: string[];
 }
 
+interface TeamsMirrorStatus {
+  lifecycle: string;
+  enabled: boolean;
+  visible: boolean;
+  visualOnly: boolean;
+  pollIntervalMs: number;
+  diagnostic: string | null;
+}
+
 function App() {
   const [graphEnvironment, setGraphEnvironment] =
     useState<GraphEnvironmentReport | null>(null);
@@ -156,6 +165,9 @@ function App() {
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
   const [attentionRefreshing, setAttentionRefreshing] = useState(false);
+  const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
+  const [teamsMirrorPending, setTeamsMirrorPending] = useState(false);
+  const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
   const [report, setReport] = useState<NotificationAccessReport | null>(null);
   const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null);
   const [listenerReport, setListenerReport] = useState<ListenerStartReport | null>(
@@ -233,6 +245,41 @@ function App() {
     }
   }, []);
 
+  const refreshTeamsMirror = useCallback(async () => {
+    try {
+      setTeamsMirror(
+        await invoke<TeamsMirrorStatus>("get_teams_mirror_status"),
+      );
+      setTeamsMirrorError(null);
+    } catch (error) {
+      setTeamsMirrorError(String(error));
+    }
+  }, []);
+
+  const runTeamsMirrorCommand = useCallback(
+    async (command: "start_teams_mirror" | "stop_teams_mirror") => {
+      setTeamsMirrorPending(true);
+      setTeamsMirrorError(null);
+
+      try {
+        setTeamsMirror(await invoke<TeamsMirrorStatus>(command));
+      } catch (error) {
+        const message = String(error);
+        try {
+          setTeamsMirror(
+            await invoke<TeamsMirrorStatus>("get_teams_mirror_status"),
+          );
+        } catch {
+          // Preserve the command failure below when status refresh also fails.
+        }
+        setTeamsMirrorError(message);
+      } finally {
+        setTeamsMirrorPending(false);
+      }
+    },
+    [],
+  );
+
   const runCommand = useCallback(
     async (
       command: "get_notification_access_status" | "request_notification_access",
@@ -297,6 +344,27 @@ function App() {
       }
     };
   }, [refreshAttentionSignals]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      await refreshTeamsMirror();
+      if (!disposed) {
+        timer = setTimeout(() => void poll(), 2_000);
+      }
+    };
+
+    void poll();
+
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [refreshTeamsMirror]);
 
   useEffect(() => {
     if (report?.accessStatus === "allowed") {
@@ -619,6 +687,67 @@ function App() {
               </>
             )}
           </>
+        )}
+      </section>
+
+      <hr />
+
+      <section aria-live="polite">
+        <div className="section-heading">
+          <div>
+            <h2>Teams visual mirror (optional)</h2>
+            <p>
+              Shows live Teams taskbar pixels in a movable companion window.
+              Attention Hub does not read those pixels or convert the badge into
+              a count.
+            </p>
+          </div>
+          <button
+            disabled={teamsMirrorPending || teamsMirror === null}
+            onClick={() =>
+              void runTeamsMirrorCommand(
+                teamsMirror?.enabled
+                  ? "stop_teams_mirror"
+                  : "start_teams_mirror",
+              )
+            }
+            type="button"
+          >
+            {teamsMirrorPending
+              ? "Updating…"
+              : teamsMirror?.enabled
+                ? "Stop mirror"
+                : "Show Teams visual"}
+          </button>
+        </div>
+
+        {teamsMirrorError && (
+          <p className="error">Teams mirror error: {teamsMirrorError}</p>
+        )}
+
+        {teamsMirror ? (
+          <dl>
+            <dt>Status</dt>
+            <dd data-status={teamsMirror.lifecycle}>{teamsMirror.lifecycle}</dd>
+
+            <dt>Pixels visible</dt>
+            <dd>{String(teamsMirror.visible)}</dd>
+
+            <dt>Interpretation</dt>
+            <dd>{teamsMirror.visualOnly ? "visual only" : "unexpected"}</dd>
+
+            <dt>Position check</dt>
+            <dd>{teamsMirror.pollIntervalMs} ms</dd>
+
+            {teamsMirror.diagnostic && (
+              <>
+                <dt>Diagnostic</dt>
+                <dd>{teamsMirror.diagnostic}</dd>
+              </>
+            )}
+          </dl>
+        ) : (
+          <p>Reading Teams mirror status…</p>
         )}
       </section>
 
