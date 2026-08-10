@@ -2,9 +2,13 @@
 
 ## Status
 
-In progress. Explicitly approved on 2026-08-10 through ADR 0006 option 1.
-Phase 0 passed locally; Phase 1 is waiting for the Entra public-client
-registration coordinates.
+Paused after Phase 0. Explicitly approved on 2026-08-10 through ADR 0006
+option 1, but no Entra registration was created and no tenant change was made.
+The user raised a valid organization-ownership concern before Phase 1. ADR 0007
+therefore triggered a bounded Microsoft 365 Calendar companion accessibility
+spike. That spike is complete and did not produce a passive background provider.
+Graph remains paused unless the organization explicitly approves Attention
+Hub's application registration and delegated consent.
 
 ## Purpose
 
@@ -18,7 +22,7 @@ Prove or disprove this assumption:
 This is a bounded provider/authentication spike, not production account support
 or a product calendar UI.
 
-## Approved policy exception
+## Paused policy exception
 
 - Microsoft Graph cloud access is allowed only for this calendar spike.
 - Request delegated `Calendars.ReadBasic` only.
@@ -213,9 +217,13 @@ booleans and component versions. Rust enforces a five-second process timeout and
 64 KiB output limit. The helper currently implements only `environment`; WAM and
 Graph are not contacted.
 
-Complete the remaining findings after the spike. Record registration/consent outcome, current-calendar
-parity, Teams-meeting coverage, privacy behavior, recovery, packaging cost, and
-the retain/change/stop decision without committing account or event content.
+Phase 1 is paused before registration or consent because the selected work
+account belongs to an organization-owned tenant. The alternative ADR 0007
+companion observer was useful only while its flyout was visible and therefore
+failed Attention Hub's passive-background requirement. Resume this milestone
+only with explicit organization approval; otherwise its current outcome is a
+safe, unconfigured proof of the helper boundary, not an active calendar
+provider.
 
 ## Official references
 

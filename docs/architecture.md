@@ -205,6 +205,19 @@ does not authenticate or contact Graph. Rust locates the development helper,
 enforces a five-second timeout and 64 KiB stream limit, parses the expected
 protocol version/operation, and exposes an application-owned environment report
 through Tauri. Tokens and raw provider responses are not part of this boundary.
+Phase 1 is paused: the work tenant is organization-owned, and no Entra
+registration, consent, token, or Graph request was created.
+
+ADR 0007 tested the installed Microsoft 365 Calendar companion before accepting
+that organization-facing cost. Installation did not change the Windows
+`AppointmentStore` result: `AllCalendarsReadOnly` still returned 11 calendars,
+one distinct source display name, and 13 appointments. A sanitized native UI
+Automation probe found useful event/time structure while the companion flyout
+was visible, but the event WebView tree disappeared when the flyout closed even
+though hidden process-owned windows remained. The companion is therefore not a
+passive background provider. Attention Hub will not automatically open another
+application to refresh it, and normalized companion agenda extraction is
+stopped. The temporary probe is evidence, not a new provider architecture.
 
 ## Tauri IPC and security
 

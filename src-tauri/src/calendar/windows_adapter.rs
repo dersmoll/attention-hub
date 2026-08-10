@@ -662,4 +662,31 @@ mod tests {
         assert!(contains_url_like_value("msteams:/l/meetup-join/opaque"));
         assert!(!contains_url_like_value("Conference Room 3"));
     }
+
+    #[test]
+    #[ignore = "manual local AppointmentStore count-only diagnostic"]
+    fn live_snapshot_emits_counts_only() {
+        let snapshot = get_snapshot_mta();
+        let distinct_source_count = snapshot
+            .calendars
+            .iter()
+            .filter_map(|calendar| calendar.source_display_name.as_deref())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        let hidden_calendar_count = snapshot
+            .calendars
+            .iter()
+            .filter(|calendar| calendar.hidden)
+            .count();
+
+        println!(
+            "AppointmentStore count-only snapshot: status={:?}, calendars={}, hidden_calendars={}, distinct_sources={}, appointments={}, diagnostics={:?}",
+            snapshot.access_status,
+            snapshot.calendars.len(),
+            hidden_calendar_count,
+            distinct_source_count,
+            snapshot.appointments.len(),
+            snapshot.diagnostics
+        );
+    }
 }

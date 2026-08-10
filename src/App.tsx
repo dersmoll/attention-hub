@@ -351,7 +351,7 @@ function App() {
   return (
     <main>
       <h1>Attention Hub</h1>
-      <p>Milestone 2 Microsoft Graph calendar-provider diagnostic</p>
+      <p>Milestone 2 paused Microsoft Graph calendar-provider diagnostic</p>
 
       <section aria-live="polite">
         <div className="section-heading">

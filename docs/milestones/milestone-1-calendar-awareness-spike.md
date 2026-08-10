@@ -139,6 +139,14 @@ overlapped, but current events were missing or stale. The Windows store is not a
 useful authoritative provider for this product. Phase 2 store-change work is
 stopped; ADR 0006 owns the Graph-or-stop decision.
 
+Follow-up after installing Microsoft 365 Calendar companion version
+`2.2605.21000.0`: the same count-only query still returned 11 calendars, one
+distinct source display name, and 13 appointments. The companion therefore did
+not publish the current Microsoft 365 work calendar into `AppointmentStore`.
+`AllCalendarsReadOnly` has no source switch that can select a provider absent
+from the returned store. ADR 0007 records the separate companion UI Automation
+test.
+
 ### Phase 2: invalidation and recovery — stopped for this provider
 
 - Do not subscribe to `AppointmentStore.StoreChanged`; Phase 1 coverage failed.
@@ -216,6 +224,9 @@ including a Teams meeting absent from the OS snapshot. Meeting URLs found in
 Decision: stop `AppointmentStore` invalidation work. Calendar implementation is
 closed for `AppointmentStore`. ADR 0006 option 1 was approved on 2026-08-10;
 Milestone 2 owns the separate bounded Microsoft Graph delegated-OAuth spike.
+That Graph spike is currently paused because the work tenant is owned by the
+user's organization. The intervening companion observer spike also failed its
+background-availability gate; see ADR 0007.
 
 ## Official references
 
