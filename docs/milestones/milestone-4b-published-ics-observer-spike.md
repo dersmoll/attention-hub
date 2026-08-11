@@ -3,10 +3,9 @@
 ## Status
 
 In progress on 2026-08-11. The bounded one-shot structure diagnostic is
-implemented and awaiting a manually generated busy-only publication URL. No
-calendar has been published or fetched during automated implementation work.
-Semantic extraction, polling, persistence, and widget integration have not
-started.
+implemented, and one manually generated publication returned a valid sanitized
+calendar structure. Direct freshness remains unmeasured. Semantic extraction,
+polling, persistence, and widget integration have not started.
 
 ## Product question
 
@@ -52,7 +51,9 @@ detail level even if Attention Hub discards excluded fields.
 - [x] The response body is zeroed after its in-memory structure scan.
 - [x] Semantic extraction, polling, persistence, and widget integration remain
       disabled.
-- [ ] A busy-only live fetch is recorded with sanitized evidence.
+- [x] A busy-only live fetch is recorded with sanitized evidence; the
+      permission choice follows the manual procedure and is not inferred from
+      event content.
 - [ ] Direct freshness is measured against the Microsoft 365 Calendar companion
       across a harmless create/update/cancel cycle.
 - [ ] Recurrence, exception, one-off, private, all-day, and overlapping shapes

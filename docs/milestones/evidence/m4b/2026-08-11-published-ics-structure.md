@@ -4,7 +4,7 @@
 - Scope: manual one-shot Published ICS structure gate
 - Provider decision: pending live freshness evidence
 - Semantic extraction: not implemented
-- Live publication/fetch: not yet performed
+- Live publication/fetch: sanitized structure observed
 
 ## Implemented boundary
 
@@ -42,7 +42,13 @@ raw ICS, event values, header values, or source-account text.
 
 | Permission | Status | HTTP/type | Bytes | Calendars/events | Start/end shape | Recurrence | Timezones | Request/parse ms | Stop reason |
 | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- |
-| Busy only | Pending | — | — | — | — | — | — | — | — |
+| Busy only, per manual procedure; not verifiable from DTO | Observed | 200 / calendar | 458,451 | 1 / 600 | 600 / 600 | RRULE 38; RDATE 0; EXDATE 25; overrides 284 | definitions 8; references 1,487 | 5,766 / 5 | None |
+
+The response contained 13,667 properties across 14,297 physical lines, including
+629 folded lines. ETag, Last-Modified, Cache-Control, and Age headers were all
+absent. The result confirms one bounded, balanced calendar structure but does
+not yet establish feed freshness. Without validators, each freshness probe must
+download the full response; production polling remains out of scope.
 
 ## Freshness matrix
 
