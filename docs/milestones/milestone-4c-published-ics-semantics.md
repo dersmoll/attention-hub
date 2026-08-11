@@ -2,9 +2,10 @@
 
 ## Status
 
-Implemented on 2026-08-11 and awaiting the first live title-capable probe. This
-milestone is a manual one-shot provider gate. It does not add polling, secret
-storage, widget integration, or a join action.
+Implemented on 2026-08-11. A direct live title-capable backend probe now
+produces one active selection; visible comparison and remaining natural edge
+cases are still pending. This milestone is a manual one-shot provider gate. It
+does not add polling, secret storage, widget integration, or a join action.
 
 ## Product question
 
@@ -37,12 +38,15 @@ meeting-link presence is withheld for that selection.
 2. Exclude cancelled series and cancelled recurrence instances.
 3. Apply recurrence exceptions by UID and original `RECURRENCE-ID` in memory;
    neither identifier is returned.
-4. Prefer events where `start <= now < end`.
-5. If active events overlap, prefer the most recently started, then the one
+4. Ignore a detached recurrence exception only when it is cancelled, already
+   ended, or beyond the fixed lookahead. A current or upcoming detached
+   exception without its master remains unavailable rather than guessed.
+5. Prefer events where `start <= now < end`.
+6. If active events overlap, prefer the most recently started, then the one
    ending first, then stable internal UID/source order.
-6. Otherwise prefer the earliest upcoming start, then earliest end, then the
+7. Otherwise prefer the earliest upcoming start, then earliest end, then the
    same internal tie-breakers.
-7. Return only one selection.
+8. Return only one selection.
 
 This follows RFC 5545 recurrence-set precedence: `DTSTART`, `RRULE`, and
 `RDATE` include occurrences; `EXDATE` excludes them. Per-instance overrides
@@ -60,6 +64,7 @@ adds:
 | Boundary | Limit |
 | --- | ---: |
 | Complete one-shot command | 15 seconds |
+| UI/IPC safety deadline | 20 seconds |
 | Semantic parse | 750 ms |
 | One unfolded content line | 256 KiB |
 | Subject | 512 Unicode characters |

@@ -248,6 +248,32 @@ interface PublishedIcsSemanticProbe {
   diagnostics: string[];
 }
 
+const PUBLISHED_ICS_UI_DEADLINE_MS = 20_000;
+
+class PublishedIcsUiDeadlineError extends Error {}
+
+async function invokePublishedIcsWithDeadline<T>(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      invoke<T>(command, args),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new PublishedIcsUiDeadlineError()),
+          PUBLISHED_ICS_UI_DEADLINE_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 function AdvancedView() {
   const [publishedIcsUrl, setPublishedIcsUrl] = useState("");
   const [publishedIcsProbe, setPublishedIcsProbe] =
@@ -412,14 +438,16 @@ function AdvancedView() {
     setPublishedIcsProbePending(true);
     try {
       setPublishedIcsProbe(
-        await invoke<PublishedIcsStructureProbe>(
+        await invokePublishedIcsWithDeadline<PublishedIcsStructureProbe>(
           "get_published_ics_structure_probe",
           { publishedUrl: secretUrl },
         ),
       );
-    } catch {
+    } catch (error) {
       setPublishedIcsProbeError(
-        "The local ICS diagnostic failed without returning a sanitized result.",
+        error instanceof PublishedIcsUiDeadlineError
+          ? "The local ICS diagnostic did not return within the fixed 20-second UI safety deadline."
+          : "The local ICS diagnostic failed without returning a sanitized result.",
       );
     } finally {
       setPublishedIcsProbePending(false);
@@ -446,7 +474,7 @@ function AdvancedView() {
     setPublishedIcsSemanticPending(true);
     try {
       setPublishedIcsSemanticProbe(
-        await invoke<PublishedIcsSemanticProbe>(
+        await invokePublishedIcsWithDeadline<PublishedIcsSemanticProbe>(
           "get_published_ics_semantic_probe",
           {
             publishedUrl: secretUrl,
@@ -454,9 +482,11 @@ function AdvancedView() {
           },
         ),
       );
-    } catch {
+    } catch (error) {
       setPublishedIcsSemanticError(
-        "The local semantic diagnostic failed without returning a bounded result.",
+        error instanceof PublishedIcsUiDeadlineError
+          ? "The local semantic diagnostic did not return within the fixed 20-second UI safety deadline."
+          : "The local semantic diagnostic failed without returning a bounded result.",
       );
     } finally {
       setPublishedIcsSemanticPending(false);

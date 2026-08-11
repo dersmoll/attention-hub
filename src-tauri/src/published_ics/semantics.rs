@@ -199,6 +199,7 @@ pub fn extract_current_or_next(
     for series in grouped.into_values() {
         expand_series(
             series,
+            now,
             window_start,
             window_end,
             &mut candidates,
@@ -496,6 +497,7 @@ fn normalize_event(
 
 fn expand_series(
     mut series: Vec<NormalizedEvent>,
+    now: DateTime<Utc>,
     window_start: DateTime<Utc>,
     window_end: DateTime<Utc>,
     candidates: &mut Vec<Candidate>,
@@ -583,10 +585,14 @@ fn expand_series(
                 push_candidate(&master, master.start.with_timezone(&Utc), candidates);
             }
         }
-    } else if !overrides.is_empty() {
+    } else if overrides.iter().any(|event| {
+        !event.cancelled
+            && event.end.with_timezone(&Utc) > now
+            && event.start.with_timezone(&Utc) < window_end
+    }) {
         return Err(failure(
             SemanticFailureReason::UnsupportedRecurrence,
-            "A recurrence override was present without one master event.",
+            "A current or upcoming recurrence override was present without one master event.",
         ));
     }
 
@@ -978,6 +984,18 @@ mod tests {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:series\r\nDTSTART:20260804T130000Z\r\nDTEND:20260804T140000Z\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:Weekly sync\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:series\r\nRECURRENCE-ID:20260811T130000Z\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.selection.start, "2026-08-18T13:00:00+00:00");
         assert_eq!(result.selection.subject, "Weekly sync");
+    }
+
+    #[test]
+    fn ignores_only_stale_orphan_overrides() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:orphan\r\nRECURRENCE-ID:20260801T130000Z\r\nDTSTART:20260801T130000Z\r\nDTEND:20260801T140000Z\r\nSUMMARY:Stale exception\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:next\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Next meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+        assert_eq!(result.selection.subject, "Next meeting");
+
+        let future_orphan = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:orphan\r\nRECURRENCE-ID:20260812T130000Z\r\nDTSTART:20260812T130000Z\r\nDTEND:20260812T140000Z\r\nSUMMARY:Future exception\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap_err();
+        assert_eq!(
+            future_orphan.reason,
+            SemanticFailureReason::UnsupportedRecurrence
+        );
     }
 
     #[test]

@@ -33,6 +33,9 @@ confirmation of the exact publication level. The command:
 - rejects floating/ambiguous times and unsupported recurrence shapes;
 - applies RFC 5545 recurrence inclusion, exclusion, and per-instance override
   semantics inside a fixed time window and occurrence cap;
+- ignores only cancelled, ended, or out-of-lookahead detached recurrence
+  exceptions while rejecting a current/upcoming exception whose master is
+  absent;
 - excludes cancellations and deterministically selects one active event or the
   earliest upcoming event;
 - replaces private/confidential subjects and withholds their meeting-link
@@ -41,6 +44,10 @@ confirmation of the exact publication level. The command:
   meeting-link presence;
 - never returns or logs the publication URL, location, account, attendee,
   organizer, body, UID, raw ICS, or meeting URL.
+
+The Advanced UI also owns a 20-second safety deadline around each Published
+ICS IPC call. This does not replace the backend deadline; it only guarantees
+that a broken bridge cannot leave the control in a permanent loading state.
 
 The Microsoft 365 Calendar companion remains a manual visible comparison
 oracle only. No source application is launched, focused, clicked, navigated, or
