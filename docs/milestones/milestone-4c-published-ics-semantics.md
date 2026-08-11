@@ -3,10 +3,11 @@
 ## Status
 
 Implemented on 2026-08-11. Direct-backend and Advanced-UI/Tauri-IPC live probes
-now produce one active selection; visible comparison and remaining natural
-edge cases are still pending. This milestone is a manual one-shot provider
-gate. It does not add polling, secret storage, widget integration, or a join
-action.
+produced one active selection, and the user confirmed that the displayed event
+matched the visible calendar. The provider decision is to continue through the
+separately approved Milestone 4D integration in ADR 0014. Remaining natural
+edge cases continue as runtime evidence rather than blocking that bounded
+current-or-next integration.
 
 ## Product question
 
@@ -108,9 +109,9 @@ times; timed events still require UTC or an explicit `TZID`.
 - [x] Location and meeting URL are never returned.
 - [x] Focused one-off, active/upcoming, overlap, recurrence/cancellation,
       Windows timezone, all-day, private, and link-presence tests pass.
-- [ ] The live title-capable feed produces a correct active-or-next result.
+- [x] The live title-capable feed produces a correct active-or-next result.
 - [ ] Required live edge cases are validated where naturally available.
-- [ ] A provider decision is recorded.
+- [x] A provider decision is recorded.
 
 ## Non-goals
 

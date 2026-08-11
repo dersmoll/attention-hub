@@ -6,7 +6,8 @@
 - Live semantic result: direct-backend and Advanced-UI/Tauri-IPC retests
   observed one active selection after bounded all-day and stale-orphan
   recurrence corrections
-- Provider decision: pending
+- Provider decision: continue to the separately approved bounded widget
+  integration in ADR 0014
 
 ## Implemented boundary
 
@@ -48,6 +49,7 @@ organizer, body, or meeting URL.
 | First all-day-corrected retest | Timeout defect | The UI remained loading for more than five minutes; process sampling showed no sustained CPU work, so the one-shot command lacked a reliable terminal boundary around the native request path |
 | Authorized local backend retest | Observed | HTTP 200 calendar; 511,591 bytes; request 2,884 ms; parse 84 ms; 1,012 eligible candidates; 1 active candidate; 1,061 recurrence occurrences expanded; one selection present; no title, time, URL, or other event value recorded |
 | Advanced UI through Tauri IPC | Observed | Single `pnpm tauri dev` instance; command returned in approximately 1.9 seconds; HTTP 200 calendar; 511,591 bytes; parse 85 ms; the same bounded candidate counts and one active selection were returned; terminal logging contained no selection values |
+| Visible current-or-next comparison | Passed | The user confirmed that the returned selection matched the visible calendar; values were not recorded |
 | In-progress versus upcoming | Pending | — |
 | Recurring and one-off | Pending | — |
 | Cancelled instance/series | Pending | — |
@@ -57,9 +59,10 @@ organizer, body, or meeting URL.
 
 ## Decision gate
 
-Production polling, secret storage, and widget integration remain unapproved
-until the live title-capable result and required edge cases establish that the
-provider stays accurate and private within the documented bounds.
+The user approved a separately bounded widget integration after confirming the
+live title-capable selection. ADR 0014 owns secret persistence, single-flight
+polling, truthful failure behavior, and widget scope; this M4C evidence remains
+the semantic provider gate.
 
 ### First live-gate correction
 

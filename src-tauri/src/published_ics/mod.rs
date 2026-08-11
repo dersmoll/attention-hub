@@ -478,11 +478,12 @@ pub async fn get_structure_probe(published_url: String) -> PublishedIcsStructure
 }
 
 pub async fn get_semantic_probe(
-    published_url: String,
+    mut published_url: String,
     title_capability_confirmed: bool,
 ) -> PublishedIcsSemanticProbe {
     let mut probe = PublishedIcsSemanticProbe::new(title_capability_confirmed);
     if !title_capability_confirmed {
+        unsafe { published_url.as_bytes_mut() }.fill(0);
         probe.fail(
             PublishedIcsProbeStatus::InvalidInput,
             PublishedIcsStopReason::TitleCapabilityNotConfirmed,
@@ -491,7 +492,9 @@ pub async fn get_semantic_probe(
         return probe;
     }
 
-    let validated = match validate_published_url(&published_url) {
+    let validation = validate_published_url(&published_url);
+    unsafe { published_url.as_bytes_mut() }.fill(0);
+    let validated = match validation {
         Ok(validated) => validated,
         Err((reason, diagnostic)) => {
             probe.fail(PublishedIcsProbeStatus::InvalidInput, reason, diagnostic);
@@ -728,6 +731,24 @@ pub async fn get_semantic_probe(
         "Location, account, attendees, organizer, body, UID, raw calendar data, and meeting URLs were discarded and did not cross IPC.".to_owned(),
     );
     probe
+}
+
+pub async fn get_semantic_probe_with_deadline(
+    published_url: String,
+    title_capability_confirmed: bool,
+) -> PublishedIcsSemanticProbe {
+    let mut task = tokio::spawn(get_semantic_probe(
+        published_url,
+        title_capability_confirmed,
+    ));
+    match tokio::time::timeout(Duration::from_secs(15), &mut task).await {
+        Ok(Ok(probe)) => probe,
+        Ok(Err(_)) => PublishedIcsSemanticProbe::command_failed(title_capability_confirmed),
+        Err(_) => {
+            task.abort();
+            PublishedIcsSemanticProbe::command_deadline(title_capability_confirmed)
+        }
+    }
 }
 
 fn validate_published_url(

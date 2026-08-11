@@ -6,6 +6,7 @@ mod outlook_my_day;
 mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
+mod work_calendar;
 
 use attention_signals::AttentionSignalSnapshot;
 use calendar::{CalendarAccessReport, CalendarSnapshot};
@@ -15,8 +16,9 @@ use notifications::{
 };
 use outlook_my_day::OutlookMyDayStructureProbe;
 use published_ics::{PublishedIcsSemanticProbe, PublishedIcsStructureProbe};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
+use work_calendar::{WorkCalendarConfiguration, WorkCalendarSnapshot, WorkCalendarState};
 
 #[tauri::command]
 async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
@@ -119,18 +121,9 @@ async fn get_published_ics_semantic_probe(
     published_url: String,
     title_capability_confirmed: bool,
 ) -> PublishedIcsSemanticProbe {
-    let mut task = tokio::spawn(published_ics::get_semantic_probe(
-        published_url,
-        title_capability_confirmed,
-    ));
-    let probe = match tokio::time::timeout(std::time::Duration::from_secs(15), &mut task).await {
-        Ok(Ok(probe)) => probe,
-        Ok(Err(_)) => PublishedIcsSemanticProbe::command_failed(title_capability_confirmed),
-        Err(_) => {
-            task.abort();
-            PublishedIcsSemanticProbe::command_deadline(title_capability_confirmed)
-        }
-    };
+    let probe =
+        published_ics::get_semantic_probe_with_deadline(published_url, title_capability_confirmed)
+            .await;
     eprintln!(
         "Published ICS bounded semantic probe: status={:?}, http_status={:?}, bytes={}, semantic_allowed={}, candidates={}, active_candidates={}, expanded_occurrences={}, private_redacted={}, selection_present={}, stop_reason={:?}, timing_ms={}/{}",
         probe.status,
@@ -147,6 +140,44 @@ async fn get_published_ics_semantic_probe(
         probe.parse_ms,
     );
     probe
+}
+
+#[tauri::command]
+fn get_work_calendar_configuration() -> WorkCalendarConfiguration {
+    work_calendar::get_configuration()
+}
+
+#[tauri::command]
+async fn save_work_calendar_source(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkCalendarState>,
+    published_url: String,
+    title_capability_confirmed: bool,
+) -> Result<WorkCalendarSnapshot, ()> {
+    let snapshot =
+        work_calendar::save_source(state.inner(), published_url, title_capability_confirmed).await;
+    work_calendar::log_snapshot("save", &snapshot);
+    let _ = app.emit("work-calendar-changed", ());
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn get_work_calendar_snapshot(
+    state: tauri::State<'_, WorkCalendarState>,
+) -> Result<WorkCalendarSnapshot, ()> {
+    let snapshot = work_calendar::get_snapshot(state.inner()).await;
+    work_calendar::log_snapshot("refresh", &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn remove_work_calendar_source(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkCalendarState>,
+) -> Result<WorkCalendarConfiguration, ()> {
+    let configuration = work_calendar::remove_source(state.inner()).await;
+    let _ = app.emit("work-calendar-changed", ());
+    Ok(configuration)
 }
 
 #[tauri::command]
@@ -261,6 +292,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(NotificationListenerState::new())
         .manage(TaskbarMirrorState::new())
+        .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
             get_calendar_access_status,
@@ -270,6 +302,10 @@ pub fn run() {
             get_outlook_my_day_structure_probe,
             get_published_ics_structure_probe,
             get_published_ics_semantic_probe,
+            get_work_calendar_configuration,
+            save_work_calendar_source,
+            get_work_calendar_snapshot,
+            remove_work_calendar_source,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,

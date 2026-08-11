@@ -9,6 +9,10 @@ import {
   type AttentionSignalSnapshot,
   type TeamsMirrorStatus,
 } from "./attention-model";
+import type {
+  WorkCalendarConfiguration,
+  WorkCalendarSnapshot,
+} from "./work-calendar-model";
 import "./App.css";
 
 type NotificationAccessStatus =
@@ -291,6 +295,14 @@ function AdvancedView() {
   >(null);
   const [titleCapabilityConfirmed, setTitleCapabilityConfirmed] =
     useState(false);
+  const [workCalendarConfiguration, setWorkCalendarConfiguration] =
+    useState<WorkCalendarConfiguration | null>(null);
+  const [workCalendarSnapshot, setWorkCalendarSnapshot] =
+    useState<WorkCalendarSnapshot | null>(null);
+  const [workCalendarPending, setWorkCalendarPending] = useState<
+    "save" | "refresh" | "remove" | null
+  >(null);
+  const [workCalendarError, setWorkCalendarError] = useState<string | null>(null);
   const [outlookMyDayProbe, setOutlookMyDayProbe] =
     useState<OutlookMyDayStructureProbe | null>(null);
   const [outlookMyDayProbePending, setOutlookMyDayProbePending] = useState(false);
@@ -493,6 +505,101 @@ function AdvancedView() {
     }
   }, [publishedIcsUrl, titleCapabilityConfirmed]);
 
+  const refreshWorkCalendarConfiguration = useCallback(async () => {
+    try {
+      setWorkCalendarConfiguration(
+        await invoke<WorkCalendarConfiguration>(
+          "get_work_calendar_configuration",
+        ),
+      );
+    } catch {
+      setWorkCalendarError(
+        "The secure work-calendar configuration could not be read.",
+      );
+    }
+  }, []);
+
+  const saveWorkCalendarSource = useCallback(async () => {
+    const secretUrl = publishedIcsUrl.trim();
+    setPublishedIcsUrl("");
+    setWorkCalendarSnapshot(null);
+    setWorkCalendarError(null);
+    if (!secretUrl) {
+      setWorkCalendarError("Enter the locally generated ICS link first.");
+      return;
+    }
+    if (!titleCapabilityConfirmed) {
+      setWorkCalendarError(
+        "Confirm the exact Outlook publication level before saving this source.",
+      );
+      return;
+    }
+
+    setWorkCalendarPending("save");
+    try {
+      const nextSnapshot =
+        await invokePublishedIcsWithDeadline<WorkCalendarSnapshot>(
+          "save_work_calendar_source",
+          {
+            publishedUrl: secretUrl,
+            titleCapabilityConfirmed,
+          },
+        );
+      setWorkCalendarSnapshot(nextSnapshot);
+      await refreshWorkCalendarConfiguration();
+    } catch {
+      setWorkCalendarError(
+        "The source was not saved because bounded verification did not finish safely.",
+      );
+      await refreshWorkCalendarConfiguration();
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, [
+    publishedIcsUrl,
+    refreshWorkCalendarConfiguration,
+    titleCapabilityConfirmed,
+  ]);
+
+  const refreshSavedWorkCalendar = useCallback(async () => {
+    setWorkCalendarPending("refresh");
+    setWorkCalendarSnapshot(null);
+    setWorkCalendarError(null);
+    try {
+      setWorkCalendarSnapshot(
+        await invokePublishedIcsWithDeadline<WorkCalendarSnapshot>(
+          "get_work_calendar_snapshot",
+          {},
+        ),
+      );
+    } catch {
+      setWorkCalendarError(
+        "The saved calendar did not return a fresh bounded result.",
+      );
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, []);
+
+  const removeWorkCalendarSource = useCallback(async () => {
+    setWorkCalendarPending("remove");
+    setWorkCalendarSnapshot(null);
+    setWorkCalendarError(null);
+    try {
+      setWorkCalendarConfiguration(
+        await invokePublishedIcsWithDeadline<WorkCalendarConfiguration>(
+          "remove_work_calendar_source",
+          {},
+        ),
+      );
+    } catch {
+      setWorkCalendarError("The saved work-calendar source could not be removed.");
+      await refreshWorkCalendarConfiguration();
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, [refreshWorkCalendarConfiguration]);
+
   const refreshTeamsMirror = useCallback(async () => {
     try {
       setTeamsMirror(
@@ -563,6 +670,10 @@ function AdvancedView() {
   useEffect(() => {
     void refreshGraphEnvironment();
   }, [refreshGraphEnvironment]);
+
+  useEffect(() => {
+    void refreshWorkCalendarConfiguration();
+  }, [refreshWorkCalendarConfiguration]);
 
   useEffect(() => {
     void runCalendarCommand("get_calendar_access_status");
@@ -678,19 +789,20 @@ function AdvancedView() {
       </header>
 
       <section aria-live="polite">
-        <p className="eyebrow">Milestone 4C manual diagnostic</p>
-        <h2>Published work-calendar current or next event</h2>
+        <p className="eyebrow">Milestone 4D widget calendar</p>
+        <h2>Connect one published work calendar</h2>
         <p>
-          Paste the generated ICS link only into this masked local field. Run
-          either the sanitized structure check or the separately approved
-          title-capable current/next selector. Neither action saves the link.
+          Paste the generated ICS link into this masked local field. Attention
+          Hub verifies one fresh title-capable event before saving the link for
+          this Windows user and showing only the active or next event in the
+          widget.
         </p>
 
         <form
           className="secret-probe-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void runPublishedIcsStructureProbe();
+            void saveWorkCalendarSource();
           }}
         >
           <label htmlFor="published-ics-url">Published ICS link</label>
@@ -711,9 +823,25 @@ function AdvancedView() {
               disabled={
                 publishedIcsProbePending ||
                 publishedIcsSemanticPending ||
-                !publishedIcsUrl.trim()
+                workCalendarPending !== null ||
+                !publishedIcsUrl.trim() ||
+                !titleCapabilityConfirmed
               }
               type="submit"
+            >
+              {workCalendarPending === "save"
+                ? "Verifying and saving securely…"
+                : "Save securely and use in widget"}
+            </button>
+            <button
+              disabled={
+                publishedIcsProbePending ||
+                publishedIcsSemanticPending ||
+                workCalendarPending !== null ||
+                !publishedIcsUrl.trim()
+              }
+              onClick={() => void runPublishedIcsStructureProbe()}
+              type="button"
             >
               {publishedIcsProbePending
                 ? "Fetching sanitized structure…"
@@ -723,6 +851,7 @@ function AdvancedView() {
               disabled={
                 publishedIcsProbePending ||
                 publishedIcsSemanticPending ||
+                workCalendarPending !== null ||
                 !publishedIcsUrl.trim() ||
                 !titleCapabilityConfirmed
               }
@@ -735,8 +864,9 @@ function AdvancedView() {
             </button>
           </div>
           <small id="published-ics-url-help">
-            The field is cleared as soon as the probe starts. The link is not
-            saved, logged, returned, or added to evidence.
+            The field is cleared as soon as an action starts. The link is never
+            logged, returned, or added to evidence; it is persisted only after
+            successful verification and only in Windows Credential Manager.
           </small>
           <label>
             <input
@@ -750,6 +880,62 @@ function AdvancedView() {
             and locations”. Attention Hub will discard location.
           </label>
         </form>
+
+        <div className="calendar-configuration">
+          <p>
+            Secure source: {" "}
+            <strong>
+              {workCalendarConfiguration?.configured
+                ? "configured"
+                : workCalendarConfiguration?.storageAvailable === false
+                  ? "storage unavailable"
+                  : "not configured"}
+            </strong>
+          </p>
+          <div className="actions">
+            <button
+              disabled={
+                workCalendarPending !== null ||
+                !workCalendarConfiguration?.configured
+              }
+              onClick={() => void refreshSavedWorkCalendar()}
+              type="button"
+            >
+              {workCalendarPending === "refresh"
+                ? "Refreshing saved calendar…"
+                : "Refresh saved calendar"}
+            </button>
+            <button
+              disabled={
+                workCalendarPending !== null ||
+                !workCalendarConfiguration?.configured
+              }
+              onClick={() => void removeWorkCalendarSource()}
+              type="button"
+            >
+              {workCalendarPending === "remove"
+                ? "Removing saved source…"
+                : "Remove saved calendar"}
+            </button>
+          </div>
+          <small>
+            One saved source only. Replacing it requires a fresh verified link.
+            Removing it clears the widget calendar immediately.
+          </small>
+        </div>
+
+        {workCalendarError && (
+          <p className="error">Work calendar: {workCalendarError}</p>
+        )}
+        {workCalendarSnapshot && (
+          <p>
+            Saved-source result: {" "}
+            <strong>{workCalendarSnapshot.status}</strong>. {" "}
+            {workCalendarSnapshot.selection
+              ? "The widget received one fresh active-or-next event."
+              : "No cached event was retained."}
+          </p>
+        )}
 
         {publishedIcsProbeError && (
           <p className="error">ICS diagnostic: {publishedIcsProbeError}</p>

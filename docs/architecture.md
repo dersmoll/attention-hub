@@ -2,12 +2,13 @@
 
 ## Status
 
-This document describes the implemented Windows observation architecture through
-the Milestone 3B widget-composition spike. Notification access, sparse identity,
-the source-owned attention-signal path, live Teams and Telegram taskbar crops,
-and the movable widget shell have been validated on the development machine;
-multi-monitor reliability, additional sources, calendar access, and daily
-product usefulness remain under test.
+This document describes the implemented Windows observation architecture
+through the Milestone 4D saved work-calendar widget integration. Notification
+access, sparse identity, the source-owned attention-signal path, live Teams and
+Telegram taskbar crops, the movable widget shell, and one Published ICS
+active-or-next selection have been validated to their recorded milestone
+gates; multi-monitor reliability, additional sources, remaining calendar edge
+cases, and daily product usefulness remain under test.
 
 ## System boundary
 
@@ -372,6 +373,18 @@ behavior produces unavailable. Date-only all-day boundaries follow the
 viewer's current Windows calendar date; timezone-less timed values remain
 rejected. Selection values are not logged. Durable secret
 storage, polling, and widget integration remain outside the boundary.
+
+ADR 0014 separately approves the smallest widget integration. Advanced first
+requires a fresh successful title-capable selection, then stores exactly one
+publication link as a generic Windows credential for the current user with
+local-machine persistence. The link never crosses response IPC or browser
+storage. A process-wide async gate serializes saved-source work; the widget
+polls at most every two minutes and at event start/end boundaries. Any timeout,
+ambiguity, storage/read failure, busy result, or missing configuration replaces
+the prior state with no selection. Save and removal emit only a payload-free
+invalidation event. The widget renders subject and local time plus
+active/upcoming and meeting-link presence; it never receives a meeting URL and
+has no join action.
 
 ## Tauri IPC and security
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   PhysicalPosition,
@@ -12,9 +13,15 @@ import {
   type AttentionSignalSnapshot,
   type TaskbarMirrorStatus,
 } from "./attention-model";
+import {
+  nextWorkCalendarRefreshDelay,
+  type WorkCalendarSelection,
+  type WorkCalendarSnapshot,
+} from "./work-calendar-model";
 
 const WIDGET_PREFERENCES_KEY = "attention-hub.widget.v1";
 const DEFAULT_TIME_ZONE = "America/New_York";
+const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 
 const TIME_ZONE_OPTIONS = [
   { value: "America/New_York", label: "New York" },
@@ -82,6 +89,49 @@ function timeZoneAbbreviation(now: Date, timeZone: string) {
     .formatToParts(now)
     .find(({ type }) => type === "timeZoneName");
   return part?.value ?? timeZone;
+}
+
+function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
+  const start = new Date(selection.start);
+  const end = new Date(selection.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "Fresh event time unavailable";
+  }
+
+  const time = new Intl.DateTimeFormat([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const day = new Intl.DateTimeFormat([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const startDay = start.toDateString();
+  const endDay = end.toDateString();
+  const dayLabel = startDay === now.toDateString() ? "Today" : day.format(start);
+  return startDay === endDay
+    ? `${dayLabel} · ${time.format(start)}–${time.format(end)}`
+    : `${dayLabel} ${time.format(start)}–${day.format(end)} ${time.format(end)}`;
+}
+
+async function invokeWorkCalendarSnapshot() {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      invoke<WorkCalendarSnapshot>("get_work_calendar_snapshot"),
+      new Promise<WorkCalendarSnapshot>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("work calendar deadline")),
+          WORK_CALENDAR_UI_DEADLINE_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 function mirrorLabel(status: TaskbarMirrorStatus | null) {
@@ -170,8 +220,14 @@ export function WidgetView() {
     useState<TaskbarMirrorStatus | null>(null);
   const [telegramMirror, setTelegramMirror] =
     useState<TaskbarMirrorStatus | null>(null);
+  const [workCalendar, setWorkCalendar] =
+    useState<WorkCalendarSnapshot | null>(null);
+  const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
+  const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
+    useState(false);
   const [widgetError, setWidgetError] = useState<string | null>(null);
   const attentionInFlight = useRef(false);
+  const workCalendarInFlight = useRef(false);
   const widgetWindow = useMemo(getCurrentWindow, []);
 
   const refreshAttention = useCallback(async () => {
@@ -203,6 +259,27 @@ export function WidgetView() {
     }
   }, []);
 
+  const refreshWorkCalendar = useCallback(async () => {
+    if (workCalendarInFlight.current) {
+      return null;
+    }
+    workCalendarInFlight.current = true;
+    setWorkCalendarRefreshing(true);
+    setWorkCalendarTransportFailed(false);
+    try {
+      const snapshot = await invokeWorkCalendarSnapshot();
+      setWorkCalendar(snapshot);
+      return snapshot;
+    } catch {
+      setWorkCalendar(null);
+      setWorkCalendarTransportFailed(true);
+      return null;
+    } finally {
+      workCalendarInFlight.current = false;
+      setWorkCalendarRefreshing(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
     return () => window.clearInterval(timer);
@@ -225,6 +302,44 @@ export function WidgetView() {
       }
     };
   }, [refreshAttention]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopListening: (() => void) | undefined;
+
+    const poll = async () => {
+      const snapshot = await refreshWorkCalendar();
+      if (!disposed) {
+        timer = setTimeout(
+          () => void poll(),
+          nextWorkCalendarRefreshDelay(snapshot),
+        );
+      }
+    };
+
+    void listen("work-calendar-changed", () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      void poll();
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    void poll();
+
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      stopListening?.();
+    };
+  }, [refreshWorkCalendar]);
 
   useEffect(() => {
     let disposed = false;
@@ -342,6 +457,33 @@ export function WidgetView() {
       ? String(telegramCounter.count)
       : null;
   const teamsBadge = teamsActivity?.needsAttention ? "•" : null;
+  const calendarSelection =
+    workCalendar?.status === "observed" ? workCalendar.selection : null;
+  const calendarState = calendarSelection
+    ? calendarSelection.classification === "active"
+      ? "In progress"
+      : "Up next"
+    : workCalendarRefreshing
+      ? "Calendar checking"
+      : "Calendar unavailable";
+  const calendarTitle = calendarSelection
+    ? calendarSelection.subject
+    : workCalendar?.status === "notConfigured"
+      ? "Work calendar is not configured"
+      : workCalendar?.status === "busy"
+        ? "Another calendar check is finishing"
+        : "No fresh work-calendar event";
+  const calendarDetail = calendarSelection
+    ? `${formatCalendarRange(calendarSelection, now)}${
+        calendarSelection.meetingLinkPresent === true ? " · Online meeting" : ""
+      }`
+    : workCalendarRefreshing
+      ? "Reading the saved source without controlling Outlook."
+      : workCalendarTransportFailed || workCalendar?.status === "error"
+        ? "The secure source or local provider could not be read."
+        : workCalendar?.status === "notConfigured"
+          ? "Open Advanced to save one published calendar securely."
+          : "The last refresh was unavailable; no cached event is shown.";
 
   return (
     <main className="widget-shell" data-tauri-drag-region>
@@ -411,12 +553,14 @@ export function WidgetView() {
         data-tauri-drag-region
       >
         <div data-tauri-drag-region>
-          <span className="widget-calendar__state">Calendar unavailable</span>
-          <strong>Work-calendar provider is not configured</strong>
-          <small>
-            Current Outlook and Teams calendar data still requires an approved
-            passive provider.
-          </small>
+          <span
+            className="widget-calendar__state"
+            data-calendar-status={calendarSelection ? "observed" : undefined}
+          >
+            {calendarState}
+          </span>
+          <strong>{calendarTitle}</strong>
+          <small>{calendarDetail}</small>
         </div>
       </section>
 

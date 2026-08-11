@@ -335,6 +335,7 @@ section + section {
 
 .secret-probe-form__controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 0.65rem;
 }
@@ -348,6 +349,29 @@ section + section {
   color: #172033;
   background: #fff;
   font: inherit;
+}
+
+.calendar-configuration {
+  margin-block: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #b9c7d9;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.calendar-configuration p,
+.calendar-configuration .actions {
+  margin-block: 0;
+}
+
+.calendar-configuration .actions {
+  margin-top: 0.7rem;
+}
+
+.calendar-configuration small {
+  display: block;
+  margin-top: 0.65rem;
+  color: #5f6c7e;
 }
 
 .secret-probe-form > small {
@@ -677,6 +701,10 @@ body[data-window="main"] #root {
   font-weight: 800;
   letter-spacing: 0.075em;
   text-transform: uppercase;
+}
+
+.widget-calendar__state[data-calendar-status="observed"] {
+  color: #166534;
 }
 
 .widget-calendar strong {
