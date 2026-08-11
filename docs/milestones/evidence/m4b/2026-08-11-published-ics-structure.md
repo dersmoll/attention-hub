@@ -58,7 +58,7 @@ never record event content.
 
 | Manual source change | Direct feed result | Elapsed delay | Notes |
 | --- | --- | ---: | --- |
-| Harmless event created | Pending | — | — |
+| Harmless event created | Observed; events 600 → 601, bytes 458,451 → 459,158, properties 13,667 → 13,689, lines 14,297 → 14,320 | Approximately 1–2 minutes, user-reported | Event content and scheduled time redacted |
 | Same event updated | Pending | — | — |
 | Same event cancelled/deleted | Pending | — | — |
 

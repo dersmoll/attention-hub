@@ -4,8 +4,10 @@
 
 In progress on 2026-08-11. The bounded one-shot structure diagnostic is
 implemented, and one manually generated publication returned a valid sanitized
-calendar structure. Direct freshness remains unmeasured. Semantic extraction,
-polling, persistence, and widget integration have not started.
+calendar structure. A harmless new event reached the direct feed in a
+user-reported approximately one to two minutes; update/removal freshness remains
+pending. Semantic extraction, polling, persistence, and widget integration have
+not started.
 
 ## Product question
 
