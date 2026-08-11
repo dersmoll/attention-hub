@@ -2,10 +2,10 @@
 
 ## Status
 
-In progress on 2026-08-11. The bounded sanitized structure probe is implemented
-and statically validated. Live visible/background state evidence and the final
-provider decision remain pending. Semantic extraction and widget integration
-have not started.
+Stopped on 2026-08-11. The bounded sanitized structure probe passed while New
+Outlook was visible and fully covered, but the My Day tree unloaded when
+Outlook was minimized. The passive UI Automation provider is rejected.
+Semantic extraction and widget integration did not start.
 
 ## Product question
 
@@ -49,16 +49,25 @@ never be silently combined. Private content must be redacted from evidence.
       explicitly unverified.
 - [x] The previous UI result is cleared at the start of each manual probe, and
       only the fresh completed result is then shown.
-- [ ] My Day Calendar visible structure is recorded.
-- [ ] Covered, minimized, restored, restarted, Mail/Calendar-switched, and
-      My-Day-closed states are recorded.
-- [ ] Before/during/after real-event behavior is recorded without private
-      content.
+- [x] My Day Calendar visible structure is recorded.
+- [x] Covered and minimized states are recorded. Minimized operation reached
+      the mandatory stop condition, so later state and event cases were
+      intentionally not run.
+- [ ] Before/during/after real-event behavior was not run after the structure
+      gate failed.
 - [ ] Recurring, one-off, cancelled, private, all-day, and overlapping cases
-      are validated where naturally available.
+      were not run after the structure gate failed.
 - [ ] Coexistence with Telegram, Teams, and Outlook-mail observations is
       measured.
-- [ ] A retain/stop provider decision is recorded.
+- [x] A stop provider decision is recorded.
+
+## Outcome
+
+The minimized probe truthfully returned `unavailable`: one minimized Outlook
+window exposed only 12 elements, with zero structural/right-pane candidates
+and zero My Day, Calendar, or selected markers. No cached visible result was
+presented as current. This satisfies the approved stop rule, so Phase B is not
+authorized and the remaining matrix is not required for this provider.
 
 ## Non-goals
 

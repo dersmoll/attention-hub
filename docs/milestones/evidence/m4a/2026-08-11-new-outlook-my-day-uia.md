@@ -2,7 +2,7 @@
 
 - Date: 2026-08-11 Europe/Kyiv
 - Scope: manual Windows-only structure gate
-- Provider decision: pending live state matrix
+- Provider decision: stop; minimized Outlook unloads the required structure
 - Semantic extraction: not implemented
 
 ## Implemented boundary
@@ -68,20 +68,21 @@ probe-time contention still requires the live button action.
 
 ## Live state matrix
 
-No live Outlook values are recorded yet. Fill this table only with sanitized
-probe fields.
+Only sanitized probe fields are recorded. The covered run was captured at the
+fresh-result summary level; its detailed counters were not copied into
+evidence.
 
 | State | Status | Windows | Elements | Candidates/right pane | My Day/Calendar/selected markers | Gate/scan ms | Stop reason |
 | --- | --- | ---: | ---: | --- | --- | --- | --- |
 | Visible | Observed | 1 | 762 | 220 / 135 | 1 / 4 / 1 | 0 / 1,310 | None |
-| Covered | Pending | — | — | — | — | — | — |
-| Minimized | Pending | — | — | — | — | — | — |
-| Restored | Pending | — | — | — | — | — | — |
-| Restarted, My Day closed | Pending | — | — | — | — | — | — |
-| Restarted, My Day reopened | Pending | — | — | — | — | — | — |
-| My Day Mail | Pending | — | — | — | — | — | — |
-| My Day Calendar | Pending | — | — | — | — | — | — |
-| My Day closed | Pending | — | — | — | — | — | — |
+| Covered | Observed (summary) | — | — | — | — | — | None |
+| Minimized | Unavailable | 1 | 12 | 0 / 0 | 0 / 0 / 0 | 0 / 172 | My Day marker absent; tree unloaded or not exposed |
+| Restored | Not run; stop reached | — | — | — | — | — | — |
+| Restarted, My Day closed | Not run; stop reached | — | — | — | — | — | — |
+| Restarted, My Day reopened | Not run; stop reached | — | — | — | — | — | — |
+| My Day Mail | Not run; stop reached | — | — | — | — | — | — |
+| My Day Calendar | Not run; stop reached | — | — | — | — | — | — |
+| My Day closed | Not run; stop reached | — | — | — | — | — | — |
 
 ## Decision gate
 
@@ -90,3 +91,17 @@ and a single account/calendar source can be selected safely. Stop this provider
 path immediately if minimized/covered operation fails, Outlook control would be
 required, selection is ambiguous, localization/version coupling is
 unacceptable, or time/event parsing cannot be made deterministic.
+
+### Outcome
+
+The visible and fully covered runs returned a fresh `observed` result. With
+Outlook minimized, the fresh scan found one accessible minimized Outlook
+window but only 12 elements, no structural or right-pane candidates, and zero
+My Day, Calendar, or selected markers. It returned `unavailable` in 172 ms and
+did not reuse the prior visible result.
+
+This triggers the explicit minimized-operation stop condition. The New Outlook
+My Day UI Automation provider path is rejected, semantic extraction remains
+disabled, and the remaining manual/event matrix is intentionally not run.
+Graph remains a separate future policy decision; this milestone performed no
+registration, consent, token, tenant, or Graph activity.

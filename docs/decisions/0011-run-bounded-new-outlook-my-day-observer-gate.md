@@ -1,6 +1,6 @@
 # ADR 0011: Run a bounded New Outlook My Day observer gate
 
-- Status: Accepted for a bounded diagnostic; provider decision pending
+- Status: Diagnostic completed; provider rejected
 - Date: 2026-08-11
 
 ## Context
@@ -68,3 +68,16 @@ decision.
 
 Implementation and manual matrix evidence are recorded in
 `docs/milestones/evidence/m4a/2026-08-11-new-outlook-my-day-uia.md`.
+
+## Outcome
+
+The visible and fully covered states returned fresh observed structure. The
+minimized state returned `unavailable` after a bounded 172 ms scan: one
+minimized Outlook window exposed 12 elements, zero structural/right-pane
+candidates, and zero My Day, Calendar, or selected markers. The diagnostic did
+not return the prior visible structure as current.
+
+Because passive minimized operation is mandatory, this result activates the
+explicit stop condition. New Outlook My Day UI Automation will not proceed to
+semantic event extraction or widget integration. No further state or event
+matrix testing is needed for this rejected provider path.

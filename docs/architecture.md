@@ -339,9 +339,10 @@ pattern presence, counts, timing, and traversal limits. Raw labels and calendar
 content do not cross IPC. The gate is bounded to 750 ms of UIA-lock wait, 2.5
 seconds of scanning, 512 desktop roots, eight Outlook windows, 4,000 elements,
 depth 32, and 64 returned candidates. Semantic extraction remains hard-disabled
-and source identity explicitly unverified until the visible/covered/minimized
-matrix proves passive availability and one account/calendar can be selected
-without ambiguity.
+and source identity explicitly unverified. The visible and fully covered probes
+observed structure, but a minimized Outlook window exposed only 12 elements and
+no My Day or Calendar markers. This activates the ADR 0011 stop condition. The
+provider will not proceed to semantic extraction or widget integration.
 
 ## Tauri IPC and security
 

@@ -60,7 +60,10 @@ and Telegram taskbar surfaces. Milestone 4A tests one final bounded local
 hypothesis: whether a user-opened New Outlook My Day Calendar tree remains
 passively available while covered or minimized. The first phase exposes only
 sanitized structure and keeps semantic extraction disabled. The widget retains
-a truthful calendar-unavailable state until that provider gate passes.
+a truthful calendar-unavailable state. The gate passed while Outlook was
+visible and fully covered but failed when Outlook was minimized, so the New
+Outlook My Day UI Automation provider is rejected and semantic extraction did
+not begin.
 
 ## Success direction
 
