@@ -5,7 +5,8 @@
 In progress on 2026-08-11. The bounded one-shot structure diagnostic is
 implemented, and one manually generated publication returned a valid sanitized
 calendar structure. A harmless new event reached the direct feed in a
-user-reported approximately one to two minutes; update/removal freshness remains
+user-reported approximately one to two minutes, and its conversion to a weekly
+series reached the feed in approximately 30 seconds. Removal freshness remains
 pending. Semantic extraction, polling, persistence, and widget integration have
 not started.
 
