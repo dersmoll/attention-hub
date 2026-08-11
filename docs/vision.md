@@ -67,7 +67,9 @@ not begin. Milestone 4B tests a user-controlled Published ICS source before
 Graph: one exact calendar, a secret-safe bounded fetch, and sanitized structure
 and freshness evidence only. The Microsoft 365 Calendar companion remains the
 visible comparison oracle during that test; it is not treated as a background
-API.
+API. The structure/freshness gate passed a harmless create/update/delete cycle,
+so Published ICS remains the leading provider candidate for a bounded semantic
+phase before any widget integration.
 
 ## Success direction
 

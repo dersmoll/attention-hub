@@ -2,7 +2,7 @@
 
 - Date: 2026-08-11 Europe/Kyiv
 - Scope: manual one-shot Published ICS structure gate
-- Provider decision: pending live freshness evidence
+- Provider decision: retain for a bounded semantic phase; production pending
 - Semantic extraction: not implemented
 - Live publication/fetch: sanitized structure observed
 
@@ -60,13 +60,22 @@ never record event content.
 | --- | --- | ---: | --- |
 | Harmless event created | Observed; events 600 → 601, bytes 458,451 → 459,158, properties 13,667 → 13,689, lines 14,297 → 14,320 | Approximately 1–2 minutes, user-reported | Event content and scheduled time redacted |
 | Same event changed from one-off to weekly recurring | Observed; RRULE 38 → 39, properties 13,689 → 13,690, lines 14,320 → 14,321; event count remained 601 | Approximately 30 seconds, user-reported | Event content and scheduled time redacted |
-| Same event cancelled/deleted | Pending | — | — |
+| Entire recurring test series deleted | Observed; events 601 → 600, RRULE 39 → 38, properties 13,690 → 13,667, lines 14,321 → 14,297, timezone references 1,489 → 1,487, bytes 459,228 → 458,451 | Approximately 30 seconds, per manual procedure | Returned exactly to the pre-test structural baseline |
+
+### Freshness outcome
+
+The published feed reflected creation in approximately one to two minutes,
+conversion to a weekly recurrence in approximately 30 seconds, and deletion of
+the entire series in approximately 30 seconds. The deletion result returned
+exactly to the original sanitized structural baseline. This is sufficient to
+retain Published ICS for a separately reviewed semantic phase. It does not yet
+approve subject exposure, secret persistence, polling, or widget integration.
 
 ## Decision gate
 
-Do not begin semantic extraction or persistence unless one exact published
-calendar is observed, refresh delay is acceptable for an active/next-event
-widget, and recurrence/timezone/cancellation/private behavior is deterministic.
-Stop if the secret-link exposure is unacceptable or the endpoint is stale,
+One exact calendar and acceptable create/update/delete freshness are now
+observed. A separately approved semantic phase must still prove deterministic
+current/next selection and recurrence/timezone/cancellation/private behavior.
+Stop if the secret-link exposure is unacceptable or the endpoint becomes stale,
 ambiguous, redirected, oversized, malformed, or unexpectedly reveals private
 content.

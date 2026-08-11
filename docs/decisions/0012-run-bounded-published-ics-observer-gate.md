@@ -1,6 +1,6 @@
 # ADR 0012: Run a bounded Published ICS observer gate
 
-- Status: Accepted for a bounded diagnostic; provider decision pending
+- Status: Structure/freshness gate passed; bounded semantic phase pending
 - Date: 2026-08-11
 
 ## Context
@@ -85,3 +85,16 @@ event extraction, and widget integration remain outside this decision.
 
 Implementation and sanitized evidence are recorded in
 `docs/milestones/evidence/m4b/2026-08-11-published-ics-structure.md`.
+
+## Phase A outcome
+
+One published calendar returned a balanced 600-event baseline. A harmless
+one-off event appeared within a user-reported approximately one to two minutes;
+conversion to a weekly series changed the recurrence structure within
+approximately 30 seconds; deletion of the entire series restored the exact
+baseline within approximately 30 seconds. No URL or event value entered IPC,
+logs, or evidence.
+
+Published ICS is retained for a separately reviewed minimal semantic phase.
+This outcome does not approve a higher publication detail level, durable secret
+storage, polling, semantic fields, or widget integration.

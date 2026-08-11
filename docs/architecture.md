@@ -354,7 +354,11 @@ component names in memory, zeroes the body, and returns only sanitized status,
 header-presence booleans, counts, limits, and timing. The URL, response/header
 values, and event values never cross IPC or enter logs. No background polling
 or provider cache exists. The Microsoft 365 Calendar companion is a manual
-freshness oracle only.
+freshness oracle only. Live Phase A evidence observed one balanced calendar and
+approximately 30-second to two-minute propagation across a harmless
+create/update/delete cycle. Published ICS is therefore retained for a bounded
+semantic phase, while secret persistence, polling, and widget integration stay
+unapproved.
 
 ## Tauri IPC and security
 

@@ -2,13 +2,11 @@
 
 ## Status
 
-In progress on 2026-08-11. The bounded one-shot structure diagnostic is
-implemented, and one manually generated publication returned a valid sanitized
-calendar structure. A harmless new event reached the direct feed in a
-user-reported approximately one to two minutes, and its conversion to a weekly
-series reached the feed in approximately 30 seconds. Removal freshness remains
-pending. Semantic extraction, polling, persistence, and widget integration have
-not started.
+Phase A completed on 2026-08-11. The bounded one-shot diagnostic observed one
+valid calendar and the feed reflected a harmless create/update/delete cycle in
+approximately 30 seconds to two minutes. Published ICS is retained for a
+separately reviewed semantic phase. Semantic extraction, polling, persistence,
+and widget integration have not started.
 
 ## Product question
 
@@ -57,11 +55,12 @@ detail level even if Attention Hub discards excluded fields.
 - [x] A busy-only live fetch is recorded with sanitized evidence; the
       permission choice follows the manual procedure and is not inferred from
       event content.
-- [ ] Direct freshness is measured against the Microsoft 365 Calendar companion
-      across a harmless create/update/cancel cycle.
+- [x] Direct freshness is measured against the Microsoft 365 Calendar companion
+      across a harmless create/update/delete cycle.
 - [ ] Recurrence, exception, one-off, private, all-day, and overlapping shapes
       are validated where naturally available.
-- [ ] A retain/stop provider decision is recorded.
+- [x] A retain-for-semantics provider decision is recorded; production remains
+      pending.
 
 ## Manual test plan
 

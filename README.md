@@ -30,11 +30,12 @@ Calendar integration remains unavailable. Milestone 4A's manual sanitized New
 Outlook My Day probe found useful structure while Outlook was visible or fully
 covered, but the tree unloaded when Outlook was minimized. That passive UI
 Automation provider is rejected; semantic extraction and widget calendar data
-remain disabled. Milestone 4B now adds a manual, secret-safe one-shot Published
-ICS structure diagnostic; live freshness evidence is pending. Windows
-`AppointmentStore` returned stale legacy data, the Microsoft 365 Calendar
-companion remains a visible comparison oracle rather than a passive provider,
-and Microsoft Graph work remains paused before registration or consent.
+remain disabled. Milestone 4B's secret-safe Published ICS gate observed one
+calendar and acceptable create/update/delete freshness, so the provider is
+retained for a separately reviewed semantic phase. Windows `AppointmentStore`
+returned stale legacy data, the Microsoft 365 Calendar companion remains a
+visible comparison oracle rather than a passive provider, and Microsoft Graph
+work remains paused before registration or consent.
 
 ## Source of truth
 
