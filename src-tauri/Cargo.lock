@@ -82,6 +82,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "iana-time-zone",
  "reqwest",
  "rrule",
  "serde",

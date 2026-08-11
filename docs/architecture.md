@@ -368,7 +368,9 @@ active/upcoming classification, and nullable meeting-link presence. The parser
 uses RFC 5545 recurrence precedence, bounded recurrence expansion, IANA or
 CLDR-mapped Windows timezones, cancellation filtering, deterministic overlap
 ordering, and private/confidential redaction. Ambiguous time or recurrence
-behavior produces unavailable. Selection values are not logged. Durable secret
+behavior produces unavailable. Date-only all-day boundaries follow the
+viewer's current Windows calendar date; timezone-less timed values remain
+rejected. Selection values are not logged. Durable secret
 storage, polling, and widget integration remain outside the boundary.
 
 ## Tauri IPC and security

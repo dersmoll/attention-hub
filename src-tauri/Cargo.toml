@@ -24,6 +24,7 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "system-proxy"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
+iana-time-zone = "0.1"
 rrule = "0.14"
 windows-timezones = { version = "0.5", features = ["chrono-tz"] }
 

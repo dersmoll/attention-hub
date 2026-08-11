@@ -70,7 +70,9 @@ adds:
 
 Timezone references accept IANA identifiers or CLDR-backed Windows timezone
 identifiers. Floating date-times are not interpreted through the machine's
-locale. All-day events require an explicit event or calendar-default timezone.
+locale. RFC date-only all-day boundaries use the viewer's current Windows
+timezone because they represent calendar dates rather than floating meeting
+times; timed events still require UTC or an explicit `TZID`.
 
 ## Manual test plan
 

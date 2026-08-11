@@ -629,7 +629,28 @@ pub async fn get_semantic_probe(
         return probe;
     }
 
-    let semantic = semantics::extract_current_or_next(&body, chrono::Utc::now(), parse_started);
+    let viewer_timezone = match iana_time_zone::get_timezone()
+        .ok()
+        .and_then(|timezone| timezone.parse::<chrono_tz::Tz>().ok())
+    {
+        Some(timezone) => timezone,
+        None => {
+            probe.parse_ms = elapsed_ms(parse_started);
+            body.fill(0);
+            probe.fail(
+                PublishedIcsProbeStatus::Unavailable,
+                PublishedIcsStopReason::UnsupportedTimezone,
+                "The current Windows timezone could not be mapped for date-only all-day events.",
+            );
+            return probe;
+        }
+    };
+    let semantic = semantics::extract_current_or_next(
+        &body,
+        chrono::Utc::now(),
+        viewer_timezone,
+        parse_started,
+    );
     probe.parse_ms = elapsed_ms(parse_started);
     body.fill(0);
     let semantic = match semantic {

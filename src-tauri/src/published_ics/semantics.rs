@@ -128,6 +128,7 @@ struct ParseState {
 pub fn extract_current_or_next(
     body: &[u8],
     now: DateTime<Utc>,
+    viewer_timezone: Tz,
     started: Instant,
 ) -> Result<SemanticScan, SemanticFailure> {
     let text = std::str::from_utf8(body).map_err(|_| {
@@ -186,7 +187,7 @@ pub fn extract_current_or_next(
         .transpose()?;
     let mut grouped: BTreeMap<String, Vec<NormalizedEvent>> = BTreeMap::new();
     for raw in state.events {
-        let event = normalize_event(raw, default_timezone)?;
+        let event = normalize_event(raw, default_timezone, viewer_timezone)?;
         grouped.entry(event.uid.clone()).or_default().push(event);
     }
 
@@ -393,6 +394,7 @@ fn process_logical_line(state: &mut ParseState, line: &str) -> Result<(), Semant
 fn normalize_event(
     raw: RawEvent,
     default_timezone: Option<Tz>,
+    viewer_timezone: Tz,
 ) -> Result<NormalizedEvent, SemanticFailure> {
     let uid = raw
         .uid
@@ -410,9 +412,9 @@ fn normalize_event(
         )
     })?;
     let all_day = start_spec.value_is_date;
-    let start = parse_date_spec(&start_spec, default_timezone)?;
+    let start = parse_date_spec(&start_spec, default_timezone, viewer_timezone)?;
     let end = match (raw.end, raw.duration) {
-        (Some(end), None) => parse_date_spec(&end, default_timezone)?,
+        (Some(end), None) => parse_date_spec(&end, default_timezone, viewer_timezone)?,
         (None, Some(duration)) => start + parse_duration(&duration)?,
         (Some(_), Some(_)) => {
             return Err(failure(
@@ -464,19 +466,19 @@ fn normalize_event(
         recurrence_id: raw
             .recurrence_id
             .as_ref()
-            .map(|value| parse_date_spec(value, default_timezone))
+            .map(|value| parse_date_spec(value, default_timezone, viewer_timezone))
             .transpose()?,
         recurrence_range_this_and_future: raw.recurrence_range_this_and_future,
         rrule: raw.rrule,
         rdates: raw
             .rdates
             .iter()
-            .map(|value| parse_date_spec(value, default_timezone))
+            .map(|value| parse_date_spec(value, default_timezone, viewer_timezone))
             .collect::<Result<_, _>>()?,
         exdates: raw
             .exdates
             .iter()
-            .map(|value| parse_date_spec(value, default_timezone))
+            .map(|value| parse_date_spec(value, default_timezone, viewer_timezone))
             .collect::<Result<_, _>>()?,
         subject: raw.summary,
         private: raw.class.as_deref().is_some_and(|value| {
@@ -659,6 +661,7 @@ fn push_candidate(
 fn parse_date_spec(
     spec: &DateSpec,
     default_timezone: Option<Tz>,
+    viewer_timezone: Tz,
 ) -> Result<DateTime<Tz>, SemanticFailure> {
     if spec.value_is_date {
         let date = NaiveDate::parse_from_str(spec.value.trim(), "%Y%m%d").map_err(|_| {
@@ -673,12 +676,7 @@ fn parse_date_spec(
             .map(resolve_timezone)
             .transpose()?
             .or(default_timezone)
-            .ok_or_else(|| {
-                failure(
-                    SemanticFailureReason::AmbiguousTime,
-                    "An all-day event lacked an explicit or calendar-default timezone.",
-                )
-            })?;
+            .unwrap_or(viewer_timezone);
         return timezone
             .from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
             .single()
@@ -963,7 +961,7 @@ mod tests {
     }
 
     fn extract(input: &str) -> Result<SemanticScan, SemanticFailure> {
-        extract_current_or_next(input.as_bytes(), now(), Instant::now())
+        extract_current_or_next(input.as_bytes(), now(), Tz::UTC, Instant::now())
     }
 
     #[test]
@@ -992,6 +990,19 @@ mod tests {
     #[test]
     fn handles_all_day_event_with_calendar_timezone() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:Europe/Kyiv\r\nBEGIN:VEVENT\r\nUID:all-day\r\nDTSTART;VALUE=DATE:20260812\r\nDTEND;VALUE=DATE:20260813\r\nSUMMARY:All day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+        assert_eq!(result.selection.start, "2026-08-11T21:00:00+00:00");
+        assert_eq!(result.selection.end, "2026-08-12T21:00:00+00:00");
+    }
+
+    #[test]
+    fn treats_timezone_free_all_day_dates_as_viewer_local_calendar_dates() {
+        let result = extract_current_or_next(
+            "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:all-day\r\nDTSTART;VALUE=DATE:20260812\r\nDTEND;VALUE=DATE:20260813\r\nSUMMARY:All day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n".as_bytes(),
+            now(),
+            chrono_tz::Europe::Kyiv,
+            Instant::now(),
+        )
+        .unwrap();
         assert_eq!(result.selection.start, "2026-08-11T21:00:00+00:00");
         assert_eq!(result.selection.end, "2026-08-12T21:00:00+00:00");
     }

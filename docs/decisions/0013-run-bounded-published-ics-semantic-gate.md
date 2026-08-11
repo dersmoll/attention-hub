@@ -25,6 +25,8 @@ confirmation of the exact publication level. The command:
 - accepts exactly one balanced, user-selected published calendar;
 - resolves IANA timezones directly and Windows timezone IDs through
   Unicode-CLDR-derived mapping;
+- treats RFC date-only all-day boundaries as viewer-local calendar dates using
+  the current Windows timezone, without applying that fallback to timed events;
 - rejects floating/ambiguous times and unsupported recurrence shapes;
 - applies RFC 5545 recurrence inclusion, exclusion, and per-instance override
   semantics inside a fixed time window and occurrence cap;
