@@ -331,6 +331,18 @@ passive background provider. Attention Hub will not automatically open another
 application to refresh it, and normalized companion agenda extraction is
 stopped. The temporary probe is evidence, not a new provider architecture.
 
+ADR 0011 adds a separate manual New Outlook My Day structure gate. The user
+opens My Day Calendar; Attention Hub never controls Outlook. A Tauri command
+runs a fresh Windows UI Automation walk behind the process-wide priority gate
+and returns only fixed control roles, bounds, state booleans, property lengths,
+pattern presence, counts, timing, and traversal limits. Raw labels and calendar
+content do not cross IPC. The gate is bounded to 750 ms of UIA-lock wait, 2.5
+seconds of scanning, 512 desktop roots, eight Outlook windows, 4,000 elements,
+depth 32, and 64 returned candidates. Semantic extraction remains hard-disabled
+and source identity explicitly unverified until the visible/covered/minimized
+matrix proves passive availability and one account/calendar can be selected
+without ambiguity.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.

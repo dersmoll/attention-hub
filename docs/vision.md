@@ -56,10 +56,11 @@ useful event structure only while its flyout is visible. Attention Hub's own
 Graph work remains paused before registration or consent because it requires an
 organization-owned policy decision. Milestone 3B therefore validates the actual
 widget form factor and native visual composition with the already-proven Teams
-and Telegram taskbar surfaces. It retains the structured source panel as
-Advanced view and shows a truthful calendar-unavailable state. Calendar remains
-essential to the end product, but provider approval is independent from proving
-the widget shell.
+and Telegram taskbar surfaces. Milestone 4A tests one final bounded local
+hypothesis: whether a user-opened New Outlook My Day Calendar tree remains
+passively available while covered or minimized. The first phase exposes only
+sanitized structure and keeps semantic extraction disabled. The widget retains
+a truthful calendar-unavailable state until that provider gate passes.
 
 ## Success direction
 

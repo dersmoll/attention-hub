@@ -26,16 +26,20 @@ not read, recognize, or convert their pixels into counts. Semantic values remain
 separate: Telegram exposes two numeric signals, New Outlook exposes aggregate
 Inbox unread, and Teams exposes qualitative activity only.
 
-Calendar support remains paused. Windows `AppointmentStore` returned stale
+Calendar integration remains unavailable. Milestone 4A now contains a manual,
+sanitized New Outlook My Day structure probe to decide whether a passive
+current/next-event observer is feasible; semantic extraction and widget
+calendar data are still disabled. Windows `AppointmentStore` returned stale
 legacy data, the Microsoft 365 Calendar companion exposes event structure only
-while visible, and Microsoft Graph work requires a separate organizational
-approval.
+while visible, and Microsoft Graph work remains paused before registration or
+consent.
 
 ## Source of truth
 
 - [Product vision](docs/vision.md)
 - [Architecture](docs/architecture.md)
 - [Milestone 3B widget composition spike](docs/milestones/milestone-3b-widget-composition-spike.md)
+- [Milestone 4A New Outlook My Day observer spike](docs/milestones/milestone-4a-new-outlook-my-day-observer-spike.md)
 - [Architecture decisions](docs/decisions/)
 
 ## Development

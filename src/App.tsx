@@ -127,7 +127,54 @@ interface GraphEnvironmentReport {
   diagnostics: string[];
 }
 
+type OutlookMyDayProbeStatus = "observed" | "unavailable" | "busy" | "error";
+
+interface OutlookMyDayStructureProbe {
+  status: OutlookMyDayProbeStatus;
+  capturedAtUnixMs: number;
+  structureAvailable: boolean;
+  semanticExtractionAllowed: boolean;
+  sourceIdentityState: "unverifiedStructureOnly";
+  outlookWindowCount: number;
+  visibleWindowCount: number;
+  minimizedWindowCount: number;
+  offscreenWindowCount: number;
+  topLevelElementCount: number;
+  elementCount: number;
+  structuralCandidateCount: number;
+  rightPaneCandidateCount: number;
+  returnedCandidateCount: number;
+  englishMyDayMarkerCount: number;
+  englishCalendarMarkerCount: number;
+  selectedEnglishCalendarMarkerCount: number;
+  propertyErrorCount: number;
+  maximumDepthReached: number;
+  depthLimitReached: boolean;
+  gateWaitMs: number;
+  scanMs: number;
+  stopReason: "topLevel" | "elements" | "time" | null;
+  limits: {
+    gateWaitMs: number;
+    scanMs: number;
+    topLevelElements: number;
+    outlookWindows: number;
+    elements: number;
+    depth: number;
+    returnedCandidates: number;
+  };
+  windows: unknown[];
+  controlTypes: unknown[];
+  candidates: unknown[];
+  diagnostics: string[];
+}
+
 function AdvancedView() {
+  const [outlookMyDayProbe, setOutlookMyDayProbe] =
+    useState<OutlookMyDayStructureProbe | null>(null);
+  const [outlookMyDayProbePending, setOutlookMyDayProbePending] = useState(false);
+  const [outlookMyDayProbeError, setOutlookMyDayProbeError] = useState<
+    string | null
+  >(null);
   const [graphEnvironment, setGraphEnvironment] =
     useState<GraphEnvironmentReport | null>(null);
   const [graphEnvironmentPending, setGraphEnvironmentPending] = useState(false);
@@ -234,6 +281,24 @@ function AdvancedView() {
     } finally {
       attentionRequestInFlight.current = false;
       setAttentionRefreshing(false);
+    }
+  }, []);
+
+  const runOutlookMyDayStructureProbe = useCallback(async () => {
+    setOutlookMyDayProbePending(true);
+    setOutlookMyDayProbeError(null);
+    setOutlookMyDayProbe(null);
+
+    try {
+      setOutlookMyDayProbe(
+        await invoke<OutlookMyDayStructureProbe>(
+          "get_outlook_my_day_structure_probe",
+        ),
+      );
+    } catch (error) {
+      setOutlookMyDayProbeError(String(error));
+    } finally {
+      setOutlookMyDayProbePending(false);
     }
   }, []);
 
@@ -421,6 +486,40 @@ function AdvancedView() {
         <p>What currently needs my attention?</p>
       </header>
 
+      <section aria-live="polite">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Milestone 4A manual diagnostic</p>
+            <h2>New Outlook My Day structure</h2>
+            <p>
+              With Outlook My Day → Calendar already open, run one fresh
+              sanitized structure scan. Attention Hub will not control Outlook.
+            </p>
+          </div>
+          <button
+            disabled={outlookMyDayProbePending}
+            onClick={() => void runOutlookMyDayStructureProbe()}
+            type="button"
+          >
+            {outlookMyDayProbePending
+              ? "Inspecting sanitized structure…"
+              : "Run sanitized structure probe"}
+          </button>
+        </div>
+
+        {outlookMyDayProbeError && (
+          <p className="error">
+            Outlook My Day diagnostic error: {outlookMyDayProbeError}
+          </p>
+        )}
+        {outlookMyDayProbe && (
+          <p>
+            Fresh result: <strong>{outlookMyDayProbe.status}</strong>. Detailed
+            sanitized fields are shown under Technical diagnostics below.
+          </p>
+        )}
+      </section>
+
       <AttentionPanel
         snapshot={attentionSnapshot}
         refreshError={attentionError}
@@ -440,12 +539,103 @@ function AdvancedView() {
         }
       />
 
-      <details className="technical-details">
+      <details className="technical-details" open>
         <summary>
           <span>Technical diagnostics and spike evidence</span>
           <small>Graph, calendar, notifications, and raw source data</small>
         </summary>
         <div className="technical-details__content">
+          <p>Milestone 4A New Outlook My Day observer diagnostic</p>
+
+          <section aria-live="polite">
+            <div className="section-heading">
+              <div>
+                <h2>New Outlook My Day structure</h2>
+                <p>
+                  Manually open Outlook Mail and My Day → Calendar first. This
+                  one-shot probe never launches, focuses, clicks, or navigates
+                  Outlook and returns sanitized structure only.
+                </p>
+              </div>
+              <button
+                disabled={outlookMyDayProbePending}
+                onClick={() => void runOutlookMyDayStructureProbe()}
+                type="button"
+              >
+                {outlookMyDayProbePending
+                  ? "Inspecting sanitized structure…"
+                  : "Run sanitized structure probe"}
+              </button>
+            </div>
+
+            {outlookMyDayProbeError && (
+              <p className="error">
+                Outlook My Day diagnostic error: {outlookMyDayProbeError}
+              </p>
+            )}
+
+            {outlookMyDayProbe && (
+              <>
+                <dl>
+                  <dt>Fresh probe status</dt>
+                  <dd data-status={outlookMyDayProbe.status}>
+                    {outlookMyDayProbe.status}
+                  </dd>
+
+                  <dt>Structure available</dt>
+                  <dd>{String(outlookMyDayProbe.structureAvailable)}</dd>
+
+                  <dt>Semantic extraction allowed</dt>
+                  <dd>{String(outlookMyDayProbe.semanticExtractionAllowed)}</dd>
+
+                  <dt>Source identity</dt>
+                  <dd>{outlookMyDayProbe.sourceIdentityState}</dd>
+
+                  <dt>Outlook windows</dt>
+                  <dd>
+                    {outlookMyDayProbe.outlookWindowCount} accessible;{" "}
+                    {outlookMyDayProbe.visibleWindowCount} visible;{" "}
+                    {outlookMyDayProbe.minimizedWindowCount} minimized
+                  </dd>
+
+                  <dt>Bounded traversal</dt>
+                  <dd>
+                    {outlookMyDayProbe.elementCount} elements;{" "}
+                    {outlookMyDayProbe.structuralCandidateCount} structural
+                    candidates; {outlookMyDayProbe.rightPaneCandidateCount} in
+                    the right-pane region
+                  </dd>
+
+                  <dt>English diagnostic markers</dt>
+                  <dd>
+                    My Day {outlookMyDayProbe.englishMyDayMarkerCount}; Calendar{" "}
+                    {outlookMyDayProbe.englishCalendarMarkerCount}; selected{" "}
+                    {outlookMyDayProbe.selectedEnglishCalendarMarkerCount}
+                  </dd>
+
+                  <dt>Timing</dt>
+                  <dd>
+                    Gate {outlookMyDayProbe.gateWaitMs} ms; scan{" "}
+                    {outlookMyDayProbe.scanMs} ms
+                  </dd>
+                </dl>
+
+                <ul>
+                  {outlookMyDayProbe.diagnostics.map((diagnostic) => (
+                    <li key={diagnostic}>{diagnostic}</li>
+                  ))}
+                </ul>
+
+                <details>
+                  <summary>Sanitized structure JSON</summary>
+                  <pre>{JSON.stringify(outlookMyDayProbe, null, 2)}</pre>
+                </details>
+              </>
+            )}
+          </section>
+
+          <hr />
+
           <p>Milestone 2 paused Microsoft Graph calendar-provider diagnostic</p>
 
       <section aria-live="polite">

@@ -2,6 +2,7 @@ mod attention_signals;
 mod calendar;
 mod graph_calendar;
 mod notifications;
+mod outlook_my_day;
 pub mod teams_mirror;
 mod uia_gate;
 
@@ -11,6 +12,7 @@ use graph_calendar::GraphEnvironmentReport;
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
+use outlook_my_day::OutlookMyDayStructureProbe;
 use tauri::Manager;
 use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
 
@@ -69,6 +71,26 @@ async fn get_graph_calendar_environment() -> GraphEnvironmentReport {
     let report = graph_calendar::get_environment().await;
     eprintln!("Graph calendar helper environment: {report:?}");
     report
+}
+
+#[tauri::command]
+async fn get_outlook_my_day_structure_probe() -> OutlookMyDayStructureProbe {
+    let probe = outlook_my_day::get_structure_probe().await;
+    eprintln!(
+        "Outlook My Day sanitized structure probe: status={:?}, windows={}, elements={}, candidates={}, right_pane_candidates={}, markers={}/{}, selected_calendar_markers={}, stop_reason={:?}, timing_ms={}/{}",
+        probe.status,
+        probe.outlook_window_count,
+        probe.element_count,
+        probe.structural_candidate_count,
+        probe.right_pane_candidate_count,
+        probe.english_my_day_marker_count,
+        probe.english_calendar_marker_count,
+        probe.selected_english_calendar_marker_count,
+        probe.stop_reason,
+        probe.gate_wait_ms,
+        probe.scan_ms,
+    );
+    probe
 }
 
 #[tauri::command]
@@ -189,6 +211,7 @@ pub fn run() {
             request_calendar_read_access,
             get_calendar_snapshot,
             get_graph_calendar_environment,
+            get_outlook_my_day_structure_probe,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,
