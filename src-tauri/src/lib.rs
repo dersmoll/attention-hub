@@ -14,7 +14,7 @@ use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
 use outlook_my_day::OutlookMyDayStructureProbe;
-use published_ics::PublishedIcsStructureProbe;
+use published_ics::{PublishedIcsSemanticProbe, PublishedIcsStructureProbe};
 use tauri::Manager;
 use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
 
@@ -107,6 +107,30 @@ async fn get_published_ics_structure_probe(published_url: String) -> PublishedIc
         probe.event_count,
         probe.recurrence_rule_count,
         probe.timezone_definition_count,
+        probe.stop_reason,
+        probe.request_ms,
+        probe.parse_ms,
+    );
+    probe
+}
+
+#[tauri::command]
+async fn get_published_ics_semantic_probe(
+    published_url: String,
+    title_capability_confirmed: bool,
+) -> PublishedIcsSemanticProbe {
+    let probe = published_ics::get_semantic_probe(published_url, title_capability_confirmed).await;
+    eprintln!(
+        "Published ICS bounded semantic probe: status={:?}, http_status={:?}, bytes={}, semantic_allowed={}, candidates={}, active_candidates={}, expanded_occurrences={}, private_redacted={}, selection_present={}, stop_reason={:?}, timing_ms={}/{}",
+        probe.status,
+        probe.http_status,
+        probe.response_bytes,
+        probe.semantic_extraction_allowed,
+        probe.eligible_candidate_count,
+        probe.active_candidate_count,
+        probe.expanded_occurrence_count,
+        probe.private_title_redacted,
+        probe.selection.is_some(),
         probe.stop_reason,
         probe.request_ms,
         probe.parse_ms,
@@ -234,6 +258,7 @@ pub fn run() {
             get_graph_calendar_environment,
             get_outlook_my_day_structure_probe,
             get_published_ics_structure_probe,
+            get_published_ics_semantic_probe,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,

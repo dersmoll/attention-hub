@@ -354,6 +354,37 @@ section + section {
   color: #5f6c7e;
 }
 
+.secret-probe-form > label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  font-weight: 600;
+}
+
+.secret-probe-form > label:has(input[type="checkbox"]) input {
+  margin-top: 0.2rem;
+}
+
+.semantic-event-result {
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid #b9c7d9;
+  border-left: 0.3rem solid #315f9a;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.semantic-event-result h3,
+.semantic-event-result p {
+  margin: 0;
+}
+
+.semantic-event-result h3 + p,
+.semantic-event-result p + p {
+  margin-top: 0.4rem;
+}
+
 hr {
   margin-block: 2rem;
   border: 0;

@@ -220,6 +220,34 @@ interface PublishedIcsStructureProbe {
   diagnostics: string[];
 }
 
+interface PublishedIcsSemanticProbe {
+  status: PublishedIcsProbeStatus;
+  capturedAtUnixMs: number;
+  urlAccepted: boolean;
+  webcalNormalizedToHttps: boolean;
+  sourceIdentityState: "userSelectedSinglePublishedCalendarTitleCapable";
+  semanticExtractionAllowed: boolean;
+  titleCapabilityConfirmed: boolean;
+  httpStatus: number | null;
+  contentTypeState: "calendar" | "missing" | "other";
+  responseBytes: number;
+  requestMs: number;
+  parseMs: number;
+  eligibleCandidateCount: number;
+  activeCandidateCount: number;
+  expandedOccurrenceCount: number;
+  privateTitleRedacted: boolean;
+  selection: {
+    subject: string;
+    start: string;
+    end: string;
+    classification: "active" | "upcoming";
+    meetingLinkPresent: boolean | null;
+  } | null;
+  stopReason: string | null;
+  diagnostics: string[];
+}
+
 function AdvancedView() {
   const [publishedIcsUrl, setPublishedIcsUrl] = useState("");
   const [publishedIcsProbe, setPublishedIcsProbe] =
@@ -228,6 +256,15 @@ function AdvancedView() {
   const [publishedIcsProbeError, setPublishedIcsProbeError] = useState<
     string | null
   >(null);
+  const [publishedIcsSemanticProbe, setPublishedIcsSemanticProbe] =
+    useState<PublishedIcsSemanticProbe | null>(null);
+  const [publishedIcsSemanticPending, setPublishedIcsSemanticPending] =
+    useState(false);
+  const [publishedIcsSemanticError, setPublishedIcsSemanticError] = useState<
+    string | null
+  >(null);
+  const [titleCapabilityConfirmed, setTitleCapabilityConfirmed] =
+    useState(false);
   const [outlookMyDayProbe, setOutlookMyDayProbe] =
     useState<OutlookMyDayStructureProbe | null>(null);
   const [outlookMyDayProbePending, setOutlookMyDayProbePending] = useState(false);
@@ -388,6 +425,43 @@ function AdvancedView() {
       setPublishedIcsProbePending(false);
     }
   }, [publishedIcsUrl]);
+
+  const runPublishedIcsSemanticProbe = useCallback(async () => {
+    const secretUrl = publishedIcsUrl.trim();
+    setPublishedIcsUrl("");
+    setPublishedIcsSemanticProbe(null);
+    setPublishedIcsSemanticError(null);
+
+    if (!secretUrl) {
+      setPublishedIcsSemanticError("Enter the locally generated ICS link first.");
+      return;
+    }
+    if (!titleCapabilityConfirmed) {
+      setPublishedIcsSemanticError(
+        "Confirm the exact Outlook publication level before extracting a title.",
+      );
+      return;
+    }
+
+    setPublishedIcsSemanticPending(true);
+    try {
+      setPublishedIcsSemanticProbe(
+        await invoke<PublishedIcsSemanticProbe>(
+          "get_published_ics_semantic_probe",
+          {
+            publishedUrl: secretUrl,
+            titleCapabilityConfirmed,
+          },
+        ),
+      );
+    } catch {
+      setPublishedIcsSemanticError(
+        "The local semantic diagnostic failed without returning a bounded result.",
+      );
+    } finally {
+      setPublishedIcsSemanticPending(false);
+    }
+  }, [publishedIcsUrl, titleCapabilityConfirmed]);
 
   const refreshTeamsMirror = useCallback(async () => {
     try {
@@ -574,12 +648,12 @@ function AdvancedView() {
       </header>
 
       <section aria-live="polite">
-        <p className="eyebrow">Milestone 4B manual diagnostic</p>
-        <h2>Published work-calendar ICS structure</h2>
+        <p className="eyebrow">Milestone 4C manual diagnostic</p>
+        <h2>Published work-calendar current or next event</h2>
         <p>
-          Paste the generated ICS link only into this masked local field. One
-          bounded fetch returns structure counts and timing—not the URL, raw
-          calendar, or event values.
+          Paste the generated ICS link only into this masked local field. Run
+          either the sanitized structure check or the separately approved
+          title-capable current/next selector. Neither action saves the link.
         </p>
 
         <form
@@ -604,18 +678,47 @@ function AdvancedView() {
               value={publishedIcsUrl}
             />
             <button
-              disabled={publishedIcsProbePending || !publishedIcsUrl.trim()}
+              disabled={
+                publishedIcsProbePending ||
+                publishedIcsSemanticPending ||
+                !publishedIcsUrl.trim()
+              }
               type="submit"
             >
               {publishedIcsProbePending
                 ? "Fetching sanitized structure…"
                 : "Run sanitized ICS probe"}
             </button>
+            <button
+              disabled={
+                publishedIcsProbePending ||
+                publishedIcsSemanticPending ||
+                !publishedIcsUrl.trim() ||
+                !titleCapabilityConfirmed
+              }
+              onClick={() => void runPublishedIcsSemanticProbe()}
+              type="button"
+            >
+              {publishedIcsSemanticPending
+                ? "Selecting bounded event…"
+                : "Run title-capable event probe"}
+            </button>
           </div>
           <small id="published-ics-url-help">
             The field is cleared as soon as the probe starts. The link is not
             saved, logged, returned, or added to evidence.
           </small>
+          <label>
+            <input
+              checked={titleCapabilityConfirmed}
+              onChange={(event) =>
+                setTitleCapabilityConfirmed(event.target.checked)
+              }
+              type="checkbox"
+            />{" "}
+            I set this exact Outlook calendar publication to “Can view titles
+            and locations”. Attention Hub will discard location.
+          </label>
         </form>
 
         {publishedIcsProbeError && (
@@ -625,6 +728,18 @@ function AdvancedView() {
           <p>
             Fresh result: <strong>{publishedIcsProbe.status}</strong>. Detailed
             sanitized fields are shown under Technical diagnostics below.
+          </p>
+        )}
+        {publishedIcsSemanticError && (
+          <p className="error">
+            ICS semantic diagnostic: {publishedIcsSemanticError}
+          </p>
+        )}
+        {publishedIcsSemanticProbe && (
+          <p>
+            Fresh semantic result:{" "}
+            <strong>{publishedIcsSemanticProbe.status}</strong>. No meeting URL,
+            location, account, attendee, organizer, body, or UID was returned.
           </p>
         )}
       </section>
@@ -654,6 +769,119 @@ function AdvancedView() {
           <small>Graph, calendar, notifications, and raw source data</small>
         </summary>
         <div className="technical-details__content">
+          <p>Milestone 4C Published ICS bounded semantic diagnostic</p>
+
+          <section aria-live="polite">
+            <h2>Published work-calendar current or next event</h2>
+            <p>
+              This manual one-shot gate returns only subject, start, end,
+              active/upcoming classification, and meeting-link presence. It
+              rejects ambiguous timezone or recurrence semantics and never
+              returns the meeting URL.
+            </p>
+
+            {publishedIcsSemanticError && (
+              <p className="error">
+                ICS semantic diagnostic: {publishedIcsSemanticError}
+              </p>
+            )}
+
+            {publishedIcsSemanticProbe ? (
+              <>
+                <dl>
+                  <dt>Fresh probe status</dt>
+                  <dd data-status={publishedIcsSemanticProbe.status}>
+                    {publishedIcsSemanticProbe.status}
+                  </dd>
+
+                  <dt>Semantic extraction allowed</dt>
+                  <dd>
+                    {String(
+                      publishedIcsSemanticProbe.semanticExtractionAllowed,
+                    )}
+                  </dd>
+
+                  <dt>Title capability confirmed</dt>
+                  <dd>
+                    {String(
+                      publishedIcsSemanticProbe.titleCapabilityConfirmed,
+                    )}
+                  </dd>
+
+                  <dt>Source identity</dt>
+                  <dd>{publishedIcsSemanticProbe.sourceIdentityState}</dd>
+
+                  <dt>Transport</dt>
+                  <dd>
+                    HTTP {publishedIcsSemanticProbe.httpStatus ?? "—"}; content
+                    type {publishedIcsSemanticProbe.contentTypeState};{" "}
+                    {publishedIcsSemanticProbe.responseBytes} bytes
+                  </dd>
+
+                  <dt>Bounded selection</dt>
+                  <dd>
+                    {publishedIcsSemanticProbe.eligibleCandidateCount} eligible
+                    candidates; {publishedIcsSemanticProbe.activeCandidateCount}{" "}
+                    active; {publishedIcsSemanticProbe.expandedOccurrenceCount}{" "}
+                    recurrence occurrences expanded
+                  </dd>
+
+                  <dt>Timing</dt>
+                  <dd>
+                    Request {publishedIcsSemanticProbe.requestMs} ms; parse{" "}
+                    {publishedIcsSemanticProbe.parseMs} ms
+                  </dd>
+
+                  <dt>Stop reason</dt>
+                  <dd>{publishedIcsSemanticProbe.stopReason ?? "None"}</dd>
+                </dl>
+
+                {publishedIcsSemanticProbe.selection && (
+                  <div className="semantic-event-result">
+                    <p className="eyebrow">
+                      {publishedIcsSemanticProbe.selection.classification}
+                    </p>
+                    <h3>{publishedIcsSemanticProbe.selection.subject}</h3>
+                    <p>
+                      {new Date(
+                        publishedIcsSemanticProbe.selection.start,
+                      ).toLocaleString()} {" – "}
+                      {new Date(
+                        publishedIcsSemanticProbe.selection.end,
+                      ).toLocaleString()}
+                    </p>
+                    <p>
+                      Meeting link:{" "}
+                      {publishedIcsSemanticProbe.selection
+                        .meetingLinkPresent === null
+                        ? "withheld for private event"
+                        : publishedIcsSemanticProbe.selection.meetingLinkPresent
+                          ? "present"
+                          : "not detected"}
+                    </p>
+                  </div>
+                )}
+
+                <ul>
+                  {publishedIcsSemanticProbe.diagnostics.map((diagnostic) => (
+                    <li key={diagnostic}>{diagnostic}</li>
+                  ))}
+                </ul>
+
+                <details>
+                  <summary>Bounded semantic JSON</summary>
+                  <pre>
+                    {JSON.stringify(publishedIcsSemanticProbe, null, 2)}
+                  </pre>
+                </details>
+              </>
+            ) : (
+              <p>No title-capable semantic request has been made in this app run.</p>
+            )}
+          </section>
+
+          <hr />
+
           <p>Milestone 4B Published ICS structure diagnostic</p>
 
           <section aria-live="polite">

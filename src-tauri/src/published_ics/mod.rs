@@ -1,3 +1,5 @@
+mod semantics;
+
 use reqwest::{
     header::{AGE, CACHE_CONTROL, CONTENT_TYPE, ETAG, LAST_MODIFIED},
     redirect::Policy,
@@ -5,6 +7,8 @@ use reqwest::{
 };
 use serde::Serialize;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+pub use semantics::EventSelection;
 
 const MAX_URL_BYTES: usize = 4_096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -56,6 +60,13 @@ pub enum PublishedIcsStopReason {
     ParseTime,
     MalformedCalendar,
     MultipleCalendars,
+    TitleCapabilityNotConfirmed,
+    MalformedEvent,
+    UnsupportedTimezone,
+    AmbiguousTime,
+    UnsupportedRecurrence,
+    RecurrenceLimit,
+    NoEligibleEvent,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -106,6 +117,67 @@ pub struct PublishedIcsStructureProbe {
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub limits: PublishedIcsProbeLimits,
     pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishedIcsSemanticProbe {
+    pub status: PublishedIcsProbeStatus,
+    pub captured_at_unix_ms: u64,
+    pub url_accepted: bool,
+    pub webcal_normalized_to_https: bool,
+    pub source_identity_state: &'static str,
+    pub semantic_extraction_allowed: bool,
+    pub title_capability_confirmed: bool,
+    pub http_status: Option<u16>,
+    pub content_type_state: PublishedIcsContentTypeState,
+    pub response_bytes: usize,
+    pub request_ms: u64,
+    pub parse_ms: u64,
+    pub eligible_candidate_count: u32,
+    pub active_candidate_count: u32,
+    pub expanded_occurrence_count: u32,
+    pub private_title_redacted: bool,
+    pub selection: Option<EventSelection>,
+    pub stop_reason: Option<PublishedIcsStopReason>,
+    pub diagnostics: Vec<String>,
+}
+
+impl PublishedIcsSemanticProbe {
+    fn new(title_capability_confirmed: bool) -> Self {
+        Self {
+            status: PublishedIcsProbeStatus::Unavailable,
+            captured_at_unix_ms: now_unix_ms(),
+            url_accepted: false,
+            webcal_normalized_to_https: false,
+            source_identity_state: "userSelectedSinglePublishedCalendarTitleCapable",
+            semantic_extraction_allowed: false,
+            title_capability_confirmed,
+            http_status: None,
+            content_type_state: PublishedIcsContentTypeState::Missing,
+            response_bytes: 0,
+            request_ms: 0,
+            parse_ms: 0,
+            eligible_candidate_count: 0,
+            active_candidate_count: 0,
+            expanded_occurrence_count: 0,
+            private_title_redacted: false,
+            selection: None,
+            stop_reason: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn fail(
+        &mut self,
+        status: PublishedIcsProbeStatus,
+        reason: PublishedIcsStopReason,
+        diagnostic: &'static str,
+    ) {
+        self.status = status;
+        self.stop_reason = Some(reason);
+        self.diagnostics.push(diagnostic.to_owned());
+    }
 }
 
 impl PublishedIcsStructureProbe {
@@ -379,6 +451,238 @@ pub async fn get_structure_probe(published_url: String) -> PublishedIcsStructure
     );
     probe.diagnostics.push(
         "Semantic extraction remains disabled until freshness, privacy level, recurrence, timezone, and source-selection behavior are validated.".to_owned(),
+    );
+    probe
+}
+
+pub async fn get_semantic_probe(
+    published_url: String,
+    title_capability_confirmed: bool,
+) -> PublishedIcsSemanticProbe {
+    let mut probe = PublishedIcsSemanticProbe::new(title_capability_confirmed);
+    if !title_capability_confirmed {
+        probe.fail(
+            PublishedIcsProbeStatus::InvalidInput,
+            PublishedIcsStopReason::TitleCapabilityNotConfirmed,
+            "Confirm the exact Outlook publication level before any event title is extracted.",
+        );
+        return probe;
+    }
+
+    let validated = match validate_published_url(&published_url) {
+        Ok(validated) => validated,
+        Err((reason, diagnostic)) => {
+            probe.fail(PublishedIcsProbeStatus::InvalidInput, reason, diagnostic);
+            return probe;
+        }
+    };
+    probe.url_accepted = true;
+    probe.webcal_normalized_to_https = validated.webcal_normalized_to_https;
+
+    let client = match reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(Policy::none())
+        .referer(false)
+        .pool_max_idle_per_host(0)
+        .user_agent("Attention-Hub/0.1 Published-ICS-Semantic-Probe")
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => {
+            probe.fail(
+                PublishedIcsProbeStatus::Error,
+                PublishedIcsStopReason::ClientSetup,
+                "The bounded HTTPS client could not be initialized.",
+            );
+            return probe;
+        }
+    };
+
+    let request_started = Instant::now();
+    let mut response = match client.get(validated.url).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            probe.request_ms = elapsed_ms(request_started);
+            if error.is_timeout() {
+                probe.fail(
+                    PublishedIcsProbeStatus::Timeout,
+                    PublishedIcsStopReason::RequestTimeout,
+                    "The published calendar request exceeded the fixed total timeout.",
+                );
+            } else {
+                probe.fail(
+                    PublishedIcsProbeStatus::Unavailable,
+                    PublishedIcsStopReason::RequestFailed,
+                    "The published calendar could not be fetched. Request details are suppressed because they may contain the secret URL.",
+                );
+            }
+            return probe;
+        }
+    };
+
+    probe.http_status = Some(response.status().as_u16());
+    probe.content_type_state = classify_content_type(response.headers().get(CONTENT_TYPE));
+    if response.status().is_redirection() {
+        probe.request_ms = elapsed_ms(request_started);
+        probe.fail(
+            PublishedIcsProbeStatus::Unavailable,
+            PublishedIcsStopReason::RedirectBlocked,
+            "The endpoint requested a redirect. Redirects remain blocked for the secret publication path.",
+        );
+        return probe;
+    }
+    if !response.status().is_success() {
+        probe.request_ms = elapsed_ms(request_started);
+        probe.fail(
+            PublishedIcsProbeStatus::Unavailable,
+            PublishedIcsStopReason::HttpStatus,
+            "The endpoint returned a non-success HTTP status. The response body was not read.",
+        );
+        return probe;
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+    {
+        probe.request_ms = elapsed_ms(request_started);
+        probe.fail(
+            PublishedIcsProbeStatus::TooLarge,
+            PublishedIcsStopReason::DeclaredBodyLimit,
+            "The declared response size exceeds the fixed body limit.",
+        );
+        return probe;
+    }
+
+    let initial_capacity = response
+        .content_length()
+        .unwrap_or(0)
+        .min(MAX_RESPONSE_BYTES as u64) as usize;
+    let mut body = Vec::with_capacity(initial_capacity);
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                    body.fill(0);
+                    probe.request_ms = elapsed_ms(request_started);
+                    probe.fail(
+                        PublishedIcsProbeStatus::TooLarge,
+                        PublishedIcsStopReason::BodyLimit,
+                        "The streamed response exceeded the fixed body limit and was discarded.",
+                    );
+                    return probe;
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                body.fill(0);
+                probe.request_ms = elapsed_ms(request_started);
+                if error.is_timeout() {
+                    probe.fail(
+                        PublishedIcsProbeStatus::Timeout,
+                        PublishedIcsStopReason::RequestTimeout,
+                        "The published calendar body exceeded the fixed total timeout.",
+                    );
+                } else {
+                    probe.fail(
+                        PublishedIcsProbeStatus::Unavailable,
+                        PublishedIcsStopReason::BodyRead,
+                        "The published calendar body could not be read. Request details are suppressed.",
+                    );
+                }
+                return probe;
+            }
+        }
+    }
+    probe.request_ms = elapsed_ms(request_started);
+    probe.response_bytes = body.len();
+
+    if looks_like_html(&body) {
+        body.fill(0);
+        probe.fail(
+            PublishedIcsProbeStatus::Unavailable,
+            PublishedIcsStopReason::HtmlResponse,
+            "The response looked like HTML rather than an iCalendar document and was discarded.",
+        );
+        return probe;
+    }
+
+    let parse_started = Instant::now();
+    let structure = match scan_ics_structure(&body, parse_started) {
+        Ok(structure) => structure,
+        Err(failure) => {
+            probe.parse_ms = elapsed_ms(parse_started);
+            body.fill(0);
+            probe.fail(failure.status, failure.reason, failure.diagnostic);
+            return probe;
+        }
+    };
+    if structure.calendar_count != 1 {
+        probe.parse_ms = elapsed_ms(parse_started);
+        body.fill(0);
+        probe.fail(
+            PublishedIcsProbeStatus::Unavailable,
+            PublishedIcsStopReason::MultipleCalendars,
+            "The response did not contain exactly one balanced VCALENDAR source.",
+        );
+        return probe;
+    }
+
+    let semantic = semantics::extract_current_or_next(&body, chrono::Utc::now(), parse_started);
+    probe.parse_ms = elapsed_ms(parse_started);
+    body.fill(0);
+    let semantic = match semantic {
+        Ok(semantic) => semantic,
+        Err(failure) => {
+            use semantics::SemanticFailureReason;
+            let (status, reason) = match failure.reason {
+                SemanticFailureReason::MalformedEvent => (
+                    PublishedIcsProbeStatus::Unavailable,
+                    PublishedIcsStopReason::MalformedEvent,
+                ),
+                SemanticFailureReason::UnsupportedTimezone => (
+                    PublishedIcsProbeStatus::Unavailable,
+                    PublishedIcsStopReason::UnsupportedTimezone,
+                ),
+                SemanticFailureReason::AmbiguousTime => (
+                    PublishedIcsProbeStatus::Unavailable,
+                    PublishedIcsStopReason::AmbiguousTime,
+                ),
+                SemanticFailureReason::UnsupportedRecurrence => (
+                    PublishedIcsProbeStatus::Unavailable,
+                    PublishedIcsStopReason::UnsupportedRecurrence,
+                ),
+                SemanticFailureReason::RecurrenceLimit => (
+                    PublishedIcsProbeStatus::TooLarge,
+                    PublishedIcsStopReason::RecurrenceLimit,
+                ),
+                SemanticFailureReason::ParseTime => (
+                    PublishedIcsProbeStatus::Timeout,
+                    PublishedIcsStopReason::ParseTime,
+                ),
+                SemanticFailureReason::NoEligibleEvent => (
+                    PublishedIcsProbeStatus::Unavailable,
+                    PublishedIcsStopReason::NoEligibleEvent,
+                ),
+            };
+            probe.fail(status, reason, failure.diagnostic);
+            return probe;
+        }
+    };
+
+    probe.status = PublishedIcsProbeStatus::Observed;
+    probe.semantic_extraction_allowed = true;
+    probe.eligible_candidate_count = semantic.eligible_candidate_count;
+    probe.active_candidate_count = semantic.active_candidate_count;
+    probe.expanded_occurrence_count = semantic.expanded_occurrence_count;
+    probe.private_title_redacted = semantic.private_title_redacted;
+    probe.selection = Some(semantic.selection);
+    probe.diagnostics.push(
+        "One fresh active-or-next selection was produced from one user-confirmed title-capable published calendar.".to_owned(),
+    );
+    probe.diagnostics.push(
+        "Location, account, attendees, organizer, body, UID, raw calendar data, and meeting URLs were discarded and did not cross IPC.".to_owned(),
     );
     probe
 }

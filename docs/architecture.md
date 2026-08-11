@@ -360,6 +360,17 @@ create/update/delete cycle. Published ICS is therefore retained for a bounded
 semantic phase, while secret persistence, polling, and widget integration stay
 unapproved.
 
+ADR 0013 implements that bounded semantic phase as another manual one-shot
+command. It requires confirmation of the user-approved title-capable
+publication, keeps the ADR 0012 network and body bounds, and returns one
+application-owned selection containing only subject, start, end,
+active/upcoming classification, and nullable meeting-link presence. The parser
+uses RFC 5545 recurrence precedence, bounded recurrence expansion, IANA or
+CLDR-mapped Windows timezones, cancellation filtering, deterministic overlap
+ordering, and private/confidential redaction. Ambiguous time or recurrence
+behavior produces unavailable. Selection values are not logged. Durable secret
+storage, polling, and widget integration remain outside the boundary.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.

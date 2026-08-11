@@ -31,8 +31,9 @@ Outlook My Day probe found useful structure while Outlook was visible or fully
 covered, but the tree unloaded when Outlook was minimized. That passive UI
 Automation provider is rejected; semantic extraction and widget calendar data
 remain disabled. Milestone 4B's secret-safe Published ICS gate observed one
-calendar and acceptable create/update/delete freshness, so the provider is
-retained for a separately reviewed semantic phase. Windows `AppointmentStore`
+calendar and acceptable create/update/delete freshness. Milestone 4C now adds
+the separately approved, one-shot title-capable current/next semantic gate;
+live provider validation is pending and no result enters the widget. Windows `AppointmentStore`
 returned stale legacy data, the Microsoft 365 Calendar companion remains a
 visible comparison oracle rather than a passive provider, and Microsoft Graph
 work remains paused before registration or consent.
@@ -44,6 +45,7 @@ work remains paused before registration or consent.
 - [Milestone 3B widget composition spike](docs/milestones/milestone-3b-widget-composition-spike.md)
 - [Milestone 4A New Outlook My Day observer spike](docs/milestones/milestone-4a-new-outlook-my-day-observer-spike.md)
 - [Milestone 4B Published ICS observer spike](docs/milestones/milestone-4b-published-ics-observer-spike.md)
+- [Milestone 4C Published ICS semantic gate](docs/milestones/milestone-4c-published-ics-semantics.md)
 - [Architecture decisions](docs/decisions/)
 
 ## Development

@@ -5,8 +5,9 @@
 Phase A completed on 2026-08-11. The bounded one-shot diagnostic observed one
 valid calendar and the feed reflected a harmless create/update/delete cycle in
 approximately 30 seconds to two minutes. Published ICS is retained for a
-separately reviewed semantic phase. Semantic extraction, polling, persistence,
-and widget integration have not started.
+separately reviewed semantic phase. The user subsequently approved the
+title-capable privacy level and Milestone 4C implements that separate one-shot
+gate. Polling, persistence, and widget integration have not started.
 
 ## Product question
 

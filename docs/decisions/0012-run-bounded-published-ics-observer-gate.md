@@ -95,6 +95,7 @@ approximately 30 seconds; deletion of the entire series restored the exact
 baseline within approximately 30 seconds. No URL or event value entered IPC,
 logs, or evidence.
 
-Published ICS is retained for a separately reviewed minimal semantic phase.
-This outcome does not approve a higher publication detail level, durable secret
-storage, polling, semantic fields, or widget integration.
+Published ICS was retained for a separately reviewed minimal semantic phase.
+The user later approved the title-capable publication tradeoff; ADR 0013 owns
+that implementation. This ADR still does not approve durable secret storage,
+polling, or widget integration.

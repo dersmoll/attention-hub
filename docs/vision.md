@@ -69,7 +69,11 @@ and freshness evidence only. The Microsoft 365 Calendar companion remains the
 visible comparison oracle during that test; it is not treated as a background
 API. The structure/freshness gate passed a harmless create/update/delete cycle,
 so Published ICS remains the leading provider candidate for a bounded semantic
-phase before any widget integration.
+phase before any widget integration. The user approved the title-capable
+publication tradeoff, and Milestone 4C implements a separate one-shot
+current/next semantic gate that deliberately discards location and meeting
+URLs. Live semantic validation is still required before any production provider
+or widget decision.
 
 ## Success direction
 
