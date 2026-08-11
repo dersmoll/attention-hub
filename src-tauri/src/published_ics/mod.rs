@@ -61,6 +61,8 @@ pub enum PublishedIcsStopReason {
     MalformedCalendar,
     MultipleCalendars,
     TitleCapabilityNotConfirmed,
+    CommandDeadline,
+    CommandFailed,
     MalformedEvent,
     UnsupportedTimezone,
     AmbiguousTime,
@@ -177,6 +179,26 @@ impl PublishedIcsSemanticProbe {
         self.status = status;
         self.stop_reason = Some(reason);
         self.diagnostics.push(diagnostic.to_owned());
+    }
+
+    pub fn command_deadline(title_capability_confirmed: bool) -> Self {
+        let mut probe = Self::new(title_capability_confirmed);
+        probe.fail(
+            PublishedIcsProbeStatus::Timeout,
+            PublishedIcsStopReason::CommandDeadline,
+            "The complete one-shot semantic command exceeded its fixed 15-second deadline.",
+        );
+        probe
+    }
+
+    pub fn command_failed(title_capability_confirmed: bool) -> Self {
+        let mut probe = Self::new(title_capability_confirmed);
+        probe.fail(
+            PublishedIcsProbeStatus::Error,
+            PublishedIcsStopReason::CommandFailed,
+            "The isolated one-shot semantic task ended without a result.",
+        );
+        probe
     }
 }
 
@@ -1044,5 +1066,20 @@ mod tests {
             failure.reason,
             PublishedIcsStopReason::MalformedCalendar
         ));
+    }
+
+    #[test]
+    fn command_deadline_returns_a_sanitized_terminal_result() {
+        let probe = PublishedIcsSemanticProbe::command_deadline(true);
+
+        assert!(matches!(probe.status, PublishedIcsProbeStatus::Timeout));
+        assert!(matches!(
+            probe.stop_reason,
+            Some(PublishedIcsStopReason::CommandDeadline)
+        ));
+        assert!(probe.title_capability_confirmed);
+        assert!(!probe.semantic_extraction_allowed);
+        assert!(probe.selection.is_none());
+        assert_eq!(probe.diagnostics.len(), 1);
     }
 }

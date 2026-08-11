@@ -22,6 +22,9 @@ Add a separate Advanced one-shot semantic command and require an explicit UI
 confirmation of the exact publication level. The command:
 
 - reuses the ADR 0012 secret URL, transport, body, and structure bounds;
+- isolates the complete semantic task behind a 15-second command deadline so
+  the UI receives a terminal sanitized result even if native proxy or TLS work
+  does not honor the request timeout;
 - accepts exactly one balanced, user-selected published calendar;
 - resolves IANA timezones directly and Windows timezone IDs through
   Unicode-CLDR-derived mapping;
@@ -48,8 +51,8 @@ otherwise controlled.
 Report unavailable rather than guessing if title capability is not confirmed,
 the source is not exactly one calendar, a timezone or DST boundary is
 ambiguous, recurrence parsing or overrides are unsupported, parsing exceeds a
-bound, no eligible event exists, or source privacy behavior contradicts the
-contract.
+bound, the complete command exceeds 15 seconds, no eligible event exists, or
+source privacy behavior contradicts the contract.
 
 ## Consequences
 

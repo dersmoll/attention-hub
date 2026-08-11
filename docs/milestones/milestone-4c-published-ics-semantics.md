@@ -59,6 +59,7 @@ adds:
 
 | Boundary | Limit |
 | --- | ---: |
+| Complete one-shot command | 15 seconds |
 | Semantic parse | 750 ms |
 | One unfolded content line | 256 KiB |
 | Subject | 512 Unicode characters |

@@ -89,6 +89,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tokio",
  "windows",
  "windows-timezones",
 ]

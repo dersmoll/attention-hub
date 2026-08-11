@@ -119,7 +119,18 @@ async fn get_published_ics_semantic_probe(
     published_url: String,
     title_capability_confirmed: bool,
 ) -> PublishedIcsSemanticProbe {
-    let probe = published_ics::get_semantic_probe(published_url, title_capability_confirmed).await;
+    let mut task = tokio::spawn(published_ics::get_semantic_probe(
+        published_url,
+        title_capability_confirmed,
+    ));
+    let probe = match tokio::time::timeout(std::time::Duration::from_secs(15), &mut task).await {
+        Ok(Ok(probe)) => probe,
+        Ok(Err(_)) => PublishedIcsSemanticProbe::command_failed(title_capability_confirmed),
+        Err(_) => {
+            task.abort();
+            PublishedIcsSemanticProbe::command_deadline(title_capability_confirmed)
+        }
+    };
     eprintln!(
         "Published ICS bounded semantic probe: status={:?}, http_status={:?}, bytes={}, semantic_allowed={}, candidates={}, active_candidates={}, expanded_occurrences={}, private_redacted={}, selection_present={}, stop_reason={:?}, timing_ms={}/{}",
         probe.status,
