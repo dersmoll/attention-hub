@@ -3,6 +3,7 @@ mod calendar;
 mod graph_calendar;
 mod notifications;
 mod outlook_my_day;
+mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
 
@@ -13,6 +14,7 @@ use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
 use outlook_my_day::OutlookMyDayStructureProbe;
+use published_ics::PublishedIcsStructureProbe;
 use tauri::Manager;
 use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
 
@@ -89,6 +91,25 @@ async fn get_outlook_my_day_structure_probe() -> OutlookMyDayStructureProbe {
         probe.stop_reason,
         probe.gate_wait_ms,
         probe.scan_ms,
+    );
+    probe
+}
+
+#[tauri::command]
+async fn get_published_ics_structure_probe(published_url: String) -> PublishedIcsStructureProbe {
+    let probe = published_ics::get_structure_probe(published_url).await;
+    eprintln!(
+        "Published ICS sanitized structure probe: status={:?}, http_status={:?}, bytes={}, calendars={}, events={}, recurrence_rules={}, timezone_definitions={}, stop_reason={:?}, timing_ms={}/{}",
+        probe.status,
+        probe.http_status,
+        probe.response_bytes,
+        probe.calendar_count,
+        probe.event_count,
+        probe.recurrence_rule_count,
+        probe.timezone_definition_count,
+        probe.stop_reason,
+        probe.request_ms,
+        probe.parse_ms,
     );
     probe
 }
@@ -212,6 +233,7 @@ pub fn run() {
             get_calendar_snapshot,
             get_graph_calendar_environment,
             get_outlook_my_day_structure_probe,
+            get_published_ics_structure_probe,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,

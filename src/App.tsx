@@ -168,7 +168,66 @@ interface OutlookMyDayStructureProbe {
   diagnostics: string[];
 }
 
+type PublishedIcsProbeStatus =
+  | "observed"
+  | "invalidInput"
+  | "unavailable"
+  | "tooLarge"
+  | "timeout"
+  | "error";
+
+interface PublishedIcsStructureProbe {
+  status: PublishedIcsProbeStatus;
+  capturedAtUnixMs: number;
+  urlAccepted: boolean;
+  webcalNormalizedToHttps: boolean;
+  sourceIdentityState: "userSelectedPublishedUrlStructureOnly";
+  semanticExtractionAllowed: boolean;
+  httpStatus: number | null;
+  contentTypeState: "calendar" | "missing" | "other";
+  etagPresent: boolean;
+  lastModifiedPresent: boolean;
+  cacheControlPresent: boolean;
+  ageHeaderPresent: boolean;
+  responseBytes: number;
+  physicalLineCount: number;
+  foldedLineCount: number;
+  propertyCount: number;
+  calendarCount: number;
+  eventCount: number;
+  eventsWithStartCount: number;
+  eventsWithEndOrDurationCount: number;
+  recurrenceRuleCount: number;
+  recurrenceDateCount: number;
+  recurrenceExceptionDateCount: number;
+  recurrenceOverrideCount: number;
+  timezoneDefinitionCount: number;
+  timezoneReferenceCount: number;
+  requestMs: number;
+  parseMs: number;
+  stopReason: string | null;
+  limits: {
+    urlBytes: number;
+    connectMs: number;
+    requestMs: number;
+    responseBytes: number;
+    physicalLines: number;
+    properties: number;
+    events: number;
+    lineBytes: number;
+    parseMs: number;
+  };
+  diagnostics: string[];
+}
+
 function AdvancedView() {
+  const [publishedIcsUrl, setPublishedIcsUrl] = useState("");
+  const [publishedIcsProbe, setPublishedIcsProbe] =
+    useState<PublishedIcsStructureProbe | null>(null);
+  const [publishedIcsProbePending, setPublishedIcsProbePending] = useState(false);
+  const [publishedIcsProbeError, setPublishedIcsProbeError] = useState<
+    string | null
+  >(null);
   const [outlookMyDayProbe, setOutlookMyDayProbe] =
     useState<OutlookMyDayStructureProbe | null>(null);
   const [outlookMyDayProbePending, setOutlookMyDayProbePending] = useState(false);
@@ -301,6 +360,34 @@ function AdvancedView() {
       setOutlookMyDayProbePending(false);
     }
   }, []);
+
+  const runPublishedIcsStructureProbe = useCallback(async () => {
+    const secretUrl = publishedIcsUrl.trim();
+    setPublishedIcsUrl("");
+    setPublishedIcsProbe(null);
+    setPublishedIcsProbeError(null);
+
+    if (!secretUrl) {
+      setPublishedIcsProbeError("Enter the locally generated ICS link first.");
+      return;
+    }
+
+    setPublishedIcsProbePending(true);
+    try {
+      setPublishedIcsProbe(
+        await invoke<PublishedIcsStructureProbe>(
+          "get_published_ics_structure_probe",
+          { publishedUrl: secretUrl },
+        ),
+      );
+    } catch {
+      setPublishedIcsProbeError(
+        "The local ICS diagnostic failed without returning a sanitized result.",
+      );
+    } finally {
+      setPublishedIcsProbePending(false);
+    }
+  }, [publishedIcsUrl]);
 
   const refreshTeamsMirror = useCallback(async () => {
     try {
@@ -487,34 +574,56 @@ function AdvancedView() {
       </header>
 
       <section aria-live="polite">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Milestone 4A manual diagnostic</p>
-            <h2>New Outlook My Day structure</h2>
-            <p>
-              With Outlook My Day → Calendar already open, run one fresh
-              sanitized structure scan. Attention Hub will not control Outlook.
-            </p>
-          </div>
-          <button
-            disabled={outlookMyDayProbePending}
-            onClick={() => void runOutlookMyDayStructureProbe()}
-            type="button"
-          >
-            {outlookMyDayProbePending
-              ? "Inspecting sanitized structure…"
-              : "Run sanitized structure probe"}
-          </button>
-        </div>
+        <p className="eyebrow">Milestone 4B manual diagnostic</p>
+        <h2>Published work-calendar ICS structure</h2>
+        <p>
+          Paste the generated ICS link only into this masked local field. One
+          bounded fetch returns structure counts and timing—not the URL, raw
+          calendar, or event values.
+        </p>
 
-        {outlookMyDayProbeError && (
-          <p className="error">
-            Outlook My Day diagnostic error: {outlookMyDayProbeError}
-          </p>
+        <form
+          className="secret-probe-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runPublishedIcsStructureProbe();
+          }}
+        >
+          <label htmlFor="published-ics-url">Published ICS link</label>
+          <div className="secret-probe-form__controls">
+            <input
+              aria-describedby="published-ics-url-help"
+              autoCapitalize="none"
+              autoComplete="off"
+              id="published-ics-url"
+              maxLength={4096}
+              onChange={(event) => setPublishedIcsUrl(event.target.value)}
+              placeholder="https://outlook.office365.com/…/calendar.ics"
+              spellCheck={false}
+              type="password"
+              value={publishedIcsUrl}
+            />
+            <button
+              disabled={publishedIcsProbePending || !publishedIcsUrl.trim()}
+              type="submit"
+            >
+              {publishedIcsProbePending
+                ? "Fetching sanitized structure…"
+                : "Run sanitized ICS probe"}
+            </button>
+          </div>
+          <small id="published-ics-url-help">
+            The field is cleared as soon as the probe starts. The link is not
+            saved, logged, returned, or added to evidence.
+          </small>
+        </form>
+
+        {publishedIcsProbeError && (
+          <p className="error">ICS diagnostic: {publishedIcsProbeError}</p>
         )}
-        {outlookMyDayProbe && (
+        {publishedIcsProbe && (
           <p>
-            Fresh result: <strong>{outlookMyDayProbe.status}</strong>. Detailed
+            Fresh result: <strong>{publishedIcsProbe.status}</strong>. Detailed
             sanitized fields are shown under Technical diagnostics below.
           </p>
         )}
@@ -545,7 +654,113 @@ function AdvancedView() {
           <small>Graph, calendar, notifications, and raw source data</small>
         </summary>
         <div className="technical-details__content">
-          <p>Milestone 4A New Outlook My Day observer diagnostic</p>
+          <p>Milestone 4B Published ICS structure diagnostic</p>
+
+          <section aria-live="polite">
+            <h2>Published work-calendar ICS structure</h2>
+            <p>
+              This manual one-shot diagnostic accepts one user-selected
+              Microsoft 365 published-calendar link. It blocks redirects and
+              returns no URL, raw calendar body, or event values.
+            </p>
+
+            {publishedIcsProbeError && (
+              <p className="error">ICS diagnostic: {publishedIcsProbeError}</p>
+            )}
+
+            {publishedIcsProbe ? (
+              <>
+                <dl>
+                  <dt>Fresh probe status</dt>
+                  <dd data-status={publishedIcsProbe.status}>
+                    {publishedIcsProbe.status}
+                  </dd>
+
+                  <dt>URL boundary</dt>
+                  <dd>
+                    Accepted {String(publishedIcsProbe.urlAccepted)}; webcal
+                    normalized {String(publishedIcsProbe.webcalNormalizedToHttps)}
+                  </dd>
+
+                  <dt>Semantic extraction allowed</dt>
+                  <dd>{String(publishedIcsProbe.semanticExtractionAllowed)}</dd>
+
+                  <dt>Source identity</dt>
+                  <dd>{publishedIcsProbe.sourceIdentityState}</dd>
+
+                  <dt>Transport</dt>
+                  <dd>
+                    HTTP {publishedIcsProbe.httpStatus ?? "—"}; content type {" "}
+                    {publishedIcsProbe.contentTypeState}; {" "}
+                    {publishedIcsProbe.responseBytes} bytes
+                  </dd>
+
+                  <dt>Freshness headers</dt>
+                  <dd>
+                    ETag {String(publishedIcsProbe.etagPresent)}; Last-Modified {" "}
+                    {String(publishedIcsProbe.lastModifiedPresent)}; Cache-Control {" "}
+                    {String(publishedIcsProbe.cacheControlPresent)}; Age {" "}
+                    {String(publishedIcsProbe.ageHeaderPresent)}
+                  </dd>
+
+                  <dt>Bounded structure</dt>
+                  <dd>
+                    {publishedIcsProbe.calendarCount} calendars; {" "}
+                    {publishedIcsProbe.eventCount} events; {" "}
+                    {publishedIcsProbe.propertyCount} properties; {" "}
+                    {publishedIcsProbe.physicalLineCount} physical lines
+                  </dd>
+
+                  <dt>Event shape</dt>
+                  <dd>
+                    {publishedIcsProbe.eventsWithStartCount} with DTSTART; {" "}
+                    {publishedIcsProbe.eventsWithEndOrDurationCount} with
+                    DTEND/DURATION
+                  </dd>
+
+                  <dt>Recurrence shape</dt>
+                  <dd>
+                    RRULE {publishedIcsProbe.recurrenceRuleCount}; RDATE {" "}
+                    {publishedIcsProbe.recurrenceDateCount}; EXDATE {" "}
+                    {publishedIcsProbe.recurrenceExceptionDateCount}; overrides {" "}
+                    {publishedIcsProbe.recurrenceOverrideCount}
+                  </dd>
+
+                  <dt>Timezone shape</dt>
+                  <dd>
+                    {publishedIcsProbe.timezoneDefinitionCount} definitions; {" "}
+                    {publishedIcsProbe.timezoneReferenceCount} references
+                  </dd>
+
+                  <dt>Timing</dt>
+                  <dd>
+                    Request {publishedIcsProbe.requestMs} ms; parse {" "}
+                    {publishedIcsProbe.parseMs} ms
+                  </dd>
+
+                  <dt>Stop reason</dt>
+                  <dd>{publishedIcsProbe.stopReason ?? "None"}</dd>
+                </dl>
+
+                <ul>
+                  {publishedIcsProbe.diagnostics.map((diagnostic) => (
+                    <li key={diagnostic}>{diagnostic}</li>
+                  ))}
+                </ul>
+
+                <details>
+                  <summary>Sanitized ICS structure JSON</summary>
+                  <pre>{JSON.stringify(publishedIcsProbe, null, 2)}</pre>
+                </details>
+              </>
+            ) : (
+              <p>No published-calendar request has been made in this app run.</p>
+            )}
+          </section>
+
+          <hr />
+
+          <p>Milestone 4A rejected New Outlook My Day observer diagnostic</p>
 
           <section aria-live="polite">
             <div className="section-heading">

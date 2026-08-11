@@ -344,6 +344,18 @@ observed structure, but a minimized Outlook window exposed only 12 elements and
 no My Day or Calendar markers. This activates the ADR 0011 stop condition. The
 provider will not proceed to semantic extraction or widget integration.
 
+ADR 0012 adds a separate one-shot Published ICS structure gate. The frontend
+accepts one masked secret and clears it on submit. The Rust backend accepts only
+Microsoft 365 Outlook work-calendar publication hosts and the bounded
+`/owa/calendar/.../calendar.ics` path shape, normalizes webcal to HTTPS, rejects
+credentials/query/fragment/non-default ports, disables redirects and Referrer,
+and applies fixed connect/request/body/parser limits. It scans property and
+component names in memory, zeroes the body, and returns only sanitized status,
+header-presence booleans, counts, limits, and timing. The URL, response/header
+values, and event values never cross IPC or enter logs. No background polling
+or provider cache exists. The Microsoft 365 Calendar companion is a manual
+freshness oracle only.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.

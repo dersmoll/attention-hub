@@ -63,7 +63,11 @@ sanitized structure and keeps semantic extraction disabled. The widget retains
 a truthful calendar-unavailable state. The gate passed while Outlook was
 visible and fully covered but failed when Outlook was minimized, so the New
 Outlook My Day UI Automation provider is rejected and semantic extraction did
-not begin.
+not begin. Milestone 4B tests a user-controlled Published ICS source before
+Graph: one exact calendar, a secret-safe bounded fetch, and sanitized structure
+and freshness evidence only. The Microsoft 365 Calendar companion remains the
+visible comparison oracle during that test; it is not treated as a background
+API.
 
 ## Success direction
 

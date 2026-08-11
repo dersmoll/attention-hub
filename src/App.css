@@ -44,7 +44,8 @@ button:disabled {
 }
 
 button:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+input:focus-visible {
   outline: 3px solid #3478d4;
   outline-offset: 2px;
 }
@@ -322,6 +323,37 @@ section + section {
   white-space: nowrap;
 }
 
+.secret-probe-form {
+  display: grid;
+  gap: 0.45rem;
+  margin-block: 1rem;
+}
+
+.secret-probe-form > label {
+  font-weight: 700;
+}
+
+.secret-probe-form__controls {
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+}
+
+.secret-probe-form__controls input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #9aa5b5;
+  border-radius: 0.55rem;
+  color: #172033;
+  background: #fff;
+  font: inherit;
+}
+
+.secret-probe-form > small {
+  color: #5f6c7e;
+}
+
 hr {
   margin-block: 2rem;
   border: 0;
@@ -355,12 +387,17 @@ dd {
 }
 
 [data-status="allowed"],
-[data-status="running"] {
+[data-status="running"],
+[data-status="observed"] {
   color: #176b2c;
 }
 
 [data-status="denied"],
 [data-status="error"],
+[data-status="invalidInput"],
+[data-status="unavailable"],
+[data-status="tooLarge"],
+[data-status="timeout"],
 .error {
   color: #a31515;
 }
@@ -407,6 +444,7 @@ pre {
   .attention-summary,
   .mirror-control,
   .section-heading,
+  .secret-probe-form__controls,
   .technical-details > summary {
     align-items: stretch;
     flex-direction: column;
