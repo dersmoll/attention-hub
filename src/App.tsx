@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AttentionPanel } from "./AttentionPanel";
+import { WidgetView } from "./WidgetView";
+import {
+  ATTENTION_POLL_INTERVAL_MS,
+  type AttentionSignalSnapshot,
+  type TeamsMirrorStatus,
+} from "./attention-model";
 import "./App.css";
 
 type NotificationAccessStatus =
@@ -49,25 +57,6 @@ interface ListenerStartReport {
 interface NotificationChangeSignal {
   kind: "added" | "removed" | "unknown";
   notificationId: number | null;
-}
-
-interface AttentionSignalSnapshot {
-  capturedAt: string;
-  signals: AttentionSignal[];
-  diagnostics: string[];
-}
-
-interface AttentionSignal {
-  sourceKey: string;
-  displayName: string;
-  kind: string;
-  count: number | null;
-  needsAttention: boolean | null;
-  origin: string;
-  rawLabel: string | null;
-  confidence: string;
-  meaning: string;
-  diagnostics: string[];
 }
 
 type CalendarAccessStatus =
@@ -138,16 +127,7 @@ interface GraphEnvironmentReport {
   diagnostics: string[];
 }
 
-interface TeamsMirrorStatus {
-  lifecycle: string;
-  enabled: boolean;
-  visible: boolean;
-  visualOnly: boolean;
-  pollIntervalMs: number;
-  diagnostic: string | null;
-}
-
-function App() {
+function AdvancedView() {
   const [graphEnvironment, setGraphEnvironment] =
     useState<GraphEnvironmentReport | null>(null);
   const [graphEnvironmentPending, setGraphEnvironmentPending] = useState(false);
@@ -164,7 +144,10 @@ function App() {
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
+  const [attentionFailureCount, setAttentionFailureCount] = useState(0);
   const [attentionRefreshing, setAttentionRefreshing] = useState(false);
+  const [attentionClock, setAttentionClock] = useState(() => Date.now());
+  const attentionRequestInFlight = useRef(false);
   const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
   const [teamsMirrorPending, setTeamsMirrorPending] = useState(false);
   const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
@@ -230,6 +213,11 @@ function App() {
   }, []);
 
   const refreshAttentionSignals = useCallback(async () => {
+    if (attentionRequestInFlight.current) {
+      return;
+    }
+
+    attentionRequestInFlight.current = true;
     setAttentionRefreshing(true);
 
     try {
@@ -238,9 +226,13 @@ function App() {
       );
       setAttentionSnapshot(nextSnapshot);
       setAttentionError(null);
+      setAttentionFailureCount(0);
+      setAttentionClock(Date.now());
     } catch (error) {
       setAttentionError(String(error));
+      setAttentionFailureCount((count) => count + 1);
     } finally {
+      attentionRequestInFlight.current = false;
       setAttentionRefreshing(false);
     }
   }, []);
@@ -331,7 +323,7 @@ function App() {
     const poll = async () => {
       await refreshAttentionSignals();
       if (!disposed) {
-        timer = setTimeout(() => void poll(), 2_000);
+        timer = setTimeout(() => void poll(), ATTENTION_POLL_INTERVAL_MS);
       }
     };
 
@@ -344,6 +336,11 @@ function App() {
       }
     };
   }, [refreshAttentionSignals]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setAttentionClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -417,9 +414,39 @@ function App() {
   }, [refreshSnapshot, report?.accessStatus]);
 
   return (
-    <main>
-      <h1>Attention Hub</h1>
-      <p>Milestone 2 paused Microsoft Graph calendar-provider diagnostic</p>
+    <main className="advanced-shell">
+      <header className="app-header">
+        <p className="eyebrow">Local-first Windows observer</p>
+        <h1>Attention Hub</h1>
+        <p>What currently needs my attention?</p>
+      </header>
+
+      <AttentionPanel
+        snapshot={attentionSnapshot}
+        refreshError={attentionError}
+        consecutiveRefreshFailures={attentionFailureCount}
+        now={attentionClock}
+        refreshing={attentionRefreshing}
+        onRefresh={() => void refreshAttentionSignals()}
+        teamsMirror={teamsMirror}
+        teamsMirrorPending={teamsMirrorPending}
+        teamsMirrorError={teamsMirrorError}
+        onTeamsMirrorToggle={() =>
+          void runTeamsMirrorCommand(
+            teamsMirror?.enabled
+              ? "stop_teams_mirror"
+              : "start_teams_mirror",
+          )
+        }
+      />
+
+      <details className="technical-details">
+        <summary>
+          <span>Technical diagnostics and spike evidence</span>
+          <small>Graph, calendar, notifications, and raw source data</small>
+        </summary>
+        <div className="technical-details__content">
+          <p>Milestone 2 paused Microsoft Graph calendar-provider diagnostic</p>
 
       <section aria-live="polite">
         <div className="section-heading">
@@ -690,69 +717,6 @@ function App() {
         )}
       </section>
 
-      <hr />
-
-      <section aria-live="polite">
-        <div className="section-heading">
-          <div>
-            <h2>Teams visual mirror (optional)</h2>
-            <p>
-              Shows live Teams taskbar pixels in a movable companion window.
-              Attention Hub does not read those pixels or convert the badge into
-              a count.
-            </p>
-          </div>
-          <button
-            disabled={teamsMirrorPending || teamsMirror === null}
-            onClick={() =>
-              void runTeamsMirrorCommand(
-                teamsMirror?.enabled
-                  ? "stop_teams_mirror"
-                  : "start_teams_mirror",
-              )
-            }
-            type="button"
-          >
-            {teamsMirrorPending
-              ? "Updating…"
-              : teamsMirror?.enabled
-                ? "Stop mirror"
-                : "Show Teams visual"}
-          </button>
-        </div>
-
-        {teamsMirrorError && (
-          <p className="error">Teams mirror error: {teamsMirrorError}</p>
-        )}
-
-        {teamsMirror ? (
-          <dl>
-            <dt>Status</dt>
-            <dd data-status={teamsMirror.lifecycle}>{teamsMirror.lifecycle}</dd>
-
-            <dt>Pixels visible</dt>
-            <dd>{String(teamsMirror.visible)}</dd>
-
-            <dt>Interpretation</dt>
-            <dd>{teamsMirror.visualOnly ? "visual only" : "unexpected"}</dd>
-
-            <dt>Position check</dt>
-            <dd>{teamsMirror.pollIntervalMs} ms</dd>
-
-            {teamsMirror.diagnostic && (
-              <>
-                <dt>Diagnostic</dt>
-                <dd>{teamsMirror.diagnostic}</dd>
-              </>
-            )}
-          </dl>
-        ) : (
-          <p>Reading Teams mirror status…</p>
-        )}
-      </section>
-
-      <hr />
-
       <p>Milestone 0 persistent attention-signal evidence</p>
 
       <section aria-live="polite">
@@ -783,6 +747,14 @@ function App() {
               Signals: <strong>{attentionSnapshot.signals.length}</strong>;
               captured: <time>{attentionSnapshot.capturedAt}</time>
             </p>
+            <dl>
+              {attentionSnapshot.sources.map((source) => (
+                <div className="source-observation" key={source.sourceKey}>
+                  <dt>{source.displayName}</dt>
+                  <dd data-status={source.state}>{source.state}</dd>
+                </div>
+              ))}
+            </dl>
             {attentionSnapshot.signals.length > 0 ? (
               <div className="table-scroll">
                 <table>
@@ -801,7 +773,10 @@ function App() {
                       <tr key={`${signal.sourceKey}-${signal.kind}`}>
                         <td>{signal.displayName}</td>
                         <td>{signal.kind}</td>
-                        <td>{signal.count ?? "not exposed"}</td>
+                        <td>
+                          {signal.count ?? "not exposed"}
+                          {signal.inferred && <small>inferred observation</small>}
+                        </td>
                         <td>
                           {signal.needsAttention === null
                             ? "unknown"
@@ -998,8 +973,25 @@ function App() {
           <p>No snapshot requested yet.</p>
         )}
       </section>
+        </div>
+      </details>
     </main>
   );
+}
+
+function App() {
+  const windowLabel = getCurrentWindow().label;
+
+  useEffect(() => {
+    document.documentElement.dataset.window = windowLabel;
+    document.body.dataset.window = windowLabel;
+    return () => {
+      delete document.documentElement.dataset.window;
+      delete document.body.dataset.window;
+    };
+  }, [windowLabel]);
+
+  return windowLabel === "advanced" ? <AdvancedView /> : <WidgetView />;
 }
 
 export default App;

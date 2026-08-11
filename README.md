@@ -1,24 +1,58 @@
 # Attention Hub
 
-Attention Hub is a local-first Windows desktop application that persistently answers: “What currently needs my attention?” It observes other applications through operating-system APIs; it does not embed or replace them.
+Attention Hub is a local-first Windows desktop widget that keeps communication
+attention, two clocks, and work-calendar context visible without replacing or
+controlling the source applications.
 
-The repository currently contains the Milestone 0 scaffold and planning documentation. Windows notification integration is intentionally not implemented yet.
+## Current product slice
+
+The primary window is a compact, frameless three-zone widget:
+
+- left: live visual taskbar crops for Microsoft Teams and Telegram, with
+  placeholders for Slack and Viber;
+- center: local time and a configurable secondary timezone, defaulting to
+  `America/New_York` with automatic EST/EDT handling;
+- right: a truthful unavailable state until an accurate passive work-calendar
+  provider is approved.
+
+The widget can move, toggle always-on-top, and restores its physical position,
+pin state, and secondary timezone. The ellipsis creates the Advanced window on
+demand. Advanced contains the structured Telegram, New Outlook, and Teams
+attention panel plus the retained Graph, calendar, Notification Center, raw
+source, and diagnostic evidence.
+
+The live app visuals are DWM-composed primary-taskbar crops. Attention Hub does
+not read, recognize, or convert their pixels into counts. Semantic values remain
+separate: Telegram exposes two numeric signals, New Outlook exposes aggregate
+Inbox unread, and Teams exposes qualitative activity only.
+
+Calendar support remains paused. Windows `AppointmentStore` returned stale
+legacy data, the Microsoft 365 Calendar companion exposes event structure only
+while visible, and Microsoft Graph work requires a separate organizational
+approval.
 
 ## Source of truth
 
 - [Product vision](docs/vision.md)
 - [Architecture](docs/architecture.md)
-- [Milestone 0 notification spike](docs/milestones/milestone-0-notification-spike.md)
+- [Milestone 3B widget composition spike](docs/milestones/milestone-3b-widget-composition-spike.md)
 - [Architecture decisions](docs/decisions/)
 
 ## Development
 
-Prerequisites are Node.js, pnpm, Rust with the MSVC target, Microsoft C++ Build Tools with the Desktop development with C++ workload, and WebView2.
+Prerequisites are Node.js, pnpm, Rust with the MSVC target, Microsoft C++ Build
+Tools with the Desktop development with C++ workload, and WebView2.
 
 ```powershell
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
+cd src-tauri
+cargo test
+cargo clippy --all-targets -- -D warnings
+cd ..
 pnpm tauri dev
 ```
 
-`pnpm build` validates the frontend scaffold. `pnpm tauri dev` also requires the complete Windows/Rust toolchain.
+Ordinary unpackaged runs support the widget and source-owned attention path.
+The retained Notification Center live-event experiment has a separate sparse
+identity route and is not required by the primary widget.

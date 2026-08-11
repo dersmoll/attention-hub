@@ -12,23 +12,25 @@ use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
 use tauri::Manager;
-use teams_mirror::{TeamsMirrorState, TeamsMirrorStatus};
+use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
 
 #[tauri::command]
 async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
     let snapshot = attention_signals::get_snapshot().await;
     let summary = snapshot
-        .signals
+        .sources
         .iter()
-        .map(|signal| {
+        .map(|source| {
             format!(
-                "{}:{} count={:?} needs_attention={:?}",
-                signal.source_key, signal.kind, signal.count, signal.needs_attention
+                "{}:{:?} signals={}",
+                source.source_key,
+                source.state,
+                source.signals.len()
             )
         })
         .collect::<Vec<_>>();
     eprintln!(
-        "attention signal snapshot: count={}, signals={summary:?}, diagnostics={:?}",
+        "attention signal snapshot: count={}, sources={summary:?}, diagnostics={:?}",
         snapshot.signals.len(),
         snapshot.diagnostics
     );
@@ -106,15 +108,15 @@ async fn start_notification_listener(
 }
 
 #[tauri::command]
-fn get_teams_mirror_status(state: tauri::State<'_, TeamsMirrorState>) -> TeamsMirrorStatus {
-    state.status()
+fn get_teams_mirror_status(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
+    state.status(TaskbarMirrorSource::Teams)
 }
 
 #[tauri::command]
 fn start_teams_mirror(
     app: tauri::AppHandle,
-    state: tauri::State<'_, TeamsMirrorState>,
-) -> Result<TeamsMirrorStatus, String> {
+    state: tauri::State<'_, TaskbarMirrorState>,
+) -> Result<TaskbarMirrorStatus, String> {
     #[cfg(target_os = "windows")]
     {
         let window = app
@@ -123,26 +125,64 @@ fn start_teams_mirror(
         let owner = window
             .hwnd()
             .map_err(|error| format!("Could not access the Attention Hub window: {error}"))?;
-        state.start(owner.0 as isize)
+        state.start(TaskbarMirrorSource::Teams, owner.0 as isize)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
-        state.start(0)
+        state.start(TaskbarMirrorSource::Teams, 0)
     }
 }
 
 #[tauri::command]
-fn stop_teams_mirror(state: tauri::State<'_, TeamsMirrorState>) -> TeamsMirrorStatus {
-    state.stop()
+fn stop_teams_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
+    state.stop(TaskbarMirrorSource::Teams)
+}
+
+#[tauri::command]
+fn get_telegram_mirror_status(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
+    state.status(TaskbarMirrorSource::Telegram)
+}
+
+#[tauri::command]
+fn start_telegram_mirror(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, TaskbarMirrorState>,
+) -> Result<TaskbarMirrorStatus, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "Attention Hub widget window is unavailable.".to_owned())?;
+        let owner = window
+            .hwnd()
+            .map_err(|error| format!("Could not access the Attention Hub widget: {error}"))?;
+        state.start(TaskbarMirrorSource::Telegram, owner.0 as isize)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        state.start(TaskbarMirrorSource::Telegram, 0)
+    }
+}
+
+#[tauri::command]
+fn stop_telegram_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
+    state.stop(TaskbarMirrorSource::Telegram)
+}
+
+#[tauri::command]
+fn quit_application(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(NotificationListenerState::new())
-        .manage(TeamsMirrorState::new())
+        .manage(TaskbarMirrorState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
             get_calendar_access_status,
@@ -155,7 +195,11 @@ pub fn run() {
             start_notification_listener,
             get_teams_mirror_status,
             start_teams_mirror,
-            stop_teams_mirror
+            stop_teams_mirror,
+            get_telegram_mirror_status,
+            start_telegram_mirror,
+            stop_telegram_mirror,
+            quit_application
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

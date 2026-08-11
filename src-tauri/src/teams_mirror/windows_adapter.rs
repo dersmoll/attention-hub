@@ -26,11 +26,17 @@ use std::{
     thread::JoinHandle,
 };
 
-use super::TeamsMirrorStatus;
+use super::{TaskbarMirrorSource, TaskbarMirrorStatus};
 
-pub struct TeamsMirrorState {
+pub struct TaskbarMirrorState {
+    teams: MirrorInstance,
+    telegram: MirrorInstance,
+}
+
+struct MirrorInstance {
+    source: TaskbarMirrorSource,
     inner: Mutex<MirrorRuntime>,
-    status: Arc<Mutex<TeamsMirrorStatus>>,
+    status: Arc<Mutex<TaskbarMirrorStatus>>,
     destination: Arc<AtomicIsize>,
 }
 
@@ -39,19 +45,63 @@ struct MirrorRuntime {
     cancellation: Option<Arc<AtomicBool>>,
 }
 
-impl TeamsMirrorState {
+impl TaskbarMirrorState {
     pub fn new() -> Self {
         Self {
+            teams: MirrorInstance::new(TaskbarMirrorSource::Teams),
+            telegram: MirrorInstance::new(TaskbarMirrorSource::Telegram),
+        }
+    }
+
+    pub fn status(&self, source: TaskbarMirrorSource) -> TaskbarMirrorStatus {
+        self.instance(source).status()
+    }
+
+    pub fn start(
+        &self,
+        source: TaskbarMirrorSource,
+        owner: isize,
+    ) -> Result<TaskbarMirrorStatus, String> {
+        self.instance(source).start(owner)
+    }
+
+    pub fn stop(&self, source: TaskbarMirrorSource) -> TaskbarMirrorStatus {
+        self.instance(source).stop()
+    }
+
+    pub fn stop_all(&self) {
+        let _ = self.teams.stop();
+        let _ = self.telegram.stop();
+    }
+
+    fn instance(&self, source: TaskbarMirrorSource) -> &MirrorInstance {
+        match source {
+            TaskbarMirrorSource::Teams => &self.teams,
+            TaskbarMirrorSource::Telegram => &self.telegram,
+        }
+    }
+}
+
+impl Drop for TaskbarMirrorState {
+    fn drop(&mut self) {
+        self.stop_all();
+    }
+}
+
+impl MirrorInstance {
+    fn new(source: TaskbarMirrorSource) -> Self {
+        Self {
+            source,
             inner: Mutex::new(MirrorRuntime {
                 thread: None,
                 cancellation: None,
             }),
-            status: Arc::new(Mutex::new(TeamsMirrorStatus::stopped())),
+            status: Arc::new(Mutex::new(TaskbarMirrorStatus::stopped(source))),
             destination: Arc::new(AtomicIsize::new(0)),
         }
     }
 
-    pub fn status(&self) -> TeamsMirrorStatus {
+    fn status(&self) -> TaskbarMirrorStatus {
         self.reap_finished_thread();
         self.status
             .lock()
@@ -59,7 +109,7 @@ impl TeamsMirrorState {
             .clone()
     }
 
-    pub fn start(&self, owner: isize) -> Result<TeamsMirrorStatus, String> {
+    fn start(&self, owner: isize) -> Result<TaskbarMirrorStatus, String> {
         self.reap_finished_thread();
         let mut runtime = self
             .inner
@@ -82,10 +132,12 @@ impl TeamsMirrorState {
         let destination_slot = Arc::clone(&self.destination);
         let thread_cancelled = Arc::clone(&startup_cancelled);
         let cancelled_after_run = Arc::clone(&startup_cancelled);
+        let source = self.source;
         let thread = match std::thread::Builder::new()
-            .name("attention-hub-teams-mirror".into())
+            .name(format!("attention-hub-{}-mirror", source.key()))
             .spawn(move || {
                 let result = windows_probe::run_product(
+                    source,
                     owner,
                     Arc::clone(&shared_status),
                     thread_cancelled,
@@ -96,14 +148,22 @@ impl TeamsMirrorState {
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     if cancelled_after_run.load(Ordering::Acquire) {
-                        eprintln!("Teams visual mirror startup cancelled: {error:?}");
+                        eprintln!(
+                            "{} visual mirror startup cancelled: {error:?}",
+                            source.display_name()
+                        );
                     } else {
-                        eprintln!("Teams visual mirror stopped unexpectedly: {error:?}");
+                        eprintln!(
+                            "{} visual mirror stopped unexpectedly: {error:?}",
+                            source.display_name()
+                        );
                         status.lifecycle = "error".into();
                         status.enabled = false;
                         status.visible = false;
-                        status.diagnostic =
-                            Some("Teams visual mirror stopped unexpectedly.".into());
+                        status.diagnostic = Some(format!(
+                            "{} visual mirror stopped unexpectedly.",
+                            source.display_name()
+                        ));
                     }
                 } else {
                     let mut status = shared_status
@@ -132,7 +192,7 @@ impl TeamsMirrorState {
         Ok(self.status_value())
     }
 
-    pub fn stop(&self) -> TeamsMirrorStatus {
+    fn stop(&self) -> TaskbarMirrorStatus {
         let (cancellation, thread) = {
             let mut runtime = self
                 .inner
@@ -151,7 +211,7 @@ impl TeamsMirrorState {
             let _ = thread.join();
         }
         self.destination.store(0, Ordering::Release);
-        self.update_status(|status| *status = TeamsMirrorStatus::stopped());
+        self.update_status(|status| *status = TaskbarMirrorStatus::stopped(self.source));
         self.status_value()
     }
 
@@ -183,7 +243,7 @@ impl TeamsMirrorState {
         }
     }
 
-    fn update_status(&self, update: impl FnOnce(&mut TeamsMirrorStatus)) {
+    fn update_status(&self, update: impl FnOnce(&mut TaskbarMirrorStatus)) {
         let mut status = self
             .status
             .lock()
@@ -191,23 +251,11 @@ impl TeamsMirrorState {
         update(&mut status);
     }
 
-    fn status_value(&self) -> TeamsMirrorStatus {
+    fn status_value(&self) -> TaskbarMirrorStatus {
         self.status
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
-    }
-}
-
-impl Default for TeamsMirrorState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for TeamsMirrorState {
-    fn drop(&mut self) {
-        let _ = self.stop();
     }
 }
 
@@ -229,7 +277,7 @@ mod windows_probe {
         time::{Duration, Instant},
     };
 
-    use crate::teams_mirror::TeamsMirrorStatus;
+    use crate::teams_mirror::{TaskbarMirrorSource, TaskbarMirrorStatus};
     use windows::{
         core::{w, Error, Result, PCWSTR},
         Win32::{
@@ -260,7 +308,7 @@ mod windows_probe {
                     UIA_ButtonControlTypeId,
                 },
                 HiDpi::{
-                    AreDpiAwarenessContextsEqual, GetThreadDpiAwarenessContext,
+                    AreDpiAwarenessContextsEqual, GetDpiForWindow, GetThreadDpiAwarenessContext,
                     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
                 },
                 WindowsAndMessaging::{
@@ -268,9 +316,10 @@ mod windows_probe {
                     DispatchMessageW, FindWindowW, GetMessageW, GetSystemMetrics, GetWindowRect,
                     LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, SetTimer,
                     SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
-                    CW_USEDEFAULT, IDC_ARROW, MSG, SM_CXSCREEN, SM_CYSCREEN, SWP_NOMOVE,
-                    SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNORMAL, WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY,
-                    WM_TIMER, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+                    CW_USEDEFAULT, IDC_ARROW, MSG, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE,
+                    SWP_NOMOVE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL,
+                    WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE,
+                    WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_POPUP,
                 },
             },
         },
@@ -278,6 +327,10 @@ mod windows_probe {
 
     const E_FAIL: windows::core::HRESULT = windows::core::HRESULT(0x8000_4005_u32 as i32);
     const MINIMUM_WINDOW_CLIENT_WIDTH: i32 = 320;
+    const WIDGET_ICON_LOGICAL_SIZE: i32 = 52;
+    const WIDGET_ICON_LEFT: i32 = 26;
+    const WIDGET_ICON_GAP: i32 = 12;
+    const WIDGET_ICON_TOP: i32 = 58;
     const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
     const REDISCOVERY_INTERVAL: Duration = Duration::from_secs(1);
     const REFLOW_POLL_MILLISECONDS: u32 = 100;
@@ -287,7 +340,9 @@ mod windows_probe {
     const TRACK_REFLOW_ARGUMENT: &str = "--track-reflow";
     const WINDOW_CLASS: windows::core::PCWSTR = w!("AttentionHub.TaskbarDwmProbe");
     const WINDOW_TITLE: windows::core::PCWSTR = w!("Attention Hub - taskbar DWM probe");
-    const PRODUCT_WINDOW_TITLE: windows::core::PCWSTR = w!("Attention Hub - Teams visual");
+    const TEAMS_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR = w!("Attention Hub - Teams visual");
+    const TELEGRAM_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR =
+        w!("Attention Hub - Telegram visual");
 
     pub fn run() -> Result<()> {
         let arguments = std::env::args().collect::<Vec<_>>();
@@ -295,7 +350,7 @@ mod windows_probe {
             .iter()
             .any(|argument| argument == TRACK_REFLOW_ARGUMENT)
         {
-            ProbeMode::TeamsTrackedCrop
+            ProbeMode::TrackedCrop(TaskbarMirrorSource::Teams)
         } else if arguments
             .iter()
             .any(|argument| argument == TEAMS_CROP_ARGUMENT)
@@ -309,13 +364,14 @@ mod windows_probe {
     }
 
     pub fn run_product(
+        source: TaskbarMirrorSource,
         owner: isize,
-        status: Arc<Mutex<TeamsMirrorStatus>>,
+        status: Arc<Mutex<TaskbarMirrorStatus>>,
         startup_cancelled: Arc<AtomicBool>,
         destination_slot: Arc<AtomicIsize>,
     ) -> Result<()> {
         let result = run_mode(
-            ProbeMode::TeamsTrackedCrop,
+            ProbeMode::TrackedCrop(source),
             Some(HWND(owner as *mut c_void)),
             Some(status),
             Some(startup_cancelled.as_ref()),
@@ -328,7 +384,10 @@ mod windows_probe {
                 if destination != 0 {
                     let _ = unsafe { DestroyWindow(HWND(destination as *mut c_void)) };
                 }
-                eprintln!("Teams visual mirror native failure: {error:?}");
+                eprintln!(
+                    "{} visual mirror native failure: {error:?}",
+                    source.display_name()
+                );
                 Err(error)
             }
         }
@@ -342,7 +401,7 @@ mod windows_probe {
     fn run_mode(
         mode: ProbeMode,
         owner: Option<HWND>,
-        status: Option<Arc<Mutex<TeamsMirrorStatus>>>,
+        status: Option<Arc<Mutex<TaskbarMirrorStatus>>>,
         startup_cancelled: Option<&AtomicBool>,
         destination_slot: Option<&AtomicIsize>,
     ) -> Result<()> {
@@ -364,34 +423,52 @@ mod windows_probe {
         };
         let taskbar = unsafe { FindWindowW(w!("Shell_TrayWnd"), None)? };
         let taskbar_frame = extended_frame_bounds(taskbar)?;
-        let teams_button = match mode {
+        let source_button = match mode {
             ProbeMode::WholeTaskbar => None,
-            ProbeMode::TeamsStaticCrop | ProbeMode::TeamsTrackedCrop => {
+            ProbeMode::TeamsStaticCrop => {
                 let _uia_guard = crate::uia_gate::lock_priority();
-                Some(discover_teams_button(
+                Some(discover_taskbar_button(
                     automation
                         .as_ref()
-                        .expect("Teams modes require UI Automation"),
+                        .expect("crop modes require UI Automation"),
                     taskbar,
                     taskbar_frame,
+                    TaskbarMirrorSource::Teams,
+                    true,
+                )?)
+            }
+            ProbeMode::TrackedCrop(source) => {
+                let _uia_guard = crate::uia_gate::lock_priority();
+                Some(discover_taskbar_button(
+                    automation
+                        .as_ref()
+                        .expect("crop modes require UI Automation"),
+                    taskbar,
+                    taskbar_frame,
+                    source,
                     true,
                 )?)
             }
         };
-        let source_crop = teams_button.as_ref().map(|button| button.source_crop);
+        let source_crop = source_button.as_ref().map(|button| button.source_crop);
         if startup_cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Acquire)) {
             return Err(Error::new(
                 E_FAIL,
-                "Teams visual mirror startup was cancelled",
+                "Taskbar visual mirror startup was cancelled",
             ));
         }
         let destination = create_destination_window(
             owner,
-            if owner.is_some() {
-                PRODUCT_WINDOW_TITLE
-            } else {
-                WINDOW_TITLE
+            match mode {
+                ProbeMode::TrackedCrop(TaskbarMirrorSource::Teams) if owner.is_some() => {
+                    TEAMS_PRODUCT_WINDOW_TITLE
+                }
+                ProbeMode::TrackedCrop(TaskbarMirrorSource::Telegram) if owner.is_some() => {
+                    TELEGRAM_PRODUCT_WINDOW_TITLE
+                }
+                _ => WINDOW_TITLE,
             },
+            owner.is_some(),
         )?;
         if let Some(destination_slot) = destination_slot {
             destination_slot.store(destination.0 as isize, Ordering::Release);
@@ -414,22 +491,31 @@ mod windows_probe {
             .unwrap_or((source_size.cx, source_size.cy));
         let thumbnail_size =
             fit_source_to_primary_display(rendered_source_size.0, rendered_source_size.1);
-        let destination_size = (
-            thumbnail_size.0.max(MINIMUM_WINDOW_CLIENT_WIDTH),
-            thumbnail_size.1,
+        let destination_size = if let (Some(owner), ProbeMode::TrackedCrop(source)) = (owner, mode)
+        {
+            position_widget_destination(destination, owner, source)?
+        } else {
+            let destination_size = (
+                thumbnail_size.0.max(MINIMUM_WINDOW_CLIENT_WIDTH),
+                thumbnail_size.1,
+            );
+            resize_destination(destination, destination_size.0, destination_size.1)?;
+            destination_size
+        };
+        let fitted_thumbnail = fit_within(
+            rendered_source_size.0,
+            rendered_source_size.1,
+            destination_size.0,
+            destination_size.1,
         );
-        resize_destination(destination, destination_size.0, destination_size.1)?;
-        if let Some(owner) = owner {
-            position_owned_destination(destination, owner)?;
-        }
         thumbnail
             .as_ref()
             .expect("newly registered thumbnail must exist")
             .show_source(
                 source_crop,
-                (destination_size.0 - thumbnail_size.0) / 2,
-                thumbnail_size.0,
-                thumbnail_size.1,
+                (destination_size.0 - fitted_thumbnail.0) / 2,
+                fitted_thumbnail.0,
+                fitted_thumbnail.1,
             )?;
 
         println!("probe_mode={}", mode.label());
@@ -453,8 +539,10 @@ mod windows_probe {
             "Inspect the native window and close it when finished. No screenshot is required."
         );
 
-        let reflow_controller = if mode == ProbeMode::TeamsTrackedCrop {
+        let reflow_controller = if let ProbeMode::TrackedCrop(source) = mode {
             let controller = ReflowController::new(
+                source,
+                owner,
                 taskbar,
                 destination,
                 thumbnail
@@ -463,10 +551,10 @@ mod windows_probe {
                 automation
                     .as_ref()
                     .expect("tracked mode requires UI Automation"),
-                teams_button.expect("tracked mode requires a Teams button"),
-                (destination_size.0 - thumbnail_size.0) / 2,
-                thumbnail_size.0,
-                thumbnail_size.1,
+                source_button.expect("tracked mode requires a taskbar button"),
+                (destination_size.0 - fitted_thumbnail.0) / 2,
+                fitted_thumbnail.0,
+                fitted_thumbnail.1,
                 status.clone(),
             );
             controller.start()?;
@@ -478,12 +566,19 @@ mod windows_probe {
         if startup_cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Acquire)) {
             return Err(Error::new(
                 E_FAIL,
-                "Teams visual mirror startup was cancelled",
+                "Taskbar visual mirror startup was cancelled",
             ));
         }
 
         unsafe {
-            let _ = ShowWindow(destination, SW_SHOWNORMAL);
+            let _ = ShowWindow(
+                destination,
+                if owner.is_some() {
+                    SW_SHOWNOACTIVATE
+                } else {
+                    SW_SHOWNORMAL
+                },
+            );
         }
         if let Some(status) = status.as_ref() {
             let mut status = status
@@ -532,17 +627,18 @@ mod windows_probe {
         Ok(bounds)
     }
 
-    fn discover_teams_button(
+    fn discover_taskbar_button(
         automation: &IUIAutomation,
         taskbar: HWND,
         taskbar_frame: RECT,
+        source: TaskbarMirrorSource,
         log_details: bool,
-    ) -> Result<TeamsButtonDiscovery> {
+    ) -> Result<TaskbarButtonDiscovery> {
         let taskbar_root = unsafe { automation.ElementFromHandle(taskbar)? };
         let condition = unsafe { automation.CreateTrueCondition()? };
         let elements = unsafe { taskbar_root.FindAll(TreeScope_Descendants, &condition)? };
         let length = unsafe { elements.Length()? };
-        let mut candidates = BTreeMap::<(i32, i32, i32, i32), TeamsButtonCandidate>::new();
+        let mut candidates = BTreeMap::<(i32, i32, i32, i32), TaskbarButtonCandidate>::new();
         let mut excluded_notification_area_matches = 0_u32;
 
         for index in 0..length {
@@ -556,8 +652,8 @@ mod windows_probe {
             let automation_id = unsafe { element.CurrentAutomationId() }
                 .map(|value| value.to_string())
                 .unwrap_or_default();
-            let name_match = name.to_ascii_lowercase().contains("microsoft teams");
-            let identity_match = is_teams_identity(&automation_id);
+            let name_match = source_name_matches(source, &name);
+            let identity_match = source_identity_matches(source, &automation_id);
 
             if !name_match && !identity_match {
                 continue;
@@ -589,7 +685,7 @@ mod windows_probe {
                 .map(|value| value.0 == UIA_ButtonControlTypeId.0)
                 .unwrap_or(false);
             let key = (bounds.left, bounds.top, bounds.right, bounds.bottom);
-            let candidate = candidates.entry(key).or_insert(TeamsButtonCandidate {
+            let candidate = candidates.entry(key).or_insert(TaskbarButtonCandidate {
                 element: element.clone(),
                 bounds,
                 name_match: false,
@@ -611,13 +707,19 @@ mod windows_probe {
         }
 
         if log_details {
-            println!("teams_taskbar_candidate_count={}", candidates.len());
             println!(
-                "teams_notification_area_matches_excluded={excluded_notification_area_matches}"
+                "{}_taskbar_candidate_count={}",
+                source.key(),
+                candidates.len()
+            );
+            println!(
+                "{}_notification_area_matches_excluded={excluded_notification_area_matches}",
+                source.key()
             );
             for (index, candidate) in candidates.values().enumerate() {
                 println!(
-                    "teams_candidate_{index}=name_match:{} identity_match:{} button_control:{} name_length:{} automation_id_length:{} bounds:{},{},{},{}",
+                    "{}_candidate_{index}=name_match:{} identity_match:{} button_control:{} name_length:{} automation_id_length:{} bounds:{},{},{},{}",
+                    source.key(),
                     candidate.name_match,
                     candidate.identity_match,
                     candidate.button_control,
@@ -657,7 +759,10 @@ mod windows_probe {
         .ok_or_else(|| {
             Error::new(
                 E_FAIL,
-                "Teams taskbar button discovery was absent or ambiguous",
+                format!(
+                    "{} taskbar button discovery was absent or ambiguous",
+                    source.display_name()
+                ),
             )
         })?;
 
@@ -669,22 +774,39 @@ mod windows_probe {
         };
         if log_details {
             println!(
-                "teams_source_crop=left:{} top:{} right:{} bottom:{}",
-                source_rect.left, source_rect.top, source_rect.right, source_rect.bottom
+                "{}_source_crop=left:{} top:{} right:{} bottom:{}",
+                source.key(),
+                source_rect.left,
+                source_rect.top,
+                source_rect.right,
+                source_rect.bottom
             );
         }
 
-        Ok(TeamsButtonDiscovery {
+        Ok(TaskbarButtonDiscovery {
             element: selected.element,
             source_crop: source_rect,
         })
     }
 
-    fn is_teams_identity(value: &str) -> bool {
+    fn source_name_matches(source: TaskbarMirrorSource, value: &str) -> bool {
         let value = value.to_ascii_lowercase();
-        value.contains("msteams")
-            || value.contains("microsoftteams")
-            || value.contains("microsoft.teams")
+        match source {
+            TaskbarMirrorSource::Teams => value.contains("microsoft teams"),
+            TaskbarMirrorSource::Telegram => value.contains("telegram"),
+        }
+    }
+
+    fn source_identity_matches(source: TaskbarMirrorSource, value: &str) -> bool {
+        let value = value.to_ascii_lowercase();
+        match source {
+            TaskbarMirrorSource::Teams => {
+                value.contains("msteams")
+                    || value.contains("microsoftteams")
+                    || value.contains("microsoft.teams")
+            }
+            TaskbarMirrorSource::Telegram => value.contains("telegram"),
+        }
     }
 
     fn rect_is_within(candidate: RECT, container: RECT) -> bool {
@@ -695,13 +817,17 @@ mod windows_probe {
     }
 
     fn unique_candidate(
-        mut candidates: impl Iterator<Item = TeamsButtonCandidate>,
-    ) -> Option<TeamsButtonCandidate> {
+        mut candidates: impl Iterator<Item = TaskbarButtonCandidate>,
+    ) -> Option<TaskbarButtonCandidate> {
         let candidate = candidates.next()?;
         candidates.next().is_none().then_some(candidate)
     }
 
-    fn create_destination_window(owner: Option<HWND>, title: PCWSTR) -> Result<HWND> {
+    fn create_destination_window(
+        owner: Option<HWND>,
+        title: PCWSTR,
+        widget_surface: bool,
+    ) -> Result<HWND> {
         let module = unsafe { GetModuleHandleW(None)? };
         let instance = HINSTANCE(module.0);
         let window_class = WNDCLASSW {
@@ -722,10 +848,18 @@ mod windows_probe {
 
         unsafe {
             CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
+                if widget_surface {
+                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+                } else {
+                    WINDOW_EX_STYLE::default()
+                },
                 WINDOW_CLASS,
                 title,
-                WS_OVERLAPPEDWINDOW,
+                if widget_surface {
+                    WS_POPUP
+                } else {
+                    WS_OVERLAPPEDWINDOW
+                },
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 1000,
@@ -738,29 +872,47 @@ mod windows_probe {
         }
     }
 
-    fn position_owned_destination(window: HWND, owner: HWND) -> Result<()> {
-        const WINDOW_GAP: i32 = 12;
-
+    fn position_widget_destination(
+        window: HWND,
+        owner: HWND,
+        source: TaskbarMirrorSource,
+    ) -> Result<(i32, i32)> {
         let mut owner_rect = RECT::default();
-        let mut window_rect = RECT::default();
+        unsafe { GetWindowRect(owner, &mut owner_rect)? };
+        let dpi = unsafe { GetDpiForWindow(owner) }.max(96) as i32;
+        let scale = |value: i32| value.saturating_mul(dpi) / 96;
+        let size = scale(WIDGET_ICON_LOGICAL_SIZE).max(1);
+        let slot_left =
+            WIDGET_ICON_LEFT + source.slot_index() * (WIDGET_ICON_LOGICAL_SIZE + WIDGET_ICON_GAP);
+        let x = owner_rect.left + scale(slot_left);
+        let y = owner_rect.top + scale(WIDGET_ICON_TOP);
+
         unsafe {
-            GetWindowRect(owner, &mut owner_rect)?;
-            GetWindowRect(window, &mut window_rect)?;
-        }
-
-        let width = window_rect.right - window_rect.left;
-        let height = window_rect.bottom - window_rect.top;
-        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        let right_of_owner = owner_rect.right + WINDOW_GAP;
-        let x = if right_of_owner + width <= screen_width {
-            right_of_owner
-        } else {
-            (owner_rect.left - width - WINDOW_GAP).max(0)
+            SetWindowPos(
+                window,
+                None,
+                x,
+                y,
+                size,
+                size,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            )?
         };
-        let y = owner_rect.top.clamp(0, (screen_height - height).max(0));
+        Ok((size, size))
+    }
 
-        unsafe { SetWindowPos(window, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) }
+    fn fit_within(
+        source_width: i32,
+        source_height: i32,
+        maximum_width: i32,
+        maximum_height: i32,
+    ) -> (i32, i32) {
+        let scale = (maximum_width as f64 / source_width.max(1) as f64)
+            .min(maximum_height as f64 / source_height.max(1) as f64);
+        (
+            ((source_width as f64 * scale).round() as i32).max(1),
+            ((source_height as f64 * scale).round() as i32).max(1),
+        )
     }
 
     fn fit_source_to_primary_display(source_width: i32, source_height: i32) -> (i32, i32) {
@@ -915,11 +1067,13 @@ mod windows_probe {
     }
 
     struct ReflowController<'a> {
+        source: TaskbarMirrorSource,
+        owner: Option<HWND>,
         automation: &'a IUIAutomation,
         taskbar: HWND,
         destination: HWND,
         thumbnail: Option<Thumbnail>,
-        teams_element: Option<IUIAutomationElement>,
+        source_element: Option<IUIAutomationElement>,
         current_crop: Option<RECT>,
         destination_left: i32,
         destination_width: i32,
@@ -928,29 +1082,33 @@ mod windows_probe {
         unavailable_logged: bool,
         last_rediscovery: Instant,
         metrics: RuntimeMetrics,
-        status: Option<Arc<Mutex<TeamsMirrorStatus>>>,
+        status: Option<Arc<Mutex<TaskbarMirrorStatus>>>,
     }
 
     impl<'a> ReflowController<'a> {
         #[allow(clippy::too_many_arguments)]
         fn new(
+            source: TaskbarMirrorSource,
+            owner: Option<HWND>,
             taskbar: HWND,
             destination: HWND,
             thumbnail: Thumbnail,
             automation: &'a IUIAutomation,
-            teams_button: TeamsButtonDiscovery,
+            source_button: TaskbarButtonDiscovery,
             destination_left: i32,
             destination_width: i32,
             destination_height: i32,
-            status: Option<Arc<Mutex<TeamsMirrorStatus>>>,
+            status: Option<Arc<Mutex<TaskbarMirrorStatus>>>,
         ) -> Self {
             Self {
+                source,
+                owner,
                 automation,
                 taskbar,
                 destination,
                 thumbnail: Some(thumbnail),
-                teams_element: Some(teams_button.element),
-                current_crop: Some(teams_button.source_crop),
+                source_element: Some(source_button.element),
+                current_crop: Some(source_button.source_crop),
                 destination_left,
                 destination_width,
                 destination_height,
@@ -986,6 +1144,9 @@ mod windows_probe {
         fn check(&mut self) -> Result<()> {
             let started = Instant::now();
             let mut used_rediscovery = false;
+            if let Some(owner) = self.owner {
+                position_widget_destination(self.destination, owner, self.source)?;
+            }
             let Some(_uia_guard) = crate::uia_gate::try_lock() else {
                 self.finish_check(started, used_rediscovery);
                 return Ok(());
@@ -1014,7 +1175,7 @@ mod windows_probe {
             };
 
             let cached_crop = self
-                .teams_element
+                .source_element
                 .as_ref()
                 .map(|element| source_crop_for_element(element, taskbar_frame))
                 .transpose();
@@ -1033,7 +1194,7 @@ mod windows_probe {
                     }
                 }
                 Err(error) => {
-                    self.teams_element = None;
+                    self.source_element = None;
                     self.mark_unavailable("cached_element", &error);
                 }
             }
@@ -1044,9 +1205,15 @@ mod windows_probe {
 
         fn rediscover(&mut self, taskbar_frame: RECT, started: Instant) -> Result<()> {
             self.last_rediscovery = Instant::now();
-            match discover_teams_button(self.automation, self.taskbar, taskbar_frame, false) {
+            match discover_taskbar_button(
+                self.automation,
+                self.taskbar,
+                taskbar_frame,
+                self.source,
+                false,
+            ) {
                 Ok(button) => {
-                    self.teams_element = Some(button.element);
+                    self.source_element = Some(button.element);
                     match self.apply_crop(button.source_crop, started) {
                         Ok(()) => println!(
                             "taskbar_reflow_recovered=source:full_rediscovery elapsed_ms:{}",
@@ -1101,6 +1268,9 @@ mod windows_probe {
             self.current_crop = Some(source_crop);
             self.visible = true;
             self.unavailable_logged = false;
+            unsafe {
+                let _ = ShowWindow(self.destination, SW_SHOWNOACTIVATE);
+            }
             self.update_product_status("running", true, None);
             Ok(())
         }
@@ -1130,8 +1300,11 @@ mod windows_probe {
 
         fn rebind_taskbar(&mut self, taskbar: HWND) {
             self.invalidate_thumbnail();
+            unsafe {
+                let _ = ShowWindow(self.destination, SW_HIDE);
+            }
             self.taskbar = taskbar;
-            self.teams_element = None;
+            self.source_element = None;
             self.current_crop = None;
             self.visible = false;
             self.unavailable_logged = false;
@@ -1140,7 +1313,10 @@ mod windows_probe {
             self.update_product_status(
                 "hidden",
                 false,
-                Some("Taskbar changed; waiting for the Teams button."),
+                Some(&format!(
+                    "Taskbar changed; waiting for the {} button.",
+                    self.source.display_name()
+                )),
             );
         }
 
@@ -1155,6 +1331,9 @@ mod windows_probe {
             if let Some(thumbnail) = self.thumbnail.as_ref() {
                 let _ = thumbnail.hide();
             }
+            unsafe {
+                let _ = ShowWindow(self.destination, SW_HIDE);
+            }
             self.visible = false;
             if !self.unavailable_logged {
                 eprintln!("taskbar_reflow_unavailable=reason:{reason} error:{error:?}");
@@ -1163,7 +1342,10 @@ mod windows_probe {
             self.update_product_status(
                 "hidden",
                 false,
-                Some("Teams taskbar pixels are temporarily unavailable."),
+                Some(&format!(
+                    "{} taskbar pixels are temporarily unavailable.",
+                    self.source.display_name()
+                )),
             );
         }
 
@@ -1253,10 +1435,7 @@ mod windows_probe {
             || bounds.bottom <= bounds.top
             || !rect_is_within(bounds, taskbar_frame)
         {
-            return Err(Error::new(
-                E_FAIL,
-                "Cached Teams taskbar element is unavailable",
-            ));
+            return Err(Error::new(E_FAIL, "Cached taskbar element is unavailable"));
         }
         Ok(RECT {
             left: bounds.left - taskbar_frame.left,
@@ -1281,13 +1460,13 @@ mod windows_probe {
         }
     }
 
-    struct TeamsButtonDiscovery {
+    struct TaskbarButtonDiscovery {
         element: IUIAutomationElement,
         source_crop: RECT,
     }
 
     #[derive(Clone)]
-    struct TeamsButtonCandidate {
+    struct TaskbarButtonCandidate {
         element: IUIAutomationElement,
         bounds: RECT,
         name_match: bool,
@@ -1301,7 +1480,7 @@ mod windows_probe {
     enum ProbeMode {
         WholeTaskbar,
         TeamsStaticCrop,
-        TeamsTrackedCrop,
+        TrackedCrop(TaskbarMirrorSource),
     }
 
     impl ProbeMode {
@@ -1309,7 +1488,8 @@ mod windows_probe {
             match self {
                 Self::WholeTaskbar => "whole_taskbar",
                 Self::TeamsStaticCrop => "teams_static_crop",
-                Self::TeamsTrackedCrop => "teams_tracked_crop",
+                Self::TrackedCrop(TaskbarMirrorSource::Teams) => "teams_tracked_crop",
+                Self::TrackedCrop(TaskbarMirrorSource::Telegram) => "telegram_tracked_crop",
             }
         }
     }
@@ -1326,5 +1506,39 @@ mod windows_probe {
         }
 
         unsafe { DefWindowProcW(window, message, wparam, lparam) }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{source_identity_matches, source_name_matches};
+        use crate::teams_mirror::TaskbarMirrorSource;
+
+        #[test]
+        fn source_matching_keeps_teams_and_telegram_distinct() {
+            assert!(source_name_matches(
+                TaskbarMirrorSource::Teams,
+                "Microsoft Teams (work or school)"
+            ));
+            assert!(source_identity_matches(
+                TaskbarMirrorSource::Teams,
+                "MSTeams_8wekyb3d8bbwe!MSTeams"
+            ));
+            assert!(source_name_matches(
+                TaskbarMirrorSource::Telegram,
+                "Telegram (53)"
+            ));
+            assert!(source_identity_matches(
+                TaskbarMirrorSource::Telegram,
+                "Telegram.TelegramDesktop"
+            ));
+            assert!(!source_name_matches(
+                TaskbarMirrorSource::Telegram,
+                "Microsoft Teams"
+            ));
+            assert!(!source_identity_matches(
+                TaskbarMirrorSource::Teams,
+                "Telegram.TelegramDesktop"
+            ));
+        }
     }
 }

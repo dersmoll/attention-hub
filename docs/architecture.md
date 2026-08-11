@@ -2,7 +2,12 @@
 
 ## Status
 
-This document describes the implemented Milestone 0 debug architecture and the remaining reliability questions. Notification access, sparse identity, and the first source-owned attention-signal path have been validated on the development machine; their broader reliability remains under test.
+This document describes the implemented Windows observation architecture through
+the Milestone 3B widget-composition spike. Notification access, sparse identity,
+the source-owned attention-signal path, live Teams and Telegram taskbar crops,
+and the movable widget shell have been validated on the development machine;
+multi-monitor reliability, additional sources, calendar access, and daily
+product usefulness remain under test.
 
 ## System boundary
 
@@ -19,7 +24,7 @@ Application-owned normalized model
 Tauri commands + change signal
         |
         v
-React debug UI
+React widget or on-demand Advanced UI
 ```
 
 React must not import or model WinRT objects. The adapter owns Windows API calls, thread/apartment concerns, access-status mapping, content extraction, and conversion failures. The Tauri boundary exposes only serializable application-owned types.
@@ -40,6 +45,46 @@ Tauri commands/events -> React debug UI
 ```
 
 This remains an observer boundary. The probe may read window titles and UI Automation properties but must not click, type, focus, dismiss, or otherwise control source applications.
+
+## Window and visual composition
+
+The primary Tauri window is a fixed-height, frameless widget with three React
+zones. It is skipped from the taskbar, starts pinned, and uses supported Tauri
+window APIs for dragging, always-on-top, physical position events, and
+work-area-aware position restoration. Local storage keeps only widget position,
+pin state, and the selected IANA timezone; it does not persist attention data or
+source labels.
+
+The Advanced WebView is created only when the ellipsis is activated and is
+destroyed when closed. This keeps Graph, calendar, Notification Center, and raw
+diagnostic initialization out of the ordinary widget runtime.
+
+DWM thumbnails registered on the Tauri parent render behind its WebView child,
+so live taskbar visuals cannot be React components. Rust instead owns two
+borderless, no-activate, tool-window surfaces owned by the widget:
+
+```text
+primary Shell_TrayWnd
+       | UIA discovers source rectangles
+       | DWM composes source pixels
+       v
+Teams popup       Telegram popup
+       \             /
+        fixed physical slots
+               |
+               v
+       Tauri widget WebView
+```
+
+Each popup tracks the widget's physical position and current DPI every 100 ms
+while its existing cached source-rectangle check runs. Owned tool windows do not
+create taskbar buttons or take focus. If discovery becomes absent or ambiguous,
+the popup hides and exposes the semantic React fallback below it. The two
+sources have separate lifecycle/status records and failures.
+
+No bitmap crosses into Attention Hub. DWM retains pixel composition, and the
+application cannot claim which numeric badge the user sees. The structured
+Telegram and qualitative Teams signals remain the queryable attention contract.
 
 The completed Teams exact-count experiment used an explicitly separate manual diagnostic. It performed a broader Teams-owned accessibility traversal only on demand and never entered the normal two-second attention-snapshot loop. Raw Teams accessibility values were inspected transiently in Rust and discarded; only sanitized structural metadata crossed Tauri IPC. The experiment found no useful numeric badge property and its command, DTOs, native traversal, and React table were removed. Only the qualitative Teams `activityStatus` signal remains implemented.
 
@@ -111,6 +156,15 @@ The implemented source-owned contract is separate and equally application-owned:
 ```ts
 interface AttentionSignalSnapshot {
   capturedAt: string;
+  sources: AttentionSourceObservation[];
+  signals: AttentionSignal[];
+  diagnostics: string[];
+}
+
+interface AttentionSourceObservation {
+  sourceKey: "telegram" | "outlook" | "teams";
+  displayName: string;
+  state: "observed" | "notRunning" | "notExposed" | "error";
   signals: AttentionSignal[];
   diagnostics: string[];
 }
@@ -124,12 +178,21 @@ interface AttentionSignal {
   origin: string;
   rawLabel: string | null;
   confidence: "low" | "medium" | "high";
+  inferred: boolean;
   meaning: string;
   diagnostics: string[];
 }
 ```
 
 The contract distinguishes signal kind and meaning instead of forcing Telegram application counters, unread-chat counts, and qualitative Teams activity into a misleading universal “unread count.” Raw labels and confidence are debug-spike metadata, not a proposed production UI contract.
+
+Milestone 3A adds one structured observation for each fixed source. Source
+absence and capture failure no longer have to be reconstructed from English
+diagnostic strings. Telegram, Outlook, and Teams capture independently, so a
+failure in one provider cannot prevent the later providers from being checked.
+The flattened `signals` list remains as technical evidence. `inferred` marks a
+zero produced from a successfully observed source whose count disappears at
+zero; it is not used to increase confidence or hide provider limitations.
 
 ## Snapshot and update strategy
 
@@ -144,7 +207,20 @@ The complete current snapshot is authoritative. Native `NotificationChanged` eve
 
 This trades small repeated reads for inspectability and recovery. Milestone 0 notification volume is expected to be small; measure before optimizing.
 
-The source-owned debug UI currently requests a complete attention-signal snapshot every two seconds. Requests do not overlap: the next timer starts only after the previous command completes. This proved recovery after a transient startup failure and avoids fragile incremental frontend state, but full UI Automation traversal every two seconds is not a production recommendation. Before Milestone 1, compare UI Automation property-change/window events, slower adaptive refresh, and refresh-on-resume while retaining complete snapshot recovery.
+The widget and Milestone 3A Advanced panel request complete attention-signal snapshots
+five seconds after the previous request completes. A shared frontend in-flight
+guard also prevents a manual refresh from overlapping the automatic request.
+The last successful snapshot remains visible when IPC refresh fails: the first
+failure is presented as retrying, while two consecutive failures or data older
+than three nominal polling intervals is stale. This five-second cadence is a
+dogfood variable, not a production architecture decision. UI Automation events,
+adaptive refresh, and refresh-on-resume remain deferred until daily-use evidence
+demonstrates which reliability work matters.
+
+The overall panel derives attention separately from health. A positive observed
+signal remains visible even if another source is unhealthy. `All clear` is
+reserved for fresh, observed, clear state from all three fixed sources; partial
+coverage is described as no attention detected rather than false reassurance.
 
 The removed Teams accessibility diagnostic was manual because it traversed a larger application tree and existed only to answer a bounded feasibility question. Its negative result was never merged into `AttentionSignal`. The existing `activityStatus` signal is the authoritative implemented Teams behavior; exact Teams counts and message details are deferred rather than approximated.
 

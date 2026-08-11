@@ -12,9 +12,20 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Attention Hub",
-        "width": 800,
-        "height": 600
+        "width": 980,
+        "height": 176,
+        "minWidth": 760,
+        "minHeight": 176,
+        "maxHeight": 176,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true
       }
     ],
     "security": {
