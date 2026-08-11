@@ -3,8 +3,9 @@
 - Date: 2026-08-11 Europe/Kyiv
 - Scope: manual one-shot title-capable current/next gate
 - Publication level: user-approved titles and locations; location discarded
-- Live semantic result: direct backend retest observed one active selection
-  after bounded all-day and stale-orphan recurrence corrections
+- Live semantic result: direct-backend and Advanced-UI/Tauri-IPC retests
+  observed one active selection after bounded all-day and stale-orphan
+  recurrence corrections
 - Provider decision: pending
 
 ## Implemented boundary
@@ -46,6 +47,7 @@ organizer, body, or meeting URL.
 | First title-capable active-or-next selection | Unavailable | HTTP 200 calendar; 511,591 bytes; request 4,813 ms; parse 39 ms; the first implementation incorrectly required a timezone for an RFC date-only all-day event |
 | First all-day-corrected retest | Timeout defect | The UI remained loading for more than five minutes; process sampling showed no sustained CPU work, so the one-shot command lacked a reliable terminal boundary around the native request path |
 | Authorized local backend retest | Observed | HTTP 200 calendar; 511,591 bytes; request 2,884 ms; parse 84 ms; 1,012 eligible candidates; 1 active candidate; 1,061 recurrence occurrences expanded; one selection present; no title, time, URL, or other event value recorded |
+| Advanced UI through Tauri IPC | Observed | Single `pnpm tauri dev` instance; command returned in approximately 1.9 seconds; HTTP 200 calendar; 511,591 bytes; parse 85 ms; the same bounded candidate counts and one active selection were returned; terminal logging contained no selection values |
 | In-progress versus upcoming | Pending | — |
 | Recurring and one-off | Pending | — |
 | Cancelled instance/series | Pending | — |
@@ -96,3 +98,10 @@ The Advanced UI now independently ends its pending state after 20 seconds if
 IPC does not return. The user-provided publication URL was held only in process
 memory for the local diagnostic and is absent from source, fixtures, logs,
 documentation, and Git changes.
+
+The corrected build was then launched through the documented `pnpm tauri dev`
+path as one process. A local accessibility invocation of Attention Hub's own
+masked field, confirmation checkbox, and semantic button completed through the
+real Tauri command and returned `observed` with one active selection. Temporary
+stage-only instrumentation was removed after confirming command start, task
+spawn, and terminal return. Visual title/time comparison remains a user check.

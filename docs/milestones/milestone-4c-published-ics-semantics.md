@@ -2,10 +2,11 @@
 
 ## Status
 
-Implemented on 2026-08-11. A direct live title-capable backend probe now
-produces one active selection; visible comparison and remaining natural edge
-cases are still pending. This milestone is a manual one-shot provider gate. It
-does not add polling, secret storage, widget integration, or a join action.
+Implemented on 2026-08-11. Direct-backend and Advanced-UI/Tauri-IPC live probes
+now produce one active selection; visible comparison and remaining natural
+edge cases are still pending. This milestone is a manual one-shot provider
+gate. It does not add polling, secret storage, widget integration, or a join
+action.
 
 ## Product question
 
