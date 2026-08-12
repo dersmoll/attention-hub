@@ -9,7 +9,10 @@ import {
 } from "@tauri-apps/api/window";
 import {
   ATTENTION_POLL_INTERVAL_MS,
+  ATTENTION_STALE_AFTER_MS,
+  type AttentionSignal,
   findSignal,
+  type AttentionSourceObservation,
   type AttentionSignalSnapshot,
   type TaskbarMirrorStatus,
 } from "./attention-model";
@@ -183,7 +186,9 @@ async function invokeWorkCalendarSnapshot() {
 
 function mirrorLabel(status: TaskbarMirrorStatus | null) {
   if (status?.visible) {
-    return "Live taskbar visual";
+    return status.taskbarCount > 1
+      ? "Live taskbar visual from the selected display"
+      : "Live taskbar visual";
   }
   if (status?.lifecycle === "starting") {
     return "Starting live visual";
@@ -194,31 +199,128 @@ function mirrorLabel(status: TaskbarMirrorStatus | null) {
   return "Semantic fallback shown";
 }
 
-function AppSlot({
-  label,
-  shortLabel,
-  badge,
-  status,
-  future = false,
-}: {
-  label: string;
-  shortLabel: string;
-  badge: string | null;
-  status?: TaskbarMirrorStatus | null;
-  future?: boolean;
-}) {
+function AppGlyph({ sourceKey }: { sourceKey: "teams" | "telegram" | "outlook" }) {
+  if (sourceKey === "telegram") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="15" fill="#229ed9" />
+        <path d="m7.5 15.5 16-6.2-4 14.1-5.1-4-3.2 2.5.4-4.6 8.7-5.2-10.7 4.1Z" fill="#fff" />
+      </svg>
+    );
+  }
+  if (sourceKey === "outlook") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <rect x="8" y="5" width="21" height="22" rx="3" fill="#0a64c9" />
+        <path d="m11 10 7.5 6L26 10v13H11Z" fill="#5db7ff" />
+        <rect x="3" y="8" width="14" height="17" rx="2" fill="#106ebe" />
+        <text x="10" y="20" fill="#fff" fontSize="11" fontWeight="800" textAnchor="middle">O</text>
+      </svg>
+    );
+  }
   return (
-    <div
+    <svg aria-hidden="true" viewBox="0 0 32 32">
+      <rect x="8" y="9" width="21" height="18" rx="4" fill="#6264a7" />
+      <circle cx="23" cy="6" r="4" fill="#8b8cc7" />
+      <circle cx="7" cy="11" r="4" fill="#8b8cc7" />
+      <rect x="3" y="9" width="17" height="17" rx="3" fill="#4f52b2" />
+      <path d="M7 13h9v2.5h-3v7h-3v-7H7Z" fill="#fff" />
+    </svg>
+  );
+}
+
+function sourceAvailability(
+  source: AttentionSourceObservation | undefined,
+  stale: boolean,
+  refreshFailed: boolean,
+) {
+  if (!source) {
+    return refreshFailed ? "attention state unavailable" : "checking attention state";
+  }
+  if (stale) {
+    return "last known attention state is stale";
+  }
+  if (refreshFailed) {
+    return "last known attention state; refresh is retrying";
+  }
+  const labels = {
+    observed: "attention state observed",
+    notRunning: "application is not running",
+    notExposed: "attention state is not exposed",
+    error: "attention read failed",
+  } as const;
+  return labels[source.state];
+}
+
+function formatAttentionBadge(
+  count: number | null | undefined,
+  needsAttention: boolean | null | undefined,
+) {
+  if (typeof count === "number" && count > 0) {
+    return count > 99 ? "99+" : String(count);
+  }
+  return needsAttention === true ? "•" : null;
+}
+
+function sourceHealth(
+  source: AttentionSourceObservation | undefined,
+  stale: boolean,
+  refreshFailed: boolean,
+) {
+  if (stale) {
+    return "stale";
+  }
+  if (refreshFailed) {
+    return "retrying";
+  }
+  return source?.state === "observed" ? "observed" : "unavailable";
+}
+
+function AppSlot({
+  sourceKey,
+  label,
+  badge,
+  badgeLastKnown = false,
+  statusText,
+  health,
+  status,
+  disabled,
+  onActivate,
+}: {
+  sourceKey: "teams" | "telegram" | "outlook";
+  label: string;
+  badge: string | null;
+  badgeLastKnown?: boolean;
+  statusText: string;
+  health: "observed" | "retrying" | "stale" | "unavailable";
+  status?: TaskbarMirrorStatus | null;
+  disabled: boolean;
+  onActivate: () => void;
+}) {
+  const visualText = status ? mirrorLabel(status) : "Local application icon";
+  const accessibleLabel = `Open ${label}. ${statusText}. ${visualText}.`;
+  return (
+    <button
+      aria-label={accessibleLabel}
       className="widget-app-slot"
-      data-future={future || undefined}
-      title={future ? `${label} is not connected yet` : mirrorLabel(status ?? null)}
+      data-health={health}
+      data-source={sourceKey}
+      disabled={disabled}
+      onClick={onActivate}
+      title={accessibleLabel}
+      type="button"
     >
-      <span aria-hidden="true">{shortLabel}</span>
-      <span className="sr-only">{label}</span>
+      <AppGlyph sourceKey={sourceKey} />
       {badge && !status?.visible && (
-        <strong className="widget-app-badge">{badge}</strong>
+        <strong
+          aria-hidden="true"
+          className="widget-app-badge"
+          data-last-known={badgeLastKnown || undefined}
+        >
+          {badge}
+        </strong>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -263,6 +365,9 @@ export function WidgetView() {
   );
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
+  const [attentionRefreshFailed, setAttentionRefreshFailed] = useState(false);
+  const [lastObservedOutlookInbox, setLastObservedOutlookInbox] =
+    useState<AttentionSignal | null>(null);
   const [teamsMirror, setTeamsMirror] =
     useState<TaskbarMirrorStatus | null>(null);
   const [telegramMirror, setTelegramMirror] =
@@ -286,10 +391,21 @@ export function WidgetView() {
     }
     attentionInFlight.current = true;
     try {
-      setAttentionSnapshot(
-        await invoke<AttentionSignalSnapshot>("get_attention_signal_snapshot"),
+      const snapshot = await invoke<AttentionSignalSnapshot>(
+        "get_attention_signal_snapshot",
       );
+      const outlook = snapshot.sources.find(
+        ({ sourceKey }) => sourceKey === "outlook",
+      );
+      if (outlook?.state === "observed") {
+        setLastObservedOutlookInbox(findSignal(outlook, "inboxUnread"));
+      } else if (outlook?.state === "notRunning") {
+        setLastObservedOutlookInbox(null);
+      }
+      setAttentionSnapshot(snapshot);
+      setAttentionRefreshFailed(false);
     } catch (error) {
+      setAttentionRefreshFailed(true);
       setWidgetError(`Attention refresh failed: ${String(error)}`);
     } finally {
       attentionInFlight.current = false;
@@ -392,16 +508,37 @@ export function WidgetView() {
   }, [refreshWorkCalendar]);
 
   useEffect(() => {
+    if (!attentionSnapshot) {
+      return;
+    }
+    const teams = attentionSnapshot.sources.find(
+      ({ sourceKey }) => sourceKey === "teams",
+    );
+    const telegram = attentionSnapshot.sources.find(
+      ({ sourceKey }) => sourceKey === "telegram",
+    );
+    const teamsNeedsAttention =
+      teams !== undefined &&
+      findSignal(teams, "activityStatus")?.needsAttention === true;
+    const telegramNeedsAttention =
+      telegram !== undefined &&
+      findSignal(telegram, "applicationCounter")?.needsAttention === true;
+
+    void Promise.allSettled([
+      invoke<TaskbarMirrorStatus>(
+        teamsNeedsAttention ? "start_teams_mirror" : "stop_teams_mirror",
+      ),
+      invoke<TaskbarMirrorStatus>(
+        telegramNeedsAttention
+          ? "start_telegram_mirror"
+          : "stop_telegram_mirror",
+      ),
+    ]).then(() => void refreshMirrors());
+  }, [attentionSnapshot, refreshMirrors]);
+
+  useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    void Promise.allSettled([
-      invoke<TaskbarMirrorStatus>("start_teams_mirror"),
-      invoke<TaskbarMirrorStatus>("start_telegram_mirror"),
-    ]).then(() => {
-      if (!disposed) {
-        void refreshMirrors();
-      }
-    });
 
     const poll = async () => {
       await refreshMirrors();
@@ -492,21 +629,61 @@ export function WidgetView() {
     }
   };
 
+  const activateSource = async (
+    sourceKey: "teams" | "telegram" | "outlook",
+  ) => {
+    try {
+      await invoke("activate_attention_source", { sourceKey });
+    } catch (error) {
+      setWidgetError(`Could not open the source application: ${String(error)}`);
+    }
+  };
+
   const telegram = attentionSnapshot?.sources.find(
     ({ sourceKey }) => sourceKey === "telegram",
   );
   const teams = attentionSnapshot?.sources.find(
     ({ sourceKey }) => sourceKey === "teams",
   );
+  const outlook = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "outlook",
+  );
   const telegramCounter = telegram
     ? findSignal(telegram, "applicationCounter")
     : null;
   const teamsActivity = teams ? findSignal(teams, "activityStatus") : null;
-  const telegramBadge =
-    telegramCounter?.count && telegramCounter.count > 0
-      ? String(telegramCounter.count)
-      : null;
-  const teamsBadge = teamsActivity?.needsAttention ? "•" : null;
+  const outlookInbox = outlook ? findSignal(outlook, "inboxUnread") : null;
+  const outlookUsingLastKnown =
+    outlook?.state === "notExposed" &&
+    outlookInbox === null &&
+    lastObservedOutlookInbox !== null;
+  const displayedOutlookInbox = outlookUsingLastKnown
+    ? lastObservedOutlookInbox
+    : outlookInbox;
+  const telegramBadge = formatAttentionBadge(
+    telegramCounter?.count,
+    telegramCounter?.needsAttention,
+  );
+  const teamsBadge = formatAttentionBadge(
+    teamsActivity?.count,
+    teamsActivity?.needsAttention,
+  );
+  const outlookBadge = formatAttentionBadge(
+    displayedOutlookInbox?.count,
+    displayedOutlookInbox?.needsAttention,
+  );
+  const attentionCapturedAt = attentionSnapshot
+    ? Date.parse(attentionSnapshot.capturedAt)
+    : Number.NaN;
+  const attentionStale =
+    attentionSnapshot !== null &&
+    (!Number.isFinite(attentionCapturedAt) ||
+      now.getTime() - attentionCapturedAt > ATTENTION_STALE_AFTER_MS);
+  const telegramStatus = `${sourceAvailability(telegram, attentionStale, attentionRefreshFailed)}${typeof telegramCounter?.count === "number" && telegramCounter.count > 0 ? `; application counter ${telegramCounter.count}` : telegramCounter?.needsAttention === true ? "; new activity detected" : ""}`;
+  const teamsStatus = `${sourceAvailability(teams, attentionStale, attentionRefreshFailed)}${teamsActivity?.needsAttention === true ? "; new activity detected" : ""}`;
+  const outlookStatus = outlookUsingLastKnown
+    ? `current attention state is not exposed; last observed aggregate Inbox unread ${lastObservedOutlookInbox.count}`
+    : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
   const calendarSelection =
     workCalendar?.status === "observed" ? workCalendar.selection : null;
   const calendarNextSelection =
@@ -572,19 +749,39 @@ export function WidgetView() {
       >
         <div className="widget-apps" data-tauri-drag-region>
           <AppSlot
+            sourceKey="teams"
             label="Microsoft Teams"
-            shortLabel="Teams"
             badge={teamsBadge}
+            statusText={teamsStatus}
+            health={sourceHealth(teams, attentionStale, attentionRefreshFailed)}
             status={teamsMirror}
+            disabled={teams?.state === "notRunning"}
+            onActivate={() => void activateSource("teams")}
           />
           <AppSlot
+            sourceKey="telegram"
             label="Telegram"
-            shortLabel="TG"
             badge={telegramBadge}
+            statusText={telegramStatus}
+            health={sourceHealth(telegram, attentionStale, attentionRefreshFailed)}
             status={telegramMirror}
+            disabled={telegram?.state === "notRunning"}
+            onActivate={() => void activateSource("telegram")}
           />
-          <AppSlot label="Slack" shortLabel="Slack" badge={null} future />
-          <AppSlot label="Viber" shortLabel="Viber" badge={null} future />
+          <AppSlot
+            sourceKey="outlook"
+            label="Microsoft Outlook"
+            badge={outlookBadge}
+            badgeLastKnown={outlookUsingLastKnown}
+            statusText={outlookStatus}
+            health={sourceHealth(
+              outlook,
+              attentionStale || outlookUsingLastKnown,
+              attentionRefreshFailed,
+            )}
+            disabled={outlook?.state === "notRunning"}
+            onActivate={() => void activateSource("outlook")}
+          />
           <button
             className="widget-more"
             onClick={() => void openAdvanced()}

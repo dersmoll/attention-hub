@@ -10,7 +10,9 @@ use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
 use tauri::{Emitter, Manager};
-use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
+use teams_mirror::{
+    AttentionAppSource, TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus,
+};
 use work_calendar::{WorkCalendarConfiguration, WorkCalendarSnapshot, WorkCalendarState};
 
 #[tauri::command]
@@ -177,6 +179,13 @@ fn stop_telegram_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarM
 }
 
 #[tauri::command]
+fn activate_attention_source(source_key: String) -> Result<(), String> {
+    let source = AttentionAppSource::from_key(&source_key)
+        .ok_or_else(|| format!("Unsupported attention source: {source_key}"))?;
+    teams_mirror::activate_source(source)
+}
+
+#[tauri::command]
 fn quit_application(app: tauri::AppHandle) {
     app.exit(0);
 }
@@ -203,6 +212,7 @@ pub fn run() {
             get_telegram_mirror_status,
             start_telegram_mirror,
             stop_telegram_mirror,
+            activate_attention_source,
             quit_application
         ])
         .run(tauri::generate_context!())

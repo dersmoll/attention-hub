@@ -4,6 +4,40 @@ mod windows_adapter;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttentionAppSource {
+    Teams,
+    Telegram,
+    Outlook,
+}
+
+impl AttentionAppSource {
+    pub fn from_key(value: &str) -> Option<Self> {
+        match value {
+            "teams" => Some(Self::Teams),
+            "telegram" => Some(Self::Telegram),
+            "outlook" => Some(Self::Outlook),
+            _ => None,
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Teams => "teams",
+            Self::Telegram => "telegram",
+            Self::Outlook => "outlook",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Teams => "Microsoft Teams",
+            Self::Telegram => "Telegram",
+            Self::Outlook => "Microsoft Outlook",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskbarMirrorSource {
     Teams,
     Telegram,
@@ -30,6 +64,13 @@ impl TaskbarMirrorSource {
             Self::Telegram => 1,
         }
     }
+
+    pub fn app_source(self) -> AttentionAppSource {
+        match self {
+            Self::Teams => AttentionAppSource::Teams,
+            Self::Telegram => AttentionAppSource::Telegram,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -42,6 +83,8 @@ pub struct TaskbarMirrorStatus {
     pub visible: bool,
     pub visual_only: bool,
     pub poll_interval_ms: u32,
+    pub taskbar_count: u32,
+    pub taskbar_monitor: Option<String>,
     pub diagnostic: Option<String>,
 }
 
@@ -55,13 +98,23 @@ impl TaskbarMirrorStatus {
             visible: false,
             visual_only: true,
             poll_interval_ms: 100,
+            taskbar_count: 0,
+            taskbar_monitor: None,
             diagnostic: None,
         }
     }
 }
 
 #[cfg(target_os = "windows")]
-pub use windows_adapter::{run_manual_probe, TaskbarMirrorState};
+pub use windows_adapter::{activate_source, run_manual_probe, TaskbarMirrorState};
+
+#[cfg(not(target_os = "windows"))]
+pub fn activate_source(source: AttentionAppSource) -> Result<(), String> {
+    Err(format!(
+        "{} activation is available only on Windows.",
+        source.display_name()
+    ))
+}
 
 #[cfg(not(target_os = "windows"))]
 pub struct TaskbarMirrorState;

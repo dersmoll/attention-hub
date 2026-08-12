@@ -45,6 +45,8 @@ export interface TaskbarMirrorStatus {
   visible: boolean;
   visualOnly: boolean;
   pollIntervalMs: number;
+  taskbarCount: number;
+  taskbarMonitor: string | null;
   diagnostic: string | null;
 }
 

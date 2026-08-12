@@ -45,7 +45,10 @@ Application-owned normalized signal model
 Tauri commands/events -> React debug UI
 ```
 
-This remains an observer boundary. The probe may read window titles and UI Automation properties but must not click, type, focus, dismiss, or otherwise control source applications.
+Observation remains read-only. The only source-window action is an explicit
+user activation from an app button: Attention Hub may restore and foreground an
+existing Teams, Telegram, or Outlook top-level window, but it does not launch,
+click inside, type into, dismiss, or otherwise control the source application.
 
 ## Window and visual composition
 
@@ -61,31 +64,52 @@ destroyed when closed. This keeps Graph, calendar, Notification Center, and raw
 diagnostic initialization out of the ordinary widget runtime.
 
 DWM thumbnails registered on the Tauri parent render behind its WebView child,
-so live taskbar visuals cannot be React components. Rust instead owns two
-borderless, no-activate, tool-window surfaces owned by the widget:
+so live taskbar visuals cannot be React components. React owns local fallback
+glyphs; Rust owns two rounded, borderless, no-activate inset surfaces owned by
+the widget:
 
 ```text
-primary Shell_TrayWnd
-       | UIA discovers source rectangles
+source app window monitor
+       | orders primary and secondary taskbar surfaces
+       | UIA discovers one source rectangle
        | DWM composes source pixels
        v
-Teams popup       Telegram popup
+Teams live tile   Telegram live tile   Outlook React button
        \             /
-        fixed physical slots
+        local-glyph button slots
                |
                v
        Tauri widget WebView
 ```
 
-Each popup tracks the widget's physical position and current DPI every 100 ms
-while its existing cached source-rectangle check runs. Owned tool windows do not
-create taskbar buttons or take focus. If discovery becomes absent or ambiguous,
-the popup hides and exposes the semantic React fallback below it. The two
-sources have separate lifecycle/status records and failures.
+Each 44-pixel rounded popup is centered with a 4-pixel inset inside its 52-pixel
+button and tracks the widget's physical position and current DPI every 100 ms
+while its existing cached source-rectangle check runs. Once per second a cheap
+top-level-window/taskbar topology check detects monitor movement, taskbar-count
+changes, and Explorer replacement; a full UI Automation rediscovery runs only
+when recovery is required. Each popup composes a bounded square around the
+complete taskbar button and starts only while the separate source signal reports
+attention. Owned tool windows do not create taskbar buttons or
+take focus. If discovery becomes absent or ambiguous, the popup hides while the
+local glyph and semantic React state remain available. The two sources have
+separate lifecycle/status records and failures.
+
+The three React slots are real buttons with keyboard focus, accessible status
+labels, stale/retrying/unavailable presentation, and local app glyphs. A user
+activation restores and foregrounds an existing source-owned top-level window.
+It never launches an application or forwards input into application content.
+The two native DWM inset surfaces handle the same activation on pointer release
+while remaining visual-only.
 
 No bitmap crosses into Attention Hub. DWM retains pixel composition, and the
 application cannot claim which numeric badge the user sees. The structured
-Telegram and qualitative Teams signals remain the queryable attention contract.
+Telegram numeric signals, Outlook aggregate English Inbox unread signal, and
+qualitative Teams activity signal remain distinct queryable contracts. Missing
+or inaccessible Outlook labels are `notExposed`, never zero. After one observed
+Outlook result, the React widget can retain that count in process memory while a
+running/minimized Outlook becomes `notExposed`. The fallback is explicitly
+styled and announced as last-observed, updates when observation returns, and is
+cleared when Outlook is no longer running or Attention Hub restarts.
 
 The completed Teams exact-count experiment used an explicitly separate manual diagnostic. It performed a broader Teams-owned accessibility traversal only on demand and never entered the normal two-second attention-snapshot loop. Raw Teams accessibility values were inspected transiently in Rust and discarded; only sanitized structural metadata crossed Tauri IPC. The experiment found no useful numeric badge property and its command, DTOs, native traversal, and React table were removed. Only the qualitative Teams `activityStatus` signal remains implemented.
 

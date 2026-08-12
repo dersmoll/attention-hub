@@ -8,8 +8,9 @@ controlling the source applications.
 
 The primary window is a compact, frameless three-zone widget:
 
-- left: live visual taskbar crops for Microsoft Teams and Telegram, with
-  placeholders for Slack and Viber;
+- left: aligned Microsoft Teams, Telegram, and New Outlook buttons; Teams and
+  Telegram can show smaller inset live taskbar tiles while Outlook uses its
+  local glyph and truthful semantic state;
 - center: local time and a configurable secondary timezone, defaulting to
   `America/New_York` with automatic EST/EDT handling;
 - right: the active or next timed work-calendar event, with all-day entries used
@@ -21,10 +22,20 @@ demand. Advanced contains the production work-calendar configuration, the
 structured Telegram, New Outlook, and Teams attention panel, and retained
 Notification Center/source diagnostics.
 
-The live app visuals are DWM-composed primary-taskbar crops. Attention Hub does
-not read, recognize, or convert their pixels into counts. Semantic values remain
-separate: Telegram exposes two numeric signals, New Outlook exposes aggregate
-Inbox unread, and Teams exposes qualitative activity only.
+The live Teams and Telegram tiles are inset DWM-composed crops
+selected from the taskbar on the source application's monitor, with bounded
+fallback across the available taskbars. They appear only while the separate
+semantic source reports attention. Attention Hub does not read, recognize, or
+convert their pixels into counts. Semantic values remain separate: Telegram exposes numeric
+signals, New Outlook exposes aggregate Inbox unread only when its English UI
+Automation label is available, and Teams exposes qualitative activity only.
+Selecting an app button activates an existing source window; it does not launch
+the app or interact with its contents.
+
+If minimizing New Outlook temporarily removes that accessibility label, the
+widget may retain the last count observed during this process. That fallback is
+amber and dashed, is announced as last-observed, and clears when Outlook stops;
+it is not presented as a fresh count.
 
 The work-calendar source is one explicitly selected Microsoft 365 Published ICS
 calendar whose bearer link is stored only in Windows Credential Manager. The
@@ -51,6 +62,7 @@ recorded in [the 0.2.0 release record](docs/releases/attention-hub-0.2.0.md).
 - [Milestone 4B Published ICS observer spike](docs/milestones/milestone-4b-published-ics-observer-spike.md)
 - [Milestone 4C Published ICS semantic gate](docs/milestones/milestone-4c-published-ics-semantics.md)
 - [Milestone 4D saved work-calendar widget](docs/milestones/milestone-4d-widget-calendar.md)
+- [Milestone 5A left icon panel polish](docs/milestones/milestone-5a-left-icon-panel.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)
 - [Architecture decisions](docs/decisions/)
 
@@ -58,6 +70,12 @@ recorded in [the 0.2.0 release record](docs/releases/attention-hub-0.2.0.md).
 
 Prerequisites are Node.js, pnpm, Rust with the MSVC target, Microsoft C++ Build
 Tools with the Desktop development with C++ workload, and WebView2.
+
+For ordinary user testing, double-click `RUN-ATTENTION-HUB.cmd` in the repository
+root. It switches to the correct checkout, stops a previous Attention Hub run,
+cleans up a stale repository-owned development server, installs dependencies on
+the first run, and launches the current development build. The launcher uses the
+bundled local Node runtime and does not require `pnpm` on the system PATH.
 
 ```powershell
 pnpm install --frozen-lockfile
