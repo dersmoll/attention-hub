@@ -125,7 +125,7 @@ async fn get_published_ics_semantic_probe(
         published_ics::get_semantic_probe_with_deadline(published_url, title_capability_confirmed)
             .await;
     eprintln!(
-        "Published ICS bounded semantic probe: status={:?}, http_status={:?}, bytes={}, semantic_allowed={}, candidates={}, active_candidates={}, expanded_occurrences={}, private_redacted={}, selection_present={}, stop_reason={:?}, timing_ms={}/{}",
+        "Published ICS bounded semantic probe: status={:?}, http_status={:?}, bytes={}, semantic_allowed={}, candidates={}, active_candidates={}, expanded_occurrences={}, private_redacted={}, selection_present={}, next_selection_present={}, stop_reason={:?}, timing_ms={}/{}",
         probe.status,
         probe.http_status,
         probe.response_bytes,
@@ -135,6 +135,7 @@ async fn get_published_ics_semantic_probe(
         probe.expanded_occurrence_count,
         probe.private_title_redacted,
         probe.selection.is_some(),
+        probe.next_selection.is_some(),
         probe.stop_reason,
         probe.request_ms,
         probe.parse_ms,

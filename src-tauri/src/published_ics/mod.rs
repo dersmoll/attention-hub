@@ -141,6 +141,7 @@ pub struct PublishedIcsSemanticProbe {
     pub expanded_occurrence_count: u32,
     pub private_title_redacted: bool,
     pub selection: Option<EventSelection>,
+    pub next_selection: Option<EventSelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub diagnostics: Vec<String>,
 }
@@ -165,6 +166,7 @@ impl PublishedIcsSemanticProbe {
             expanded_occurrence_count: 0,
             private_title_redacted: false,
             selection: None,
+            next_selection: None,
             stop_reason: None,
             diagnostics: Vec::new(),
         }
@@ -724,8 +726,9 @@ pub async fn get_semantic_probe(
     probe.expanded_occurrence_count = semantic.expanded_occurrence_count;
     probe.private_title_redacted = semantic.private_title_redacted;
     probe.selection = Some(semantic.selection);
+    probe.next_selection = semantic.next_selection;
     probe.diagnostics.push(
-        "One fresh active-or-next selection was produced from one user-confirmed title-capable published calendar.".to_owned(),
+        "A fresh active-or-next selection and at most one upcoming companion were produced from one user-confirmed title-capable published calendar.".to_owned(),
     );
     probe.diagnostics.push(
         "Location, account, attendees, organizer, body, UID, raw calendar data, and meeting URLs were discarded and did not cross IPC.".to_owned(),

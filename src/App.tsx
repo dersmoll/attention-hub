@@ -245,6 +245,15 @@ interface PublishedIcsSemanticProbe {
     subject: string;
     start: string;
     end: string;
+    allDay: boolean;
+    classification: "active" | "upcoming";
+    meetingLinkPresent: boolean | null;
+  } | null;
+  nextSelection: {
+    subject: string;
+    start: string;
+    end: string;
+    allDay: boolean;
     classification: "active" | "upcoming";
     meetingLinkPresent: boolean | null;
   } | null;
@@ -990,10 +999,12 @@ function AdvancedView() {
           <section aria-live="polite">
             <h2>Published work-calendar current or next event</h2>
             <p>
-              This manual one-shot gate returns only subject, start, end,
-              active/upcoming classification, and meeting-link presence. It
-              rejects ambiguous timezone or recurrence semantics and never
-              returns the meeting URL.
+              This manual one-shot gate returns one primary and, only while it
+              is active, at most one upcoming companion. Each contains only
+              subject, start, end, all-day state, active/upcoming
+              classification, and meeting-link presence. It rejects ambiguous
+              timezone or recurrence semantics and never returns the meeting
+              URL.
             </p>
 
             {publishedIcsSemanticError && (
@@ -1061,10 +1072,10 @@ function AdvancedView() {
                     <p>
                       {new Date(
                         publishedIcsSemanticProbe.selection.start,
-                      ).toLocaleString()} {" – "}
+                      ).toLocaleString([], { hourCycle: "h23" })} {" – "}
                       {new Date(
                         publishedIcsSemanticProbe.selection.end,
-                      ).toLocaleString()}
+                      ).toLocaleString([], { hourCycle: "h23" })}
                     </p>
                     <p>
                       Meeting link:{" "}
@@ -1072,6 +1083,31 @@ function AdvancedView() {
                         .meetingLinkPresent === null
                         ? "withheld for private event"
                         : publishedIcsSemanticProbe.selection.meetingLinkPresent
+                          ? "present"
+                          : "not detected"}
+                    </p>
+                  </div>
+                )}
+
+                {publishedIcsSemanticProbe.nextSelection && (
+                  <div className="semantic-event-result">
+                    <p className="eyebrow">Up next companion</p>
+                    <h3>{publishedIcsSemanticProbe.nextSelection.subject}</h3>
+                    <p>
+                      {new Date(
+                        publishedIcsSemanticProbe.nextSelection.start,
+                      ).toLocaleString([], { hourCycle: "h23" })} {" – "}
+                      {new Date(
+                        publishedIcsSemanticProbe.nextSelection.end,
+                      ).toLocaleString([], { hourCycle: "h23" })}
+                    </p>
+                    <p>
+                      Meeting link: {" "}
+                      {publishedIcsSemanticProbe.nextSelection
+                        .meetingLinkPresent === null
+                        ? "withheld for private event"
+                        : publishedIcsSemanticProbe.nextSelection
+                              .meetingLinkPresent
                           ? "present"
                           : "not detected"}
                     </p>

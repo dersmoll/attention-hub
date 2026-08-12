@@ -30,6 +30,7 @@ pub struct EventSelection {
     pub subject: String,
     pub start: String,
     pub end: String,
+    pub all_day: bool,
     pub classification: EventClassification,
     pub meeting_link_present: Option<bool>,
 }
@@ -54,6 +55,7 @@ pub struct SemanticFailure {
 #[derive(Debug)]
 pub struct SemanticScan {
     pub selection: EventSelection,
+    pub next_selection: Option<EventSelection>,
     pub eligible_candidate_count: u32,
     pub active_candidate_count: u32,
     pub expanded_occurrence_count: u32,
@@ -238,36 +240,62 @@ pub fn extract_current_or_next(
         })
     });
 
-    let selected = candidates.into_iter().next().ok_or_else(|| {
+    let selected = candidates.first().cloned().ok_or_else(|| {
         failure(
             SemanticFailureReason::NoEligibleEvent,
             "No active or upcoming event was present inside the bounded 366-day selection window.",
         )
     })?;
-    let classification = if selected.start <= now && selected.end > now {
-        EventClassification::Active
-    } else {
-        EventClassification::Upcoming
-    };
-    let private_title_redacted = selected.private;
+    let selected_is_active = selected.start <= now && selected.end > now;
+    let next_selected = selected_is_active
+        .then(|| {
+            candidates
+                .iter()
+                .filter(|candidate| candidate.start > now)
+                .min_by(|left, right| compare_upcoming_candidates(left, right))
+                .cloned()
+        })
+        .flatten();
+    let private_title_redacted =
+        selected.private || next_selected.as_ref().is_some_and(|event| event.private);
 
     Ok(SemanticScan {
-        selection: EventSelection {
-            subject: if selected.private {
-                "Private event".to_owned()
-            } else {
-                selected.subject
-            },
-            start: selected.start.to_rfc3339(),
-            end: selected.end.to_rfc3339(),
-            classification,
-            meeting_link_present: (!selected.private).then_some(selected.meeting_link_present),
-        },
+        selection: selection_from_candidate(selected, now),
+        next_selection: next_selected.map(|candidate| selection_from_candidate(candidate, now)),
         eligible_candidate_count: u32::try_from(eligible_candidate_count).unwrap_or(u32::MAX),
         active_candidate_count: u32::try_from(active_candidate_count).unwrap_or(u32::MAX),
         expanded_occurrence_count: u32::try_from(expanded_occurrence_count).unwrap_or(u32::MAX),
         private_title_redacted,
     })
+}
+
+fn compare_upcoming_candidates(left: &Candidate, right: &Candidate) -> std::cmp::Ordering {
+    left.all_day
+        .cmp(&right.all_day)
+        .then_with(|| left.start.cmp(&right.start))
+        .then_with(|| left.end.cmp(&right.end))
+        .then_with(|| left.uid.cmp(&right.uid))
+        .then_with(|| left.source_order.cmp(&right.source_order))
+}
+
+fn selection_from_candidate(candidate: Candidate, now: DateTime<Utc>) -> EventSelection {
+    let classification = if candidate.start <= now && candidate.end > now {
+        EventClassification::Active
+    } else {
+        EventClassification::Upcoming
+    };
+    EventSelection {
+        subject: if candidate.private {
+            "Private event".to_owned()
+        } else {
+            candidate.subject
+        },
+        start: candidate.start.to_rfc3339(),
+        end: candidate.end.to_rfc3339(),
+        all_day: candidate.all_day,
+        classification,
+        meeting_link_present: (!candidate.private).then_some(candidate.meeting_link_present),
+    }
 }
 
 fn candidate_rank(active: bool, all_day: bool) -> u8 {
@@ -989,6 +1017,13 @@ mod tests {
         assert_eq!(result.selection.classification, EventClassification::Active);
         assert_eq!(result.selection.subject, "Private event");
         assert_eq!(result.selection.meeting_link_present, None);
+        assert_eq!(
+            result
+                .next_selection
+                .as_ref()
+                .map(|event| event.subject.as_str()),
+            Some("Next meeting")
+        );
         assert!(result.private_title_redacted);
     }
 
@@ -1001,6 +1036,7 @@ mod tests {
             EventClassification::Upcoming
         );
         assert_eq!(result.selection.subject, "Next timed event");
+        assert!(result.next_selection.is_none());
         assert_eq!(result.active_candidate_count, 1);
     }
 
@@ -1010,7 +1046,24 @@ mod tests {
 
         assert_eq!(result.selection.classification, EventClassification::Active);
         assert_eq!(result.selection.subject, "Active timed event");
+        assert_eq!(
+            result
+                .next_selection
+                .as_ref()
+                .map(|event| event.subject.as_str()),
+            Some("Next timed event")
+        );
         assert_eq!(result.active_candidate_count, 2);
+    }
+
+    #[test]
+    fn redacts_a_private_upcoming_companion() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:active\r\nDTSTART:20260811T113000Z\r\nDTEND:20260811T123000Z\r\nSUMMARY:Active event\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:private-next\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:Sensitive next title\r\nCLASS:PRIVATE\r\nDESCRIPTION:https://teams.microsoft.com/l/meetup-join/secret\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+
+        let next = result.next_selection.unwrap();
+        assert_eq!(next.subject, "Private event");
+        assert_eq!(next.meeting_link_present, None);
+        assert!(result.private_title_redacted);
     }
 
     #[test]
@@ -1044,6 +1097,7 @@ mod tests {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:Europe/Kyiv\r\nBEGIN:VEVENT\r\nUID:all-day\r\nDTSTART;VALUE=DATE:20260812\r\nDTEND;VALUE=DATE:20260813\r\nSUMMARY:All day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.selection.start, "2026-08-11T21:00:00+00:00");
         assert_eq!(result.selection.end, "2026-08-12T21:00:00+00:00");
+        assert!(result.selection.all_day);
     }
 
     #[test]
@@ -1057,6 +1111,7 @@ mod tests {
         .unwrap();
         assert_eq!(result.selection.start, "2026-08-11T21:00:00+00:00");
         assert_eq!(result.selection.end, "2026-08-12T21:00:00+00:00");
+        assert!(result.selection.all_day);
     }
 
     #[test]

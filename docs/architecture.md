@@ -393,6 +393,17 @@ events; active and upcoming all-day entries remain fallbacks. The widget
 derives a relative `In …` or `Ends in …` label from the approved start/end
 fields and continues to display the exact local time range.
 
+ADR 0016 adds a bounded active-event acknowledgement flow. When the primary is
+active, the semantic DTO may also contain exactly one earliest future
+companion. Both events retain the existing private-content fields plus a
+non-sensitive `allDay` boolean so contextual fallbacks never trigger call
+alerts. The widget uses a fixed five-minute amber warning, a red pulse from
+timed-event start until **I'm in**, and normal current-plus-next presentation
+after acknowledgement. Acknowledgement is keyed only by start/end in React
+process memory; it never crosses IPC, persists, or writes to a provider. Event
+timestamps render with a forced 24-hour clock, and reduced-motion preferences
+disable animation without removing the alert color.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.

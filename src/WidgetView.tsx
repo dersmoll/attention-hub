@@ -22,6 +22,7 @@ import {
 const WIDGET_PREFERENCES_KEY = "attention-hub.widget.v1";
 const DEFAULT_TIME_ZONE = "America/New_York";
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
+const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
 
 const TIME_ZONE_OPTIONS = [
   { value: "America/New_York", label: "New York" },
@@ -101,12 +102,19 @@ function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
   const time = new Intl.DateTimeFormat([], {
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
   });
   const day = new Intl.DateTimeFormat([], {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
+  if (selection.allDay) {
+    const inclusiveEnd = new Date(end.getTime() - 1);
+    return start.toDateString() === inclusiveEnd.toDateString()
+      ? `All day · ${day.format(start)}`
+      : `All day · ${day.format(start)}–${day.format(inclusiveEnd)}`;
+  }
   const startDay = start.toDateString();
   const endDay = end.toDateString();
   const dayLabel = startDay === now.toDateString() ? "Today" : day.format(start);
@@ -116,6 +124,9 @@ function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
 }
 
 function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
+  if (selection.allDay) {
+    return null;
+  }
   const boundary = new Date(
     selection.classification === "active" ? selection.end : selection.start,
   );
@@ -139,6 +150,16 @@ function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
   return selection.classification === "active"
     ? `Ends in ${duration}`
     : `In ${duration}`;
+}
+
+function formatCalendarDetail(selection: WorkCalendarSelection, now: Date) {
+  return [
+    formatCalendarCountdown(selection, now),
+    formatCalendarRange(selection, now),
+    selection.meetingLinkPresent === true ? "Online meeting" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 async function invokeWorkCalendarSnapshot() {
@@ -251,6 +272,9 @@ export function WidgetView() {
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
+  const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
+    string | null
+  >(null);
   const [widgetError, setWidgetError] = useState<string | null>(null);
   const attentionInFlight = useRef(false);
   const workCalendarInFlight = useRef(false);
@@ -485,10 +509,40 @@ export function WidgetView() {
   const teamsBadge = teamsActivity?.needsAttention ? "•" : null;
   const calendarSelection =
     workCalendar?.status === "observed" ? workCalendar.selection : null;
+  const calendarNextSelection =
+    workCalendar?.status === "observed" ? workCalendar.nextSelection : null;
+  const activeEventKey =
+    calendarSelection?.classification === "active" && !calendarSelection.allDay
+      ? `${calendarSelection.start}|${calendarSelection.end}`
+      : null;
+  const activeEventAcknowledged =
+    activeEventKey !== null && acknowledgedActiveEvent === activeEventKey;
+  const calendarStartMs = calendarSelection
+    ? Date.parse(calendarSelection.start)
+    : Number.NaN;
+  const calendarStartingSoon =
+    calendarSelection?.classification === "upcoming" &&
+    !calendarSelection.allDay &&
+    Number.isFinite(calendarStartMs) &&
+    calendarStartMs > now.getTime() &&
+    calendarStartMs - now.getTime() <= WORK_CALENDAR_STARTING_SOON_MS;
+  const calendarStartedNeedsAttention =
+    calendarSelection?.classification === "active" &&
+    !calendarSelection.allDay &&
+    !activeEventAcknowledged;
+  const calendarAttentionState = calendarStartedNeedsAttention
+    ? "started"
+    : calendarStartingSoon
+      ? "soon"
+      : undefined;
   const calendarState = calendarSelection
-    ? calendarSelection.classification === "active"
-      ? "In progress"
-      : "Up next"
+    ? calendarStartedNeedsAttention
+      ? "Meeting started"
+      : calendarStartingSoon
+        ? "Starting soon"
+        : calendarSelection.classification === "active"
+          ? "In progress"
+          : "Up next"
     : workCalendarRefreshing
       ? "Calendar checking"
       : "Calendar unavailable";
@@ -500,9 +554,7 @@ export function WidgetView() {
         ? "Another calendar check is finishing"
         : "No fresh work-calendar event";
   const calendarDetail = calendarSelection
-    ? `${formatCalendarCountdown(calendarSelection, now) ?? ""} · ${formatCalendarRange(calendarSelection, now)}${
-        calendarSelection.meetingLinkPresent === true ? " · Online meeting" : ""
-      }`
+    ? formatCalendarDetail(calendarSelection, now)
     : workCalendarRefreshing
       ? "Reading the saved source without controlling Outlook."
       : workCalendarTransportFailed || workCalendar?.status === "error"
@@ -575,18 +627,44 @@ export function WidgetView() {
 
       <section
         className="widget-zone widget-calendar"
+        data-calendar-attention={calendarAttentionState}
         aria-label="Work calendar"
         data-tauri-drag-region
       >
-        <div data-tauri-drag-region>
-          <span
-            className="widget-calendar__state"
-            data-calendar-status={calendarSelection ? "observed" : undefined}
-          >
-            {calendarState}
-          </span>
-          <strong>{calendarTitle}</strong>
-          <small>{calendarDetail}</small>
+        <div className="widget-calendar__content" data-tauri-drag-region>
+          <div className="widget-calendar__event" data-tauri-drag-region>
+            <div className="widget-calendar__event-header">
+              <span
+                className="widget-calendar__state"
+                data-calendar-status={
+                  calendarSelection ? "observed" : undefined
+                }
+              >
+                {calendarState}
+              </span>
+              {calendarStartedNeedsAttention && activeEventKey && (
+                <button
+                  className="widget-calendar__ack"
+                  onClick={() => setAcknowledgedActiveEvent(activeEventKey)}
+                  type="button"
+                >
+                  I&apos;m in
+                </button>
+              )}
+            </div>
+            <strong>{calendarTitle}</strong>
+            <small>{calendarDetail}</small>
+          </div>
+
+          {activeEventAcknowledged && calendarNextSelection && (
+            <div className="widget-calendar__next" data-tauri-drag-region>
+              <span>Up next</span>
+              <strong>{calendarNextSelection.subject}</strong>
+              <small>
+                {formatCalendarDetail(calendarNextSelection, now)}
+              </small>
+            </div>
+          )}
         </div>
       </section>
 

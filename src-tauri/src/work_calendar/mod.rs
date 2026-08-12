@@ -40,6 +40,7 @@ pub struct WorkCalendarSnapshot {
     pub source_identity_state: &'static str,
     pub captured_at_unix_ms: u64,
     pub selection: Option<EventSelection>,
+    pub next_selection: Option<EventSelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub request_ms: u64,
     pub parse_ms: u64,
@@ -118,6 +119,7 @@ pub async fn save_source(
             source_identity_state: SOURCE_IDENTITY_STATE,
             captured_at_unix_ms: now_unix_ms(),
             selection: None,
+            next_selection: None,
             stop_reason: None,
             request_ms: probe.request_ms,
             parse_ms: probe.parse_ms,
@@ -141,6 +143,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                next_selection: None,
                 stop_reason: None,
                 request_ms: 0,
                 parse_ms: 0,
@@ -162,6 +165,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                next_selection: None,
                 stop_reason: None,
                 request_ms: 0,
                 parse_ms: 0,
@@ -177,6 +181,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                next_selection: None,
                 stop_reason: None,
                 request_ms: 0,
                 parse_ms: 0,
@@ -215,11 +220,12 @@ pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfigurati
 
 pub fn log_snapshot(action: &str, snapshot: &WorkCalendarSnapshot) {
     eprintln!(
-        "work calendar {action}: status={:?}, configured={}, storage_available={}, selection_present={}, stop_reason={:?}, timing_ms={}/{}",
+        "work calendar {action}: status={:?}, configured={}, storage_available={}, selection_present={}, next_selection_present={}, stop_reason={:?}, timing_ms={}/{}",
         snapshot.status,
         snapshot.configured,
         snapshot.storage_available,
         snapshot.selection.is_some(),
+        snapshot.next_selection.is_some(),
         snapshot.stop_reason,
         snapshot.request_ms,
         snapshot.parse_ms,
@@ -241,6 +247,7 @@ fn snapshot_from_probe(
     };
     if !matches!(status, WorkCalendarStatus::Observed) {
         probe.selection = None;
+        probe.next_selection = None;
     }
     WorkCalendarSnapshot {
         status,
@@ -249,6 +256,7 @@ fn snapshot_from_probe(
         source_identity_state: SOURCE_IDENTITY_STATE,
         captured_at_unix_ms: probe.captured_at_unix_ms,
         selection: probe.selection,
+        next_selection: probe.next_selection,
         stop_reason: probe.stop_reason,
         request_ms: probe.request_ms,
         parse_ms: probe.parse_ms,
@@ -299,6 +307,7 @@ mod tests {
 
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
+        assert!(snapshot.next_selection.is_none());
         assert!(snapshot.configured);
     }
 
@@ -322,6 +331,7 @@ mod tests {
             expanded_occurrence_count: 0,
             private_title_redacted: false,
             selection: None,
+            next_selection: None,
             stop_reason: None,
             diagnostics: Vec::new(),
         };

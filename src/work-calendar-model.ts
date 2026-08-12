@@ -9,6 +9,7 @@ export interface WorkCalendarSelection {
   subject: string;
   start: string;
   end: string;
+  allDay: boolean;
   classification: "active" | "upcoming";
   meetingLinkPresent: boolean | null;
 }
@@ -20,6 +21,7 @@ export interface WorkCalendarSnapshot {
   sourceIdentityState: "userSavedSinglePublishedCalendarTitleCapable";
   capturedAtUnixMs: number;
   selection: WorkCalendarSelection | null;
+  nextSelection: WorkCalendarSelection | null;
   stopReason: string | null;
   requestMs: number;
   parseMs: number;
