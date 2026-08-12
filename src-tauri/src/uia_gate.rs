@@ -32,29 +32,6 @@ pub fn lock_priority() -> PriorityGuard {
     }
 }
 
-pub fn lock_priority_timeout(timeout: Duration) -> Option<PriorityGuard> {
-    PRIORITY_WAITERS.fetch_add(1, Ordering::AcqRel);
-    let started = std::time::Instant::now();
-
-    loop {
-        match UI_AUTOMATION_GATE.try_lock() {
-            Ok(guard) => {
-                return Some(PriorityGuard { guard: Some(guard) });
-            }
-            Err(TryLockError::Poisoned(poisoned)) => {
-                return Some(PriorityGuard {
-                    guard: Some(poisoned.into_inner()),
-                });
-            }
-            Err(TryLockError::WouldBlock) if started.elapsed() >= timeout => {
-                PRIORITY_WAITERS.fetch_sub(1, Ordering::Release);
-                return None;
-            }
-            Err(TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(10)),
-        }
-    }
-}
-
 pub fn lock_background() -> MutexGuard<'static, ()> {
     loop {
         while PRIORITY_WAITERS.load(Ordering::Acquire) > 0 {

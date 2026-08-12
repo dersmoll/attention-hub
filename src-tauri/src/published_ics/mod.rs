@@ -1,10 +1,6 @@
 mod semantics;
 
-use reqwest::{
-    header::{AGE, CACHE_CONTROL, CONTENT_TYPE, ETAG, LAST_MODIFIED},
-    redirect::Policy,
-    Url,
-};
+use reqwest::{header::CONTENT_TYPE, redirect::Policy, Url};
 use serde::Serialize;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -69,56 +65,6 @@ pub enum PublishedIcsStopReason {
     UnsupportedRecurrence,
     RecurrenceLimit,
     NoEligibleEvent,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublishedIcsProbeLimits {
-    pub url_bytes: usize,
-    pub connect_ms: u64,
-    pub request_ms: u64,
-    pub response_bytes: usize,
-    pub physical_lines: u32,
-    pub properties: u32,
-    pub events: u32,
-    pub line_bytes: usize,
-    pub parse_ms: u64,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublishedIcsStructureProbe {
-    pub status: PublishedIcsProbeStatus,
-    pub captured_at_unix_ms: u64,
-    pub url_accepted: bool,
-    pub webcal_normalized_to_https: bool,
-    pub source_identity_state: &'static str,
-    pub semantic_extraction_allowed: bool,
-    pub http_status: Option<u16>,
-    pub content_type_state: PublishedIcsContentTypeState,
-    pub etag_present: bool,
-    pub last_modified_present: bool,
-    pub cache_control_present: bool,
-    pub age_header_present: bool,
-    pub response_bytes: usize,
-    pub physical_line_count: u32,
-    pub folded_line_count: u32,
-    pub property_count: u32,
-    pub calendar_count: u32,
-    pub event_count: u32,
-    pub events_with_start_count: u32,
-    pub events_with_end_or_duration_count: u32,
-    pub recurrence_rule_count: u32,
-    pub recurrence_date_count: u32,
-    pub recurrence_exception_date_count: u32,
-    pub recurrence_override_count: u32,
-    pub timezone_definition_count: u32,
-    pub timezone_reference_count: u32,
-    pub request_ms: u64,
-    pub parse_ms: u64,
-    pub stop_reason: Option<PublishedIcsStopReason>,
-    pub limits: PublishedIcsProbeLimits,
-    pub diagnostics: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -204,65 +150,6 @@ impl PublishedIcsSemanticProbe {
     }
 }
 
-impl PublishedIcsStructureProbe {
-    fn new() -> Self {
-        Self {
-            status: PublishedIcsProbeStatus::Unavailable,
-            captured_at_unix_ms: now_unix_ms(),
-            url_accepted: false,
-            webcal_normalized_to_https: false,
-            source_identity_state: "userSelectedPublishedUrlStructureOnly",
-            semantic_extraction_allowed: false,
-            http_status: None,
-            content_type_state: PublishedIcsContentTypeState::Missing,
-            etag_present: false,
-            last_modified_present: false,
-            cache_control_present: false,
-            age_header_present: false,
-            response_bytes: 0,
-            physical_line_count: 0,
-            folded_line_count: 0,
-            property_count: 0,
-            calendar_count: 0,
-            event_count: 0,
-            events_with_start_count: 0,
-            events_with_end_or_duration_count: 0,
-            recurrence_rule_count: 0,
-            recurrence_date_count: 0,
-            recurrence_exception_date_count: 0,
-            recurrence_override_count: 0,
-            timezone_definition_count: 0,
-            timezone_reference_count: 0,
-            request_ms: 0,
-            parse_ms: 0,
-            stop_reason: None,
-            limits: PublishedIcsProbeLimits {
-                url_bytes: MAX_URL_BYTES,
-                connect_ms: CONNECT_TIMEOUT.as_millis() as u64,
-                request_ms: REQUEST_TIMEOUT.as_millis() as u64,
-                response_bytes: MAX_RESPONSE_BYTES,
-                physical_lines: MAX_PHYSICAL_LINES,
-                properties: MAX_PROPERTIES,
-                events: MAX_EVENTS,
-                line_bytes: MAX_LINE_BYTES,
-                parse_ms: MAX_PARSE_TIME.as_millis() as u64,
-            },
-            diagnostics: Vec::new(),
-        }
-    }
-
-    fn fail(
-        &mut self,
-        status: PublishedIcsProbeStatus,
-        reason: PublishedIcsStopReason,
-        diagnostic: &'static str,
-    ) {
-        self.status = status;
-        self.stop_reason = Some(reason);
-        self.diagnostics.push(diagnostic.to_owned());
-    }
-}
-
 struct ValidatedPublishedUrl {
     url: Url,
     webcal_normalized_to_https: bool,
@@ -292,191 +179,6 @@ struct ScanFailure {
     status: PublishedIcsProbeStatus,
     reason: PublishedIcsStopReason,
     diagnostic: &'static str,
-}
-
-pub async fn get_structure_probe(published_url: String) -> PublishedIcsStructureProbe {
-    let mut probe = PublishedIcsStructureProbe::new();
-    let validated = match validate_published_url(&published_url) {
-        Ok(validated) => validated,
-        Err((reason, diagnostic)) => {
-            probe.fail(PublishedIcsProbeStatus::InvalidInput, reason, diagnostic);
-            return probe;
-        }
-    };
-
-    probe.url_accepted = true;
-    probe.webcal_normalized_to_https = validated.webcal_normalized_to_https;
-
-    let client = match reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
-        .redirect(Policy::none())
-        .referer(false)
-        .pool_max_idle_per_host(0)
-        .user_agent("Attention-Hub/0.1 Published-ICS-Structure-Probe")
-        .build()
-    {
-        Ok(client) => client,
-        Err(_) => {
-            probe.fail(
-                PublishedIcsProbeStatus::Error,
-                PublishedIcsStopReason::ClientSetup,
-                "The bounded HTTPS client could not be initialized.",
-            );
-            return probe;
-        }
-    };
-
-    let request_started = Instant::now();
-    let mut response = match client.get(validated.url).send().await {
-        Ok(response) => response,
-        Err(error) => {
-            probe.request_ms = elapsed_ms(request_started);
-            if error.is_timeout() {
-                probe.fail(
-                    PublishedIcsProbeStatus::Timeout,
-                    PublishedIcsStopReason::RequestTimeout,
-                    "The published calendar request exceeded the fixed total timeout.",
-                );
-            } else {
-                probe.fail(
-                    PublishedIcsProbeStatus::Unavailable,
-                    PublishedIcsStopReason::RequestFailed,
-                    "The published calendar could not be fetched. No request error text is returned because it may contain the secret URL.",
-                );
-            }
-            return probe;
-        }
-    };
-
-    probe.http_status = Some(response.status().as_u16());
-    probe.content_type_state = classify_content_type(response.headers().get(CONTENT_TYPE));
-    probe.etag_present = response.headers().contains_key(ETAG);
-    probe.last_modified_present = response.headers().contains_key(LAST_MODIFIED);
-    probe.cache_control_present = response.headers().contains_key(CACHE_CONTROL);
-    probe.age_header_present = response.headers().contains_key(AGE);
-
-    if response.status().is_redirection() {
-        probe.request_ms = elapsed_ms(request_started);
-        probe.fail(
-            PublishedIcsProbeStatus::Unavailable,
-            PublishedIcsStopReason::RedirectBlocked,
-            "The endpoint requested a redirect. Redirects are blocked so the secret path cannot be forwarded to another host.",
-        );
-        return probe;
-    }
-
-    if !response.status().is_success() {
-        probe.request_ms = elapsed_ms(request_started);
-        probe.fail(
-            PublishedIcsProbeStatus::Unavailable,
-            PublishedIcsStopReason::HttpStatus,
-            "The endpoint returned a non-success HTTP status. The response body was not read.",
-        );
-        return probe;
-    }
-
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        probe.request_ms = elapsed_ms(request_started);
-        probe.fail(
-            PublishedIcsProbeStatus::TooLarge,
-            PublishedIcsStopReason::DeclaredBodyLimit,
-            "The declared response size exceeds the fixed body limit.",
-        );
-        return probe;
-    }
-
-    let initial_capacity = response
-        .content_length()
-        .unwrap_or(0)
-        .min(MAX_RESPONSE_BYTES as u64) as usize;
-    let mut body = Vec::with_capacity(initial_capacity);
-
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) => {
-                if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
-                    body.fill(0);
-                    probe.request_ms = elapsed_ms(request_started);
-                    probe.fail(
-                        PublishedIcsProbeStatus::TooLarge,
-                        PublishedIcsStopReason::BodyLimit,
-                        "The streamed response exceeded the fixed body limit and was discarded.",
-                    );
-                    return probe;
-                }
-                body.extend_from_slice(&chunk);
-            }
-            Ok(None) => break,
-            Err(error) => {
-                body.fill(0);
-                probe.request_ms = elapsed_ms(request_started);
-                if error.is_timeout() {
-                    probe.fail(
-                        PublishedIcsProbeStatus::Timeout,
-                        PublishedIcsStopReason::RequestTimeout,
-                        "The published calendar body exceeded the fixed total timeout.",
-                    );
-                } else {
-                    probe.fail(
-                        PublishedIcsProbeStatus::Unavailable,
-                        PublishedIcsStopReason::BodyRead,
-                        "The published calendar body could not be read. No request error text is returned.",
-                    );
-                }
-                return probe;
-            }
-        }
-    }
-
-    probe.request_ms = elapsed_ms(request_started);
-    probe.response_bytes = body.len();
-
-    if looks_like_html(&body) {
-        body.fill(0);
-        probe.fail(
-            PublishedIcsProbeStatus::Unavailable,
-            PublishedIcsStopReason::HtmlResponse,
-            "The response looked like HTML rather than an iCalendar document and was discarded.",
-        );
-        return probe;
-    }
-
-    let parse_started = Instant::now();
-    let scan_result = scan_ics_structure(&body, parse_started);
-    probe.parse_ms = elapsed_ms(parse_started);
-    body.fill(0);
-
-    let structure = match scan_result {
-        Ok(structure) => structure,
-        Err(failure) => {
-            probe.fail(failure.status, failure.reason, failure.diagnostic);
-            return probe;
-        }
-    };
-
-    copy_structure(&mut probe, structure);
-
-    if probe.calendar_count != 1 {
-        probe.fail(
-            PublishedIcsProbeStatus::Unavailable,
-            PublishedIcsStopReason::MultipleCalendars,
-            "The response did not contain exactly one balanced VCALENDAR source.",
-        );
-        return probe;
-    }
-
-    probe.status = PublishedIcsProbeStatus::Observed;
-    probe.diagnostics.push(
-        "One bounded published-calendar structure was observed. Event values and the source URL were not returned.".to_owned(),
-    );
-    probe.diagnostics.push(
-        "Semantic extraction remains disabled until freshness, privacy level, recurrence, timezone, and source-selection behavior are validated.".to_owned(),
-    );
-    probe
 }
 
 pub async fn get_semantic_probe(
@@ -1002,22 +704,6 @@ fn malformed_calendar<T>() -> Result<T, ScanFailure> {
         reason: PublishedIcsStopReason::MalformedCalendar,
         diagnostic: "The response did not contain a balanced iCalendar component structure.",
     })
-}
-
-fn copy_structure(probe: &mut PublishedIcsStructureProbe, structure: IcsStructure) {
-    probe.physical_line_count = structure.physical_line_count;
-    probe.folded_line_count = structure.folded_line_count;
-    probe.property_count = structure.property_count;
-    probe.calendar_count = structure.calendar_count;
-    probe.event_count = structure.event_count;
-    probe.events_with_start_count = structure.events_with_start_count;
-    probe.events_with_end_or_duration_count = structure.events_with_end_or_duration_count;
-    probe.recurrence_rule_count = structure.recurrence_rule_count;
-    probe.recurrence_date_count = structure.recurrence_date_count;
-    probe.recurrence_exception_date_count = structure.recurrence_exception_date_count;
-    probe.recurrence_override_count = structure.recurrence_override_count;
-    probe.timezone_definition_count = structure.timezone_definition_count;
-    probe.timezone_reference_count = structure.timezone_reference_count;
 }
 
 fn elapsed_ms(started: Instant) -> u64 {

@@ -1,21 +1,14 @@
 mod attention_signals;
-mod calendar;
-mod graph_calendar;
 mod notifications;
-mod outlook_my_day;
 mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
 mod work_calendar;
 
 use attention_signals::AttentionSignalSnapshot;
-use calendar::{CalendarAccessReport, CalendarSnapshot};
-use graph_calendar::GraphEnvironmentReport;
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
-use outlook_my_day::OutlookMyDayStructureProbe;
-use published_ics::{PublishedIcsSemanticProbe, PublishedIcsStructureProbe};
 use tauri::{Emitter, Manager};
 use teams_mirror::{TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus};
 use work_calendar::{WorkCalendarConfiguration, WorkCalendarSnapshot, WorkCalendarState};
@@ -41,106 +34,6 @@ async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
         snapshot.diagnostics
     );
     snapshot
-}
-
-#[tauri::command]
-async fn get_calendar_access_status() -> CalendarAccessReport {
-    let report = calendar::get_access_status().await;
-    eprintln!("calendar access status: {report:?}");
-    report
-}
-
-#[tauri::command]
-async fn request_calendar_read_access() -> CalendarAccessReport {
-    let report = calendar::request_read_access().await;
-    eprintln!("calendar read-access request result: {report:?}");
-    report
-}
-
-#[tauri::command]
-async fn get_calendar_snapshot() -> CalendarSnapshot {
-    let snapshot = calendar::get_snapshot().await;
-    eprintln!(
-        "calendar snapshot: status={:?}, calendars={}, appointments={}, diagnostics={:?}",
-        snapshot.access_status,
-        snapshot.calendars.len(),
-        snapshot.appointments.len(),
-        snapshot.diagnostics
-    );
-    snapshot
-}
-
-#[tauri::command]
-async fn get_graph_calendar_environment() -> GraphEnvironmentReport {
-    let report = graph_calendar::get_environment().await;
-    eprintln!("Graph calendar helper environment: {report:?}");
-    report
-}
-
-#[tauri::command]
-async fn get_outlook_my_day_structure_probe() -> OutlookMyDayStructureProbe {
-    let probe = outlook_my_day::get_structure_probe().await;
-    eprintln!(
-        "Outlook My Day sanitized structure probe: status={:?}, windows={}, elements={}, candidates={}, right_pane_candidates={}, markers={}/{}, selected_calendar_markers={}, stop_reason={:?}, timing_ms={}/{}",
-        probe.status,
-        probe.outlook_window_count,
-        probe.element_count,
-        probe.structural_candidate_count,
-        probe.right_pane_candidate_count,
-        probe.english_my_day_marker_count,
-        probe.english_calendar_marker_count,
-        probe.selected_english_calendar_marker_count,
-        probe.stop_reason,
-        probe.gate_wait_ms,
-        probe.scan_ms,
-    );
-    probe
-}
-
-#[tauri::command]
-async fn get_published_ics_structure_probe(published_url: String) -> PublishedIcsStructureProbe {
-    let probe = published_ics::get_structure_probe(published_url).await;
-    eprintln!(
-        "Published ICS sanitized structure probe: status={:?}, http_status={:?}, bytes={}, calendars={}, events={}, recurrence_rules={}, timezone_definitions={}, stop_reason={:?}, timing_ms={}/{}",
-        probe.status,
-        probe.http_status,
-        probe.response_bytes,
-        probe.calendar_count,
-        probe.event_count,
-        probe.recurrence_rule_count,
-        probe.timezone_definition_count,
-        probe.stop_reason,
-        probe.request_ms,
-        probe.parse_ms,
-    );
-    probe
-}
-
-#[tauri::command]
-async fn get_published_ics_semantic_probe(
-    published_url: String,
-    title_capability_confirmed: bool,
-) -> PublishedIcsSemanticProbe {
-    let probe =
-        published_ics::get_semantic_probe_with_deadline(published_url, title_capability_confirmed)
-            .await;
-    eprintln!(
-        "Published ICS bounded semantic probe: status={:?}, http_status={:?}, bytes={}, semantic_allowed={}, candidates={}, active_candidates={}, expanded_occurrences={}, private_redacted={}, selection_present={}, next_selection_present={}, stop_reason={:?}, timing_ms={}/{}",
-        probe.status,
-        probe.http_status,
-        probe.response_bytes,
-        probe.semantic_extraction_allowed,
-        probe.eligible_candidate_count,
-        probe.active_candidate_count,
-        probe.expanded_occurrence_count,
-        probe.private_title_redacted,
-        probe.selection.is_some(),
-        probe.next_selection.is_some(),
-        probe.stop_reason,
-        probe.request_ms,
-        probe.parse_ms,
-    );
-    probe
 }
 
 #[tauri::command]
@@ -296,13 +189,6 @@ pub fn run() {
         .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
-            get_calendar_access_status,
-            request_calendar_read_access,
-            get_calendar_snapshot,
-            get_graph_calendar_environment,
-            get_outlook_my_day_structure_probe,
-            get_published_ics_structure_probe,
-            get_published_ics_semantic_probe,
             get_work_calendar_configuration,
             save_work_calendar_source,
             get_work_calendar_snapshot,

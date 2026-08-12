@@ -2,10 +2,10 @@
 
 ## Status
 
-Implemented on 2026-08-12. Secure save, restart, clear/restore, timed-event
-ranking, countdown, and 24-hour display are live-validated. The new natural
-start/acknowledgement transition remains a visible event-boundary check. The
-approved source is left configured.
+Completed and live-validated on 2026-08-12. Secure save, restart, clear/restore,
+timed-event ranking, countdown, 24-hour display, starting-soon warning,
+started-event alert, acknowledgement, and current-plus-next presentation all
+passed. The approved source is left configured.
 
 ## Product outcome
 
@@ -37,7 +37,8 @@ already validated Microsoft 365 Published ICS source.
   or browser storage and does not apply to a different event.
 - Clear the event on every unavailable, busy, timeout, IPC, storage, or parsing
   failure.
-- Keep structure and semantic one-shot diagnostics available in Advanced.
+- Retire the completed structure/semantic spikes, My Day, AppointmentStore, and
+  Graph controls from the production Advanced view and IPC command surface.
 
 ## Manual acceptance
 
@@ -74,12 +75,12 @@ location, account, UID, attendees, organizer, body, or meeting URL.
 - [x] Event times use 24-hour formatting.
 - [x] Starting-soon, started/pulsing, and acknowledged presentation states are
       implemented with reduced-motion handling.
-- [ ] A naturally occurring event boundary confirms the amber, red pulse,
+- [x] A naturally occurring event boundary confirms the amber, red pulse,
       acknowledgement, and compact current-plus-next layout live.
 
 ## Non-goals
 
 No Graph/Entra activity, Outlook control, OCR, screenshots, profile/cache/token
 access, multiple calendars, full agenda, seven-day UI, calendar writes, meeting
-URL return, join action, attendees, organizer, body, location, installer, or
-generalized provider framework.
+URL return, join action, attendees, organizer, body, location, or generalized
+provider framework.

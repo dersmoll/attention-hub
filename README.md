@@ -12,31 +12,35 @@ The primary window is a compact, frameless three-zone widget:
   placeholders for Slack and Viber;
 - center: local time and a configurable secondary timezone, defaulting to
   `America/New_York` with automatic EST/EDT handling;
-- right: a truthful unavailable state until an accurate passive work-calendar
-  provider is approved.
+- right: the active or next timed work-calendar event, with all-day entries used
+  only as fallback context.
 
 The widget can move, toggle always-on-top, and restores its physical position,
 pin state, and secondary timezone. The ellipsis creates the Advanced window on
-demand. Advanced contains the structured Telegram, New Outlook, and Teams
-attention panel plus the retained Graph, calendar, Notification Center, raw
-source, and diagnostic evidence.
+demand. Advanced contains the production work-calendar configuration, the
+structured Telegram, New Outlook, and Teams attention panel, and retained
+Notification Center/source diagnostics.
 
 The live app visuals are DWM-composed primary-taskbar crops. Attention Hub does
 not read, recognize, or convert their pixels into counts. Semantic values remain
 separate: Telegram exposes two numeric signals, New Outlook exposes aggregate
 Inbox unread, and Teams exposes qualitative activity only.
 
-Calendar integration remains unavailable. Milestone 4A's manual sanitized New
-Outlook My Day probe found useful structure while Outlook was visible or fully
-covered, but the tree unloaded when Outlook was minimized. That passive UI
-Automation provider is rejected; semantic extraction and widget calendar data
-remain disabled. Milestone 4B's secret-safe Published ICS gate observed one
-calendar and acceptable create/update/delete freshness. Milestone 4C now adds
-the separately approved, one-shot title-capable current/next semantic gate;
-live provider validation is pending and no result enters the widget. Windows `AppointmentStore`
-returned stale legacy data, the Microsoft 365 Calendar companion remains a
-visible comparison oracle rather than a passive provider, and Microsoft Graph
-work remains paused before registration or consent.
+The work-calendar source is one explicitly selected Microsoft 365 Published ICS
+calendar whose bearer link is stored only in Windows Credential Manager. The
+widget shows a bounded active-or-next selection, prioritizes timed events over
+all-day context, warns five minutes before a meeting, and supports an in-memory
+**I'm in** acknowledgement that reveals one upcoming companion. It never
+returns meeting URLs or controls Outlook. Earlier My Day, AppointmentStore, and
+Graph provider experiments are retired from the production command surface and
+remain documented as historical evidence.
+
+## Canonical Windows build
+
+Version `0.2.0` uses one supported distributable: the NSIS setup executable
+created by `pnpm tauri build`. Development executables and Cargo/Vite output are
+not release artifacts. The exact validated installer path and SHA-256 are
+recorded in [the 0.2.0 release record](docs/releases/attention-hub-0.2.0.md).
 
 ## Source of truth
 
@@ -46,6 +50,8 @@ work remains paused before registration or consent.
 - [Milestone 4A New Outlook My Day observer spike](docs/milestones/milestone-4a-new-outlook-my-day-observer-spike.md)
 - [Milestone 4B Published ICS observer spike](docs/milestones/milestone-4b-published-ics-observer-spike.md)
 - [Milestone 4C Published ICS semantic gate](docs/milestones/milestone-4c-published-ics-semantics.md)
+- [Milestone 4D saved work-calendar widget](docs/milestones/milestone-4d-widget-calendar.md)
+- [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)
 - [Architecture decisions](docs/decisions/)
 
 ## Development
@@ -57,10 +63,11 @@ Tools with the Desktop development with C++ workload, and WebView2.
 pnpm install --frozen-lockfile
 pnpm build
 cd src-tauri
-cargo test
+cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 cd ..
 pnpm tauri dev
+pnpm tauri build
 ```
 
 Ordinary unpackaged runs support the widget and source-owned attention path.
