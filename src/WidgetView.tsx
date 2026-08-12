@@ -115,6 +115,32 @@ function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
     : `${dayLabel} ${time.format(start)}–${day.format(end)} ${time.format(end)}`;
 }
 
+function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
+  const boundary = new Date(
+    selection.classification === "active" ? selection.end : selection.start,
+  );
+  const remainingMinutes = Math.max(
+    0,
+    Math.ceil((boundary.getTime() - now.getTime()) / 60_000),
+  );
+  if (!Number.isFinite(remainingMinutes)) {
+    return null;
+  }
+
+  const days = Math.floor(remainingMinutes / (24 * 60));
+  const hours = Math.floor((remainingMinutes % (24 * 60)) / 60);
+  const minutes = remainingMinutes % 60;
+  const parts = [
+    days > 0 ? `${days}d` : null,
+    hours > 0 ? `${hours}h` : null,
+    days === 0 && minutes > 0 ? `${minutes}m` : null,
+  ].filter(Boolean);
+  const duration = parts.length > 0 ? parts.join(" ") : "less than 1m";
+  return selection.classification === "active"
+    ? `Ends in ${duration}`
+    : `In ${duration}`;
+}
+
 async function invokeWorkCalendarSnapshot() {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -474,7 +500,7 @@ export function WidgetView() {
         ? "Another calendar check is finishing"
         : "No fresh work-calendar event";
   const calendarDetail = calendarSelection
-    ? `${formatCalendarRange(calendarSelection, now)}${
+    ? `${formatCalendarCountdown(calendarSelection, now) ?? ""} · ${formatCalendarRange(calendarSelection, now)}${
         calendarSelection.meetingLinkPresent === true ? " · Online meeting" : ""
       }`
     : workCalendarRefreshing

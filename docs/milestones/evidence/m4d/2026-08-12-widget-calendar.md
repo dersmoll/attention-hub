@@ -32,3 +32,4 @@ Do not add the source URL or event values to this file.
 | Restart and fresh re-fetch | Passed | After a full process restart, the first saved-source request returned `observed`, configured true, and selection present; provider timing 1,615 ms request and 71 ms parse |
 | Remove/unavailable clears selection | Passed | Removal changed the widget to not configured in 0.28 seconds with no prior event nodes retained |
 | Restore approved source | Passed | Fresh verification restored an active widget selection in 3.2 seconds; the approved source is left configured |
+| Active all-day context with upcoming timed event | Passed after correction | Live saved-source refresh selected `upcoming`, did not select the all-day context, and exposed a relative countdown plus exact time range; only booleans and text lengths were inspected, and values were not recorded |

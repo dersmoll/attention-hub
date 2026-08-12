@@ -110,6 +110,7 @@ struct Candidate {
     uid: String,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
+    all_day: bool,
     subject: String,
     private: bool,
     meeting_link_present: bool,
@@ -217,22 +218,24 @@ pub fn extract_current_or_next(
     candidates.sort_by(|left, right| {
         let left_active = left.start <= now && left.end > now;
         let right_active = right.start <= now && right.end > now;
-        match (left_active, right_active) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            (true, true) => right
-                .start
-                .cmp(&left.start)
-                .then_with(|| left.end.cmp(&right.end))
-                .then_with(|| left.uid.cmp(&right.uid))
-                .then_with(|| left.source_order.cmp(&right.source_order)),
-            (false, false) => left
-                .start
-                .cmp(&right.start)
-                .then_with(|| left.end.cmp(&right.end))
-                .then_with(|| left.uid.cmp(&right.uid))
-                .then_with(|| left.source_order.cmp(&right.source_order)),
-        }
+        let left_rank = candidate_rank(left_active, left.all_day);
+        let right_rank = candidate_rank(right_active, right.all_day);
+        left_rank.cmp(&right_rank).then_with(|| {
+            if left_active && right_active {
+                right
+                    .start
+                    .cmp(&left.start)
+                    .then_with(|| left.end.cmp(&right.end))
+                    .then_with(|| left.uid.cmp(&right.uid))
+                    .then_with(|| left.source_order.cmp(&right.source_order))
+            } else {
+                left.start
+                    .cmp(&right.start)
+                    .then_with(|| left.end.cmp(&right.end))
+                    .then_with(|| left.uid.cmp(&right.uid))
+                    .then_with(|| left.source_order.cmp(&right.source_order))
+            }
+        })
     });
 
     let selected = candidates.into_iter().next().ok_or_else(|| {
@@ -265,6 +268,15 @@ pub fn extract_current_or_next(
         expanded_occurrence_count: u32::try_from(expanded_occurrence_count).unwrap_or(u32::MAX),
         private_title_redacted,
     })
+}
+
+fn candidate_rank(active: bool, all_day: bool) -> u8 {
+    match (active, all_day) {
+        (true, false) => 0,
+        (false, false) => 1,
+        (true, true) => 2,
+        (false, true) => 3,
+    }
 }
 
 fn process_logical_line(state: &mut ParseState, line: &str) -> Result<(), SemanticFailure> {
@@ -654,6 +666,7 @@ fn push_candidate(
         uid: event.uid.clone(),
         start,
         end: start + duration,
+        all_day: event.all_day,
         subject: event
             .subject
             .clone()
@@ -977,6 +990,27 @@ mod tests {
         assert_eq!(result.selection.subject, "Private event");
         assert_eq!(result.selection.meeting_link_present, None);
         assert!(result.private_title_redacted);
+    }
+
+    #[test]
+    fn treats_active_all_day_context_as_fallback_to_a_timed_event() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:all-day-context\r\nDTSTART;VALUE=DATE:20260810\r\nDTEND;VALUE=DATE:20260815\r\nSUMMARY:All-day context\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:next-timed\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:Next timed event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+
+        assert_eq!(
+            result.selection.classification,
+            EventClassification::Upcoming
+        );
+        assert_eq!(result.selection.subject, "Next timed event");
+        assert_eq!(result.active_candidate_count, 1);
+    }
+
+    #[test]
+    fn active_timed_event_still_precedes_upcoming_timed_and_all_day_events() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:all-day-context\r\nDTSTART;VALUE=DATE:20260810\r\nDTEND;VALUE=DATE:20260815\r\nSUMMARY:All-day context\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:active-timed\r\nDTSTART:20260811T113000Z\r\nDTEND:20260811T123000Z\r\nSUMMARY:Active timed event\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:next-timed\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:Next timed event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+
+        assert_eq!(result.selection.classification, EventClassification::Active);
+        assert_eq!(result.selection.subject, "Active timed event");
+        assert_eq!(result.active_candidate_count, 2);
     }
 
     #[test]

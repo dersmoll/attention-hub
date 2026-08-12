@@ -21,6 +21,10 @@ already validated Microsoft 365 Published ICS source.
   30-second unavailable retry and event-boundary refresh.
 - Return only subject, start, end, active/upcoming classification, and nullable
   meeting-link presence.
+- Treat date-only all-day and multi-day entries as context: active and upcoming
+  timed events rank first, while all-day entries remain truthful fallbacks.
+- Derive an `In …` or `Ends in …` countdown locally from the selected start/end
+  while retaining the exact local time range.
 - Clear the event on every unavailable, busy, timeout, IPC, storage, or parsing
   failure.
 - Keep structure and semantic one-shot diagnostics available in Advanced.
@@ -55,6 +59,7 @@ location, account, UID, attendees, organizer, body, or meeting URL.
 - [x] Live save and widget presentation pass.
 - [x] Restart persistence and fresh re-fetch pass.
 - [x] Live removal/unavailability clears the widget immediately.
+- [x] Active multi-day context no longer preempts the next timed event.
 
 ## Non-goals
 

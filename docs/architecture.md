@@ -386,6 +386,13 @@ invalidation event. The widget renders subject and local time plus
 active/upcoming and meeting-link presence; it never receives a meeting URL and
 has no join action.
 
+ADR 0015 refines the single-selection policy after a live multi-day all-day
+entry masked the next scheduled appointment. Candidate expansion now preserves
+the internal all-day flag. Active timed events rank first, then upcoming timed
+events; active and upcoming all-day entries remain fallbacks. The widget
+derives a relative `In …` or `Ends in …` label from the approved start/end
+fields and continues to display the exact local time range.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.
