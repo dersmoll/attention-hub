@@ -1,0 +1,929 @@
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import {
+  PhysicalPosition,
+  availableMonitors,
+  getCurrentWindow,
+} from "@tauri-apps/api/window";
+import {
+  ATTENTION_POLL_INTERVAL_MS,
+  ATTENTION_STALE_AFTER_MS,
+  type AttentionSignal,
+  findSignal,
+  type AttentionSourceObservation,
+  type AttentionSignalSnapshot,
+  type TaskbarMirrorStatus,
+} from "./attention-model";
+import {
+  nextWorkCalendarRefreshDelay,
+  type WorkCalendarSelection,
+  type WorkCalendarSnapshot,
+} from "./work-calendar-model";
+import {
+  type AttentionAppKey,
+  WIDGET_PREFERENCES_CHANGED_EVENT,
+  normalizeWidgetPreferences,
+  readWidgetPreferences,
+  widgetPanelStyle,
+  writeWidgetPreferences,
+} from "./widget-preferences";
+
+const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
+const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
+
+const TIME_ZONE_OPTIONS = [
+  { value: "America/New_York", label: "New York" },
+  { value: "America/Los_Angeles", label: "Los Angeles" },
+  { value: "Europe/London", label: "London" },
+  { value: "Europe/Kyiv", label: "Kyiv" },
+  { value: "UTC", label: "UTC" },
+  { value: "Asia/Tokyo", label: "Tokyo" },
+];
+
+function formatTime(now: Date, timeZone?: string) {
+  return new Intl.DateTimeFormat([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone,
+  }).format(now);
+}
+
+function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
+  const start = new Date(selection.start);
+  const end = new Date(selection.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "Fresh event time unavailable";
+  }
+
+  const time = new Intl.DateTimeFormat([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const day = new Intl.DateTimeFormat([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  if (selection.allDay) {
+    const inclusiveEnd = new Date(end.getTime() - 1);
+    return start.toDateString() === inclusiveEnd.toDateString()
+      ? `All day · ${day.format(start)}`
+      : `All day · ${day.format(start)}–${day.format(inclusiveEnd)}`;
+  }
+  const startDay = start.toDateString();
+  const endDay = end.toDateString();
+  const dayLabel = startDay === now.toDateString() ? "Today" : day.format(start);
+  return startDay === endDay
+    ? `${dayLabel} · ${time.format(start)}–${time.format(end)}`
+    : `${dayLabel} ${time.format(start)}–${day.format(end)} ${time.format(end)}`;
+}
+
+function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
+  if (selection.allDay) {
+    return null;
+  }
+  const boundary = new Date(
+    selection.classification === "active" ? selection.end : selection.start,
+  );
+  const remainingMinutes = Math.max(
+    0,
+    Math.ceil((boundary.getTime() - now.getTime()) / 60_000),
+  );
+  if (!Number.isFinite(remainingMinutes)) {
+    return null;
+  }
+
+  const days = Math.floor(remainingMinutes / (24 * 60));
+  const hours = Math.floor((remainingMinutes % (24 * 60)) / 60);
+  const minutes = remainingMinutes % 60;
+  const parts = [
+    days > 0 ? `${days}d` : null,
+    hours > 0 ? `${hours}h` : null,
+    days === 0 && minutes > 0 ? `${minutes}m` : null,
+  ].filter(Boolean);
+  const duration = parts.length > 0 ? parts.join(" ") : "less than 1m";
+  return selection.classification === "active"
+    ? `Ends in ${duration}`
+    : `In ${duration}`;
+}
+
+function formatCalendarDetail(selection: WorkCalendarSelection, now: Date) {
+  return [
+    formatCalendarCountdown(selection, now),
+    formatCalendarRange(selection, now),
+    selection.meetingLinkPresent === true ? "Online meeting" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+async function invokeWorkCalendarSnapshot() {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      invoke<WorkCalendarSnapshot>("get_work_calendar_snapshot"),
+      new Promise<WorkCalendarSnapshot>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("work calendar deadline")),
+          WORK_CALENDAR_UI_DEADLINE_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function mirrorLabel(status: TaskbarMirrorStatus | null) {
+  if (status?.visible) {
+    return status.taskbarCount > 1
+      ? "Live taskbar visual from the selected display"
+      : "Live taskbar visual";
+  }
+  if (status?.lifecycle === "starting") {
+    return "Starting live visual";
+  }
+  if (status?.lifecycle === "hidden") {
+    return "Live visual unavailable; semantic fallback shown";
+  }
+  return "Semantic fallback shown";
+}
+
+function AppGlyph({ sourceKey }: { sourceKey: "teams" | "telegram" | "outlook" }) {
+  if (sourceKey === "telegram") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="15" fill="#229ed9" />
+        <path d="m7.5 15.5 16-6.2-4 14.1-5.1-4-3.2 2.5.4-4.6 8.7-5.2-10.7 4.1Z" fill="#fff" />
+      </svg>
+    );
+  }
+  if (sourceKey === "outlook") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <rect x="8" y="5" width="21" height="22" rx="3" fill="#0a64c9" />
+        <path d="m11 10 7.5 6L26 10v13H11Z" fill="#5db7ff" />
+        <rect x="3" y="8" width="14" height="17" rx="2" fill="#106ebe" />
+        <text x="10" y="20" fill="#fff" fontSize="11" fontWeight="800" textAnchor="middle">O</text>
+      </svg>
+    );
+  }
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 32">
+      <rect x="8" y="9" width="21" height="18" rx="4" fill="#6264a7" />
+      <circle cx="23" cy="6" r="4" fill="#8b8cc7" />
+      <circle cx="7" cy="11" r="4" fill="#8b8cc7" />
+      <rect x="3" y="9" width="17" height="17" rx="3" fill="#4f52b2" />
+      <path d="M7 13h9v2.5h-3v7h-3v-7H7Z" fill="#fff" />
+    </svg>
+  );
+}
+
+function sourceAvailability(
+  source: AttentionSourceObservation | undefined,
+  stale: boolean,
+  refreshFailed: boolean,
+) {
+  if (!source) {
+    return refreshFailed ? "attention state unavailable" : "checking attention state";
+  }
+  if (stale) {
+    return "last known attention state is stale";
+  }
+  if (refreshFailed) {
+    return "last known attention state; refresh is retrying";
+  }
+  const labels = {
+    observed: "attention state observed",
+    notRunning: "application is not running",
+    notExposed: "attention state is not exposed",
+    error: "attention read failed",
+  } as const;
+  return labels[source.state];
+}
+
+function formatAttentionBadge(
+  count: number | null | undefined,
+  needsAttention: boolean | null | undefined,
+) {
+  if (typeof count === "number" && count > 0) {
+    return count > 99 ? "99+" : String(count);
+  }
+  return needsAttention === true ? "•" : null;
+}
+
+function sourceHealth(
+  source: AttentionSourceObservation | undefined,
+  stale: boolean,
+  refreshFailed: boolean,
+) {
+  if (stale) {
+    return "stale";
+  }
+  if (refreshFailed) {
+    return "retrying";
+  }
+  return source?.state === "observed" ? "observed" : "unavailable";
+}
+
+function AppSlot({
+  sourceKey,
+  label,
+  badge,
+  badgeLastKnown = false,
+  statusText,
+  health,
+  status,
+  disabled,
+  onActivate,
+}: {
+  sourceKey: "teams" | "telegram" | "outlook";
+  label: string;
+  badge: string | null;
+  badgeLastKnown?: boolean;
+  statusText: string;
+  health: "observed" | "retrying" | "stale" | "unavailable";
+  status?: TaskbarMirrorStatus | null;
+  disabled: boolean;
+  onActivate: () => void;
+}) {
+  const visualText = status ? mirrorLabel(status) : "Local application icon";
+  const accessibleLabel = `Open ${label}. ${statusText}. ${visualText}.`;
+  return (
+    <button
+      aria-label={accessibleLabel}
+      className="widget-app-slot"
+      data-health={health}
+      data-source={sourceKey}
+      disabled={disabled}
+      onClick={onActivate}
+      title={accessibleLabel}
+      type="button"
+    >
+      <span className="widget-app-surface" aria-hidden="true">
+        <AppGlyph sourceKey={sourceKey} />
+        {badge && !status?.visible && (
+          <strong
+            className="widget-app-badge"
+            data-last-known={badgeLastKnown || undefined}
+          >
+            {badge}
+          </strong>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function clampSavedPosition(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  monitors: Awaited<ReturnType<typeof availableMonitors>>,
+) {
+  const containing = monitors.find(({ workArea }) => {
+    const left = workArea.position.x;
+    const top = workArea.position.y;
+    return (
+      x >= left &&
+      y >= top &&
+      x < left + workArea.size.width &&
+      y < top + workArea.size.height
+    );
+  });
+  const target = containing ?? monitors[0];
+  if (!target) {
+    return { x, y };
+  }
+
+  const left = target.workArea.position.x;
+  const top = target.workArea.position.y;
+  const right = left + target.workArea.size.width;
+  const bottom = top + target.workArea.size.height;
+  return {
+    x: Math.min(Math.max(x, left), Math.max(left, right - width)),
+    y: Math.min(Math.max(y, top), Math.max(top, bottom - height)),
+  };
+}
+
+export function WidgetView() {
+  const initialPreferences = useMemo(readWidgetPreferences, []);
+  const [now, setNow] = useState(() => new Date());
+  const [preferences, setPreferences] = useState(initialPreferences);
+  const [attentionSnapshot, setAttentionSnapshot] =
+    useState<AttentionSignalSnapshot | null>(null);
+  const [attentionRefreshFailed, setAttentionRefreshFailed] = useState(false);
+  const [lastObservedOutlookInbox, setLastObservedOutlookInbox] =
+    useState<AttentionSignal | null>(null);
+  const [teamsMirror, setTeamsMirror] =
+    useState<TaskbarMirrorStatus | null>(null);
+  const [telegramMirror, setTelegramMirror] =
+    useState<TaskbarMirrorStatus | null>(null);
+  const [workCalendar, setWorkCalendar] =
+    useState<WorkCalendarSnapshot | null>(null);
+  const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
+  const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
+    useState(false);
+  const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
+    string | null
+  >(null);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
+  const attentionInFlight = useRef(false);
+  const workCalendarInFlight = useRef(false);
+  const widgetWindow = useMemo(getCurrentWindow, []);
+  const pinned = preferences.pinned;
+  const secondaryTimeZone = preferences.secondaryTimeZone;
+
+  const refreshAttention = useCallback(async () => {
+    if (attentionInFlight.current) {
+      return;
+    }
+    attentionInFlight.current = true;
+    try {
+      const snapshot = await invoke<AttentionSignalSnapshot>(
+        "get_attention_signal_snapshot",
+      );
+      const outlook = snapshot.sources.find(
+        ({ sourceKey }) => sourceKey === "outlook",
+      );
+      if (outlook?.state === "observed") {
+        setLastObservedOutlookInbox(findSignal(outlook, "inboxUnread"));
+      } else if (outlook?.state === "notRunning") {
+        setLastObservedOutlookInbox(null);
+      }
+      setAttentionSnapshot(snapshot);
+      setAttentionRefreshFailed(false);
+    } catch (error) {
+      setAttentionRefreshFailed(true);
+      setWidgetError(`Attention refresh failed: ${String(error)}`);
+    } finally {
+      attentionInFlight.current = false;
+    }
+  }, []);
+
+  const refreshMirrors = useCallback(async () => {
+    const [teams, telegram] = await Promise.allSettled([
+      invoke<TaskbarMirrorStatus>("get_teams_mirror_status"),
+      invoke<TaskbarMirrorStatus>("get_telegram_mirror_status"),
+    ]);
+    if (teams.status === "fulfilled") {
+      setTeamsMirror(teams.value);
+    }
+    if (telegram.status === "fulfilled") {
+      setTelegramMirror(telegram.value);
+    }
+  }, []);
+
+  const refreshWorkCalendar = useCallback(async () => {
+    if (workCalendarInFlight.current) {
+      return null;
+    }
+    workCalendarInFlight.current = true;
+    setWorkCalendarRefreshing(true);
+    setWorkCalendarTransportFailed(false);
+    try {
+      const snapshot = await invokeWorkCalendarSnapshot();
+      setWorkCalendar(snapshot);
+      return snapshot;
+    } catch {
+      setWorkCalendar(null);
+      setWorkCalendarTransportFailed(true);
+      return null;
+    } finally {
+      workCalendarInFlight.current = false;
+      setWorkCalendarRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      await refreshAttention();
+      if (!disposed) {
+        timer = setTimeout(() => void poll(), ATTENTION_POLL_INTERVAL_MS);
+      }
+    };
+    void poll();
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [refreshAttention]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopListening: (() => void) | undefined;
+
+    const poll = async () => {
+      const snapshot = await refreshWorkCalendar();
+      if (!disposed) {
+        timer = setTimeout(
+          () => void poll(),
+          nextWorkCalendarRefreshDelay(snapshot),
+        );
+      }
+    };
+
+    void listen("work-calendar-changed", () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      void poll();
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    void poll();
+
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      stopListening?.();
+    };
+  }, [refreshWorkCalendar]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
+      if (!disposed) {
+        setPreferences(
+          normalizeWidgetPreferences(payload as Partial<typeof preferences>),
+        );
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!attentionSnapshot) {
+      return;
+    }
+    const teams = attentionSnapshot.sources.find(
+      ({ sourceKey }) => sourceKey === "teams",
+    );
+    const telegram = attentionSnapshot.sources.find(
+      ({ sourceKey }) => sourceKey === "telegram",
+    );
+    const teamsNeedsAttention =
+      teams !== undefined &&
+      findSignal(teams, "activityStatus")?.needsAttention === true;
+    const telegramNeedsAttention =
+      telegram !== undefined &&
+      findSignal(telegram, "applicationCounter")?.needsAttention === true;
+
+    void (async () => {
+      try {
+        await invoke("set_taskbar_mirror_slots", {
+          teamsSlot: preferences.appOrder.indexOf("teams"),
+          telegramSlot: preferences.appOrder.indexOf("telegram"),
+        });
+      } catch (error) {
+        setWidgetError(`App order update failed: ${String(error)}`);
+      }
+      await Promise.allSettled([
+        invoke<TaskbarMirrorStatus>(
+          teamsNeedsAttention ? "start_teams_mirror" : "stop_teams_mirror",
+        ),
+        invoke<TaskbarMirrorStatus>(
+          telegramNeedsAttention
+            ? "start_telegram_mirror"
+            : "stop_telegram_mirror",
+        ),
+      ]);
+      await refreshMirrors();
+    })();
+  }, [attentionSnapshot, preferences.appOrder, refreshMirrors]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      await refreshMirrors();
+      if (!disposed) {
+        timer = setTimeout(() => void poll(), 1_000);
+      }
+    };
+    timer = setTimeout(() => void poll(), 1_000);
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [refreshMirrors]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenMoved: (() => void) | undefined;
+    void (async () => {
+      try {
+        await widgetWindow.setAlwaysOnTop(initialPreferences.pinned);
+        if (initialPreferences.x !== null && initialPreferences.y !== null) {
+          const [size, monitors] = await Promise.all([
+            widgetWindow.outerSize(),
+            availableMonitors(),
+          ]);
+          const position = clampSavedPosition(
+            initialPreferences.x,
+            initialPreferences.y,
+            size.width,
+            size.height,
+            monitors,
+          );
+          await widgetWindow.setPosition(
+            new PhysicalPosition(position.x, position.y),
+          );
+        }
+        unlistenMoved = await widgetWindow.onMoved(({ payload }) => {
+          writeWidgetPreferences({ x: payload.x, y: payload.y });
+        });
+      } catch (error) {
+        if (!disposed) {
+          setWidgetError(`Widget restoration failed: ${String(error)}`);
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+      unlistenMoved?.();
+    };
+  }, [initialPreferences, widgetWindow]);
+
+  const togglePinned = async () => {
+    const next = !pinned;
+    try {
+      await widgetWindow.setAlwaysOnTop(next);
+      setPreferences(writeWidgetPreferences({ pinned: next }));
+    } catch (error) {
+      setWidgetError(`Pin update failed: ${String(error)}`);
+    }
+  };
+
+  const openAdvanced = async () => {
+    try {
+      const existing = await WebviewWindow.getByLabel("advanced");
+      if (existing) {
+        await existing.show();
+        await existing.setFocus();
+        return;
+      }
+
+      const advanced = new WebviewWindow("advanced", {
+        url: "/",
+        title: "Attention Hub - Advanced",
+        width: 900,
+        height: 720,
+        minWidth: 720,
+        minHeight: 560,
+        center: true,
+      });
+      advanced.once("tauri://error", ({ payload }) => {
+        setWidgetError(`Advanced view failed: ${String(payload)}`);
+      });
+    } catch (error) {
+      setWidgetError(`Advanced view failed: ${String(error)}`);
+    }
+  };
+
+  const activateSource = async (
+    sourceKey: "teams" | "telegram" | "outlook",
+  ) => {
+    try {
+      await invoke("activate_attention_source", { sourceKey });
+    } catch (error) {
+      setWidgetError(`Could not open the source application: ${String(error)}`);
+    }
+  };
+
+  const telegram = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "telegram",
+  );
+  const teams = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "teams",
+  );
+  const outlook = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "outlook",
+  );
+  const telegramCounter = telegram
+    ? findSignal(telegram, "applicationCounter")
+    : null;
+  const teamsActivity = teams ? findSignal(teams, "activityStatus") : null;
+  const outlookInbox = outlook ? findSignal(outlook, "inboxUnread") : null;
+  const outlookUsingLastKnown =
+    outlook?.state === "notExposed" &&
+    outlookInbox === null &&
+    lastObservedOutlookInbox !== null;
+  const displayedOutlookInbox = outlookUsingLastKnown
+    ? lastObservedOutlookInbox
+    : outlookInbox;
+  const telegramBadge = formatAttentionBadge(
+    telegramCounter?.count,
+    telegramCounter?.needsAttention,
+  );
+  const teamsBadge = formatAttentionBadge(
+    teamsActivity?.count,
+    teamsActivity?.needsAttention,
+  );
+  const outlookBadge = formatAttentionBadge(
+    displayedOutlookInbox?.count,
+    displayedOutlookInbox?.needsAttention,
+  );
+  const attentionCapturedAt = attentionSnapshot
+    ? Date.parse(attentionSnapshot.capturedAt)
+    : Number.NaN;
+  const attentionStale =
+    attentionSnapshot !== null &&
+    (!Number.isFinite(attentionCapturedAt) ||
+      now.getTime() - attentionCapturedAt > ATTENTION_STALE_AFTER_MS);
+  const telegramStatus = `${sourceAvailability(telegram, attentionStale, attentionRefreshFailed)}${typeof telegramCounter?.count === "number" && telegramCounter.count > 0 ? `; application counter ${telegramCounter.count}` : telegramCounter?.needsAttention === true ? "; new activity detected" : ""}`;
+  const teamsStatus = `${sourceAvailability(teams, attentionStale, attentionRefreshFailed)}${teamsActivity?.needsAttention === true ? "; new activity detected" : ""}`;
+  const outlookStatus = outlookUsingLastKnown
+    ? `current attention state is not exposed; last observed aggregate Inbox unread ${lastObservedOutlookInbox.count}`
+    : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
+  const calendarSelection =
+    workCalendar?.status === "observed" ? workCalendar.selection : null;
+  const calendarNextSelection =
+    workCalendar?.status === "observed" ? workCalendar.nextSelection : null;
+  const activeEventKey =
+    calendarSelection?.classification === "active" && !calendarSelection.allDay
+      ? `${calendarSelection.start}|${calendarSelection.end}`
+      : null;
+  const activeEventAcknowledged =
+    activeEventKey !== null && acknowledgedActiveEvent === activeEventKey;
+  const calendarStartMs = calendarSelection
+    ? Date.parse(calendarSelection.start)
+    : Number.NaN;
+  const calendarStartingSoon =
+    calendarSelection?.classification === "upcoming" &&
+    !calendarSelection.allDay &&
+    Number.isFinite(calendarStartMs) &&
+    calendarStartMs > now.getTime() &&
+    calendarStartMs - now.getTime() <= WORK_CALENDAR_STARTING_SOON_MS;
+  const calendarStartedNeedsAttention =
+    calendarSelection?.classification === "active" &&
+    !calendarSelection.allDay &&
+    !activeEventAcknowledged;
+  const calendarAttentionState = calendarStartedNeedsAttention
+    ? "started"
+    : calendarStartingSoon
+      ? "soon"
+      : undefined;
+  const calendarState = calendarSelection
+    ? calendarStartedNeedsAttention
+      ? "Meeting started"
+      : calendarStartingSoon
+        ? "Starting soon"
+        : calendarSelection.classification === "active"
+          ? "In progress"
+          : "Up next"
+    : workCalendarRefreshing
+      ? "Calendar checking"
+      : "Calendar unavailable";
+  const calendarTitle = calendarSelection
+    ? calendarSelection.subject
+    : workCalendar?.status === "notConfigured"
+      ? "Work calendar is not configured"
+      : workCalendar?.status === "busy"
+        ? "Another calendar check is finishing"
+        : "No fresh work-calendar event";
+  const calendarDetail = calendarSelection
+    ? formatCalendarDetail(calendarSelection, now)
+    : workCalendarRefreshing
+      ? "Reading the saved source without controlling Outlook."
+      : workCalendarTransportFailed || workCalendar?.status === "error"
+        ? "The secure source or local provider could not be read."
+        : workCalendar?.status === "notConfigured"
+          ? "Open Advanced to save one published calendar securely."
+          : "The last refresh was unavailable; no cached event is shown.";
+  const showNextEvent = activeEventAcknowledged && calendarNextSelection !== null;
+  const panelStyle = widgetPanelStyle(preferences) as CSSProperties;
+
+  const renderAppSlot = (sourceKey: AttentionAppKey) => {
+    if (sourceKey === "teams") {
+      return (
+        <AppSlot
+          key={sourceKey}
+          sourceKey={sourceKey}
+          label="Microsoft Teams"
+          badge={teamsBadge}
+          statusText={teamsStatus}
+          health={sourceHealth(teams, attentionStale, attentionRefreshFailed)}
+          status={teamsMirror}
+          disabled={teams?.state === "notRunning"}
+          onActivate={() => void activateSource(sourceKey)}
+        />
+      );
+    }
+    if (sourceKey === "telegram") {
+      return (
+        <AppSlot
+          key={sourceKey}
+          sourceKey={sourceKey}
+          label="Telegram"
+          badge={telegramBadge}
+          statusText={telegramStatus}
+          health={sourceHealth(telegram, attentionStale, attentionRefreshFailed)}
+          status={telegramMirror}
+          disabled={telegram?.state === "notRunning"}
+          onActivate={() => void activateSource(sourceKey)}
+        />
+      );
+    }
+    return (
+      <AppSlot
+        key={sourceKey}
+        sourceKey={sourceKey}
+        label="Microsoft Outlook"
+        badge={outlookBadge}
+        badgeLastKnown={outlookUsingLastKnown}
+        statusText={outlookStatus}
+        health={sourceHealth(
+          outlook,
+          attentionStale || outlookUsingLastKnown,
+          attentionRefreshFailed,
+        )}
+        disabled={outlook?.state === "notRunning"}
+        onActivate={() => void activateSource(sourceKey)}
+      />
+    );
+  };
+
+  return (
+    <main className="widget-shell" data-tauri-drag-region style={panelStyle}>
+      <section
+        className="widget-zone widget-left"
+        aria-label="Application attention"
+        data-tauri-drag-region
+      >
+        <div className="widget-apps" data-tauri-drag-region>
+          {preferences.appOrder.map(renderAppSlot)}
+          <button
+            aria-label="Open Advanced view"
+            className="widget-more"
+            onClick={() => void openAdvanced()}
+            title="Open Advanced view"
+            type="button"
+          >
+            <span aria-hidden="true">•••</span>
+            <span className="sr-only">Open Advanced view</span>
+          </button>
+        </div>
+      </section>
+
+      <section
+        className="widget-zone widget-clock"
+        aria-label="Current time"
+        data-tauri-drag-region
+      >
+        <div data-tauri-drag-region>
+          <span className="widget-clock__label">Local</span>
+          <time>{formatTime(now)}</time>
+        </div>
+        <div data-tauri-drag-region>
+          <span className="widget-clock__label widget-clock__label--select">
+            <select
+              aria-label="Secondary timezone"
+              value={secondaryTimeZone}
+              onChange={(event) =>
+                setPreferences(
+                  writeWidgetPreferences({
+                    secondaryTimeZone: event.target.value,
+                  }),
+                )
+              }
+            >
+              {TIME_ZONE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <svg aria-hidden="true" viewBox="0 0 12 8">
+              <path d="m1 1.5 5 5 5-5" />
+            </svg>
+          </span>
+          <time>{formatTime(now, secondaryTimeZone)}</time>
+        </div>
+      </section>
+
+      <section
+        className="widget-zone widget-calendar"
+        data-calendar-attention={calendarAttentionState}
+        aria-label="Work calendar"
+        data-tauri-drag-region
+      >
+        <div
+          className="widget-calendar__content"
+          data-has-next={showNextEvent || undefined}
+          data-tauri-drag-region
+        >
+          <div className="widget-calendar__event" data-tauri-drag-region>
+            <div className="widget-calendar__event-header">
+              <span
+                className="widget-calendar__state"
+                data-calendar-status={
+                  calendarSelection ? "observed" : undefined
+                }
+              >
+                {calendarState}
+              </span>
+              {calendarStartedNeedsAttention && activeEventKey && (
+                <button
+                  className="widget-calendar__ack"
+                  onClick={() => setAcknowledgedActiveEvent(activeEventKey)}
+                  type="button"
+                >
+                  I&apos;m in
+                </button>
+              )}
+            </div>
+            <strong>{calendarTitle}</strong>
+            <small>{calendarDetail}</small>
+          </div>
+
+          {showNextEvent && calendarNextSelection && (
+            <div
+              aria-label="Next work-calendar event"
+              className="widget-calendar__next"
+              data-tauri-drag-region
+            >
+              <span>Up next</span>
+              <strong>{calendarNextSelection.subject}</strong>
+              <small>
+                {formatCalendarDetail(calendarNextSelection, now)}
+              </small>
+            </div>
+          )}
+        </div>
+        <div className="widget-controls">
+          <button
+            aria-label={
+              pinned ? "Unpin Attention Hub" : "Pin Attention Hub always on top"
+            }
+            aria-pressed={pinned}
+            onClick={() => void togglePinned()}
+            title={pinned ? "Unpin from always on top" : "Pin always on top"}
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
+            </svg>
+          </button>
+          <button
+            aria-label="Close Attention Hub"
+            onClick={() => void invoke("quit_application")}
+            title="Close Attention Hub"
+            type="button"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+      </section>
+
+      {widgetError && (
+        <p className="widget-error" role="status">
+          {widgetError}
+        </p>
+      )}
+    </main>
+  );
+}

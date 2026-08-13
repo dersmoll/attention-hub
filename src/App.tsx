@@ -1,6 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AttentionPanel } from "./AttentionPanel";
+import { WidgetView } from "./WidgetView";
+import {
+  ATTENTION_POLL_INTERVAL_MS,
+  type AttentionSignalSnapshot,
+  type TeamsMirrorStatus,
+} from "./attention-model";
+import type {
+  WorkCalendarConfiguration,
+  WorkCalendarSnapshot,
+} from "./work-calendar-model";
+import {
+  type AttentionAppKey,
+  DEFAULT_APP_ORDER,
+  DEFAULT_WIDGET_PREFERENCES,
+  WIDGET_PREFERENCES_CHANGED_EVENT,
+  normalizeWidgetPreferences,
+  readWidgetPreferences,
+  writeWidgetPreferences,
+} from "./widget-preferences";
 import "./App.css";
 
 type NotificationAccessStatus =
@@ -51,120 +72,54 @@ interface NotificationChangeSignal {
   notificationId: number | null;
 }
 
-interface AttentionSignalSnapshot {
-  capturedAt: string;
-  signals: AttentionSignal[];
-  diagnostics: string[];
+const PUBLISHED_ICS_UI_DEADLINE_MS = 20_000;
+
+class PublishedIcsUiDeadlineError extends Error {}
+
+async function invokePublishedIcsWithDeadline<T>(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      invoke<T>(command, args),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new PublishedIcsUiDeadlineError()),
+          PUBLISHED_ICS_UI_DEADLINE_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
-interface AttentionSignal {
-  sourceKey: string;
-  displayName: string;
-  kind: string;
-  count: number | null;
-  needsAttention: boolean | null;
-  origin: string;
-  rawLabel: string | null;
-  confidence: string;
-  meaning: string;
-  diagnostics: string[];
-}
-
-type CalendarAccessStatus =
-  | "unspecified"
-  | "allowed"
-  | "denied"
-  | "unsupported"
-  | "error";
-
-interface CalendarAccessReport {
-  accessStatus: CalendarAccessStatus;
-  apiAvailable: boolean;
-  packageIdentity: {
-    present: boolean;
-    fullName: string | null;
-  };
-  storeAvailable: boolean;
-  diagnostics: string[];
-}
-
-interface CalendarSnapshot {
-  accessStatus: CalendarAccessStatus;
-  capturedAt: string;
-  rangeStart: string;
-  rangeEnd: string;
-  calendars: CalendarSource[];
-  appointments: CalendarAppointment[];
-  diagnostics: string[];
-}
-
-interface CalendarSource {
-  id: string;
-  displayName: string;
-  sourceDisplayName: string | null;
-  hidden: boolean;
-  diagnostics: string[];
-}
-
-interface CalendarAppointment {
-  id: string;
-  calendarId: string;
-  startAt: string;
-  endAt: string;
-  allDay: boolean;
-  subject: string | null;
-  location: string | null;
-  busyStatus: string | null;
-  sensitivity: string | null;
-  isRecurring: boolean;
-  diagnostics: string[];
-}
-
-type GraphEnvironmentStatus =
-  | "ready"
-  | "notConfigured"
-  | "unavailable"
-  | "error";
-
-interface GraphEnvironmentReport {
-  status: GraphEnvironmentStatus;
-  helperAvailable: boolean;
-  windowsSupported: boolean;
-  clientIdConfigured: boolean;
-  tenantIdConfigured: boolean;
-  dotnetRuntimeVersion: string | null;
-  msalVersion: string | null;
-  brokerVersion: string | null;
-  diagnostics: string[];
-}
-
-interface TeamsMirrorStatus {
-  lifecycle: string;
-  enabled: boolean;
-  visible: boolean;
-  visualOnly: boolean;
-  pollIntervalMs: number;
-  diagnostic: string | null;
-}
-
-function App() {
-  const [graphEnvironment, setGraphEnvironment] =
-    useState<GraphEnvironmentReport | null>(null);
-  const [graphEnvironmentPending, setGraphEnvironmentPending] = useState(false);
-  const [graphEnvironmentError, setGraphEnvironmentError] = useState<
-    string | null
+function AdvancedView() {
+  const [widgetPreferences, setWidgetPreferences] = useState(
+    readWidgetPreferences,
+  );
+  const [publishedIcsUrl, setPublishedIcsUrl] = useState("");
+  const [titleCapabilityConfirmed, setTitleCapabilityConfirmed] =
+    useState(false);
+  const [workCalendarConfiguration, setWorkCalendarConfiguration] =
+    useState<WorkCalendarConfiguration | null>(null);
+  const [workCalendarSnapshot, setWorkCalendarSnapshot] =
+    useState<WorkCalendarSnapshot | null>(null);
+  const [workCalendarPending, setWorkCalendarPending] = useState<
+    "save" | "refresh" | "remove" | null
   >(null);
-  const [calendarReport, setCalendarReport] =
-    useState<CalendarAccessReport | null>(null);
-  const [calendarSnapshot, setCalendarSnapshot] =
-    useState<CalendarSnapshot | null>(null);
-  const [calendarPending, setCalendarPending] = useState(false);
-  const [calendarSnapshotPending, setCalendarSnapshotPending] = useState(false);
-  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [workCalendarError, setWorkCalendarError] = useState<string | null>(null);
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
+  const [attentionFailureCount, setAttentionFailureCount] = useState(0);
   const [attentionRefreshing, setAttentionRefreshing] = useState(false);
+  const [attentionClock, setAttentionClock] = useState(() => Date.now());
+  const attentionRequestInFlight = useRef(false);
   const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
   const [teamsMirrorPending, setTeamsMirrorPending] = useState(false);
   const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
@@ -181,55 +136,40 @@ function App() {
   >(null);
   const [frontendError, setFrontendError] = useState<string | null>(null);
 
-  const refreshGraphEnvironment = useCallback(async () => {
-    setGraphEnvironmentPending(true);
-    setGraphEnvironmentError(null);
-
-    try {
-      setGraphEnvironment(
-        await invoke<GraphEnvironmentReport>("get_graph_calendar_environment"),
+  const applyWidgetPreferences = useCallback(
+    (update: Parameters<typeof writeWidgetPreferences>[0]) => {
+      const next = writeWidgetPreferences(update);
+      setWidgetPreferences(next);
+      void emit(WIDGET_PREFERENCES_CHANGED_EVENT, next).catch((error) =>
+        setFrontendError(`Widget preference update failed: ${String(error)}`),
       );
-    } catch (error) {
-      setGraphEnvironmentError(String(error));
-    } finally {
-      setGraphEnvironmentPending(false);
-    }
-  }, []);
-
-  const runCalendarCommand = useCallback(
-    async (
-      command: "get_calendar_access_status" | "request_calendar_read_access",
-    ) => {
-      setCalendarPending(true);
-      setCalendarError(null);
-
-      try {
-        setCalendarReport(await invoke<CalendarAccessReport>(command));
-      } catch (error) {
-        setCalendarError(String(error));
-      } finally {
-        setCalendarPending(false);
-      }
     },
     [],
   );
 
-  const refreshCalendarSnapshot = useCallback(async () => {
-    setCalendarSnapshotPending(true);
-    setCalendarError(null);
-
-    try {
-      setCalendarSnapshot(
-        await invoke<CalendarSnapshot>("get_calendar_snapshot"),
-      );
-    } catch (error) {
-      setCalendarError(String(error));
-    } finally {
-      setCalendarSnapshotPending(false);
-    }
-  }, []);
+  const moveApp = useCallback(
+    (sourceKey: AttentionAppKey, direction: -1 | 1) => {
+      const currentIndex = widgetPreferences.appOrder.indexOf(sourceKey);
+      const nextIndex = currentIndex + direction;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= DEFAULT_APP_ORDER.length) {
+        return;
+      }
+      const appOrder = [...widgetPreferences.appOrder];
+      [appOrder[currentIndex], appOrder[nextIndex]] = [
+        appOrder[nextIndex],
+        appOrder[currentIndex],
+      ];
+      applyWidgetPreferences({ appOrder });
+    },
+    [applyWidgetPreferences, widgetPreferences.appOrder],
+  );
 
   const refreshAttentionSignals = useCallback(async () => {
+    if (attentionRequestInFlight.current) {
+      return;
+    }
+
+    attentionRequestInFlight.current = true;
     setAttentionRefreshing(true);
 
     try {
@@ -238,12 +178,111 @@ function App() {
       );
       setAttentionSnapshot(nextSnapshot);
       setAttentionError(null);
+      setAttentionFailureCount(0);
+      setAttentionClock(Date.now());
     } catch (error) {
       setAttentionError(String(error));
+      setAttentionFailureCount((count) => count + 1);
     } finally {
+      attentionRequestInFlight.current = false;
       setAttentionRefreshing(false);
     }
   }, []);
+
+  const refreshWorkCalendarConfiguration = useCallback(async () => {
+    try {
+      setWorkCalendarConfiguration(
+        await invoke<WorkCalendarConfiguration>(
+          "get_work_calendar_configuration",
+        ),
+      );
+    } catch {
+      setWorkCalendarError(
+        "The secure work-calendar configuration could not be read.",
+      );
+    }
+  }, []);
+
+  const saveWorkCalendarSource = useCallback(async () => {
+    const secretUrl = publishedIcsUrl.trim();
+    setPublishedIcsUrl("");
+    setWorkCalendarSnapshot(null);
+    setWorkCalendarError(null);
+    if (!secretUrl) {
+      setWorkCalendarError("Enter the locally generated ICS link first.");
+      return;
+    }
+    if (!titleCapabilityConfirmed) {
+      setWorkCalendarError(
+        "Confirm the exact Outlook publication level before saving this source.",
+      );
+      return;
+    }
+
+    setWorkCalendarPending("save");
+    try {
+      const nextSnapshot =
+        await invokePublishedIcsWithDeadline<WorkCalendarSnapshot>(
+          "save_work_calendar_source",
+          {
+            publishedUrl: secretUrl,
+            titleCapabilityConfirmed,
+          },
+        );
+      setWorkCalendarSnapshot(nextSnapshot);
+      await refreshWorkCalendarConfiguration();
+    } catch {
+      setWorkCalendarError(
+        "The source was not saved because bounded verification did not finish safely.",
+      );
+      await refreshWorkCalendarConfiguration();
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, [
+    publishedIcsUrl,
+    refreshWorkCalendarConfiguration,
+    titleCapabilityConfirmed,
+  ]);
+
+  const refreshSavedWorkCalendar = useCallback(async () => {
+    setWorkCalendarPending("refresh");
+    setWorkCalendarSnapshot(null);
+    setWorkCalendarError(null);
+    try {
+      setWorkCalendarSnapshot(
+        await invokePublishedIcsWithDeadline<WorkCalendarSnapshot>(
+          "get_work_calendar_snapshot",
+          {},
+        ),
+      );
+    } catch {
+      setWorkCalendarError(
+        "The saved calendar did not return a fresh bounded result.",
+      );
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, []);
+
+  const removeWorkCalendarSource = useCallback(async () => {
+    setWorkCalendarPending("remove");
+    setWorkCalendarSnapshot(null);
+    setWorkCalendarError(null);
+    try {
+      setWorkCalendarConfiguration(
+        await invokePublishedIcsWithDeadline<WorkCalendarConfiguration>(
+          "remove_work_calendar_source",
+          {},
+        ),
+      );
+    } catch {
+      setWorkCalendarError("The saved work-calendar source could not be removed.");
+      await refreshWorkCalendarConfiguration();
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, [refreshWorkCalendarConfiguration]);
 
   const refreshTeamsMirror = useCallback(async () => {
     try {
@@ -313,12 +352,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void refreshGraphEnvironment();
-  }, [refreshGraphEnvironment]);
+    void refreshWorkCalendarConfiguration();
+  }, [refreshWorkCalendarConfiguration]);
 
   useEffect(() => {
-    void runCalendarCommand("get_calendar_access_status");
-  }, [runCalendarCommand]);
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
+      if (!disposed) {
+        setWidgetPreferences(
+          normalizeWidgetPreferences(
+            payload as Partial<typeof widgetPreferences>,
+          ),
+        );
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
 
   useEffect(() => {
     void runCommand("get_notification_access_status", "refresh");
@@ -331,7 +390,7 @@ function App() {
     const poll = async () => {
       await refreshAttentionSignals();
       if (!disposed) {
-        timer = setTimeout(() => void poll(), 2_000);
+        timer = setTimeout(() => void poll(), ATTENTION_POLL_INTERVAL_MS);
       }
     };
 
@@ -344,6 +403,11 @@ function App() {
       }
     };
   }, [refreshAttentionSignals]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setAttentionClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -417,342 +481,269 @@ function App() {
   }, [refreshSnapshot, report?.accessStatus]);
 
   return (
-    <main>
-      <h1>Attention Hub</h1>
-      <p>Milestone 2 paused Microsoft Graph calendar-provider diagnostic</p>
+    <main className="advanced-shell">
+      <header className="app-header">
+        <p className="eyebrow">Local-first Windows observer</p>
+        <h1>Attention Hub</h1>
+        <p>What currently needs my attention?</p>
+      </header>
+
+      <section aria-labelledby="widget-preferences-heading">
+        <p className="eyebrow">Compact widget</p>
+        <h2 id="widget-preferences-heading">Appearance and app order</h2>
+        <p>
+          Changes apply immediately. Calendar warning colors remain fixed so
+          “starting soon” and “meeting started” keep their meaning.
+        </p>
+
+        <div className="widget-preferences-grid">
+          <fieldset className="widget-preference-card">
+            <legend>Panel surface</legend>
+            <label htmlFor="widget-panel-color">Background color</label>
+            <div className="widget-color-control">
+              <input
+                id="widget-panel-color"
+                onChange={(event) =>
+                  applyWidgetPreferences({ panelColor: event.target.value })
+                }
+                type="color"
+                value={widgetPreferences.panelColor}
+              />
+              <output htmlFor="widget-panel-color">
+                {widgetPreferences.panelColor.toUpperCase()}
+              </output>
+            </div>
+
+            <label htmlFor="widget-panel-opacity">
+              Background opacity
+              <output htmlFor="widget-panel-opacity">
+                {widgetPreferences.panelOpacity}%
+              </output>
+            </label>
+            <input
+              id="widget-panel-opacity"
+              max="100"
+              min="85"
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  panelOpacity: Number(event.target.value),
+                })
+              }
+              step="1"
+              type="range"
+              value={widgetPreferences.panelOpacity}
+            />
+            <small>
+              Text and border colors are selected automatically for contrast.
+            </small>
+            <button
+              onClick={() =>
+                applyWidgetPreferences({
+                  panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
+                  panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
+                })
+              }
+              type="button"
+            >
+              Reset panel appearance
+            </button>
+          </fieldset>
+
+          <fieldset className="widget-preference-card">
+            <legend>Left-panel app order</legend>
+            <ol className="widget-app-order">
+              {widgetPreferences.appOrder.map((sourceKey, index) => {
+                const labels: Record<AttentionAppKey, string> = {
+                  teams: "Microsoft Teams",
+                  telegram: "Telegram",
+                  outlook: "Microsoft Outlook",
+                };
+                return (
+                  <li key={sourceKey}>
+                    <span>{labels[sourceKey]}</span>
+                    <span className="widget-app-order__actions">
+                      <button
+                        aria-label={`Move ${labels[sourceKey]} up`}
+                        disabled={index === 0}
+                        onClick={() => moveApp(sourceKey, -1)}
+                        type="button"
+                      >
+                        Move up
+                      </button>
+                      <button
+                        aria-label={`Move ${labels[sourceKey]} down`}
+                        disabled={index === widgetPreferences.appOrder.length - 1}
+                        onClick={() => moveApp(sourceKey, 1)}
+                        type="button"
+                      >
+                        Move down
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <small>
+              Advanced remains fixed at the end. Native Teams and Telegram
+              visuals follow their app positions.
+            </small>
+            <button
+              onClick={() =>
+                applyWidgetPreferences({ appOrder: [...DEFAULT_APP_ORDER] })
+              }
+              type="button"
+            >
+              Reset default order
+            </button>
+          </fieldset>
+        </div>
+      </section>
 
       <section aria-live="polite">
-        <div className="section-heading">
-          <div>
-            <h2>Microsoft Graph helper environment</h2>
-            <p>
-              Phase 0 checks the local MSAL.NET/WAM helper and registration
-              configuration only. It does not sign in or contact Microsoft Graph.
-            </p>
+        <p className="eyebrow">Work calendar</p>
+        <h2>Connect one published work calendar</h2>
+        <p>
+          Paste the generated ICS link into this masked local field. Attention
+          Hub verifies one fresh title-capable event before saving the link for
+          this Windows user and showing only the active or next event in the
+          widget.
+        </p>
+
+        <form
+          className="secret-probe-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveWorkCalendarSource();
+          }}
+        >
+          <label htmlFor="published-ics-url">Published ICS link</label>
+          <div className="secret-probe-form__controls">
+            <input
+              aria-describedby="published-ics-url-help"
+              autoCapitalize="none"
+              autoComplete="off"
+              id="published-ics-url"
+              maxLength={4096}
+              onChange={(event) => setPublishedIcsUrl(event.target.value)}
+              placeholder="https://outlook.office365.com/…/calendar.ics"
+              spellCheck={false}
+              type="password"
+              value={publishedIcsUrl}
+            />
+            <button
+              disabled={
+                workCalendarPending !== null ||
+                !publishedIcsUrl.trim() ||
+                !titleCapabilityConfirmed
+              }
+              type="submit"
+            >
+              {workCalendarPending === "save"
+                ? "Verifying and saving securely…"
+                : "Save securely and use in widget"}
+            </button>
           </div>
-          <button
-            disabled={graphEnvironmentPending}
-            onClick={() => void refreshGraphEnvironment()}
-            type="button"
-          >
-            {graphEnvironmentPending ? "Checking…" : "Refresh Graph environment"}
-          </button>
+          <small id="published-ics-url-help">
+            The field is cleared as soon as an action starts. The link is never
+            logged, returned, or added to evidence; it is persisted only after
+            successful verification and only in Windows Credential Manager.
+          </small>
+          <label>
+            <input
+              checked={titleCapabilityConfirmed}
+              onChange={(event) =>
+                setTitleCapabilityConfirmed(event.target.checked)
+              }
+              type="checkbox"
+            />{" "}
+            I set this exact Outlook calendar publication to “Can view titles
+            and locations”. Attention Hub will discard location.
+          </label>
+        </form>
+
+        <div className="calendar-configuration">
+          <p>
+            Secure source: {" "}
+            <strong>
+              {workCalendarConfiguration?.configured
+                ? "configured"
+                : workCalendarConfiguration?.storageAvailable === false
+                  ? "storage unavailable"
+                  : "not configured"}
+            </strong>
+          </p>
+          <div className="actions">
+            <button
+              disabled={
+                workCalendarPending !== null ||
+                !workCalendarConfiguration?.configured
+              }
+              onClick={() => void refreshSavedWorkCalendar()}
+              type="button"
+            >
+              {workCalendarPending === "refresh"
+                ? "Refreshing saved calendar…"
+                : "Refresh saved calendar"}
+            </button>
+            <button
+              disabled={
+                workCalendarPending !== null ||
+                !workCalendarConfiguration?.configured
+              }
+              onClick={() => void removeWorkCalendarSource()}
+              type="button"
+            >
+              {workCalendarPending === "remove"
+                ? "Removing saved source…"
+                : "Remove saved calendar"}
+            </button>
+          </div>
+          <small>
+            One saved source only. Replacing it requires a fresh verified link.
+            Removing it clears the widget calendar immediately.
+          </small>
         </div>
 
-        {graphEnvironmentError && (
-          <p className="error">
-            Graph environment error: {graphEnvironmentError}
+        {workCalendarError && (
+          <p className="error">Work calendar: {workCalendarError}</p>
+        )}
+        {workCalendarSnapshot && (
+          <p>
+            Saved-source result: {" "}
+            <strong>{workCalendarSnapshot.status}</strong>. {" "}
+            {workCalendarSnapshot.selection
+              ? "The widget received one fresh active-or-next event."
+              : "No cached event was retained."}
           </p>
         )}
 
-        {graphEnvironment ? (
-          <>
-            <dl>
-              <dt>Environment status</dt>
-              <dd data-status={graphEnvironment.status}>
-                {graphEnvironment.status}
-              </dd>
-
-              <dt>Helper available</dt>
-              <dd>{String(graphEnvironment.helperAvailable)}</dd>
-
-              <dt>Windows/WAM supported</dt>
-              <dd>{String(graphEnvironment.windowsSupported)}</dd>
-
-              <dt>Client ID configured</dt>
-              <dd>{String(graphEnvironment.clientIdConfigured)}</dd>
-
-              <dt>Tenant ID configured</dt>
-              <dd>{String(graphEnvironment.tenantIdConfigured)}</dd>
-
-              <dt>.NET runtime</dt>
-              <dd>{graphEnvironment.dotnetRuntimeVersion ?? "—"}</dd>
-
-              <dt>MSAL.NET</dt>
-              <dd>{graphEnvironment.msalVersion ?? "—"}</dd>
-
-              <dt>WAM broker package</dt>
-              <dd>{graphEnvironment.brokerVersion ?? "—"}</dd>
-            </dl>
-
-            <h3>Graph helper diagnostics</h3>
-            {graphEnvironment.diagnostics.length > 0 ? (
-              <ul>
-                {graphEnvironment.diagnostics.map((diagnostic) => (
-                  <li key={diagnostic}>{diagnostic}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>None.</p>
-            )}
-          </>
-        ) : (
-          <p>Inspecting the local Graph helper…</p>
-        )}
       </section>
 
-      <hr />
+      <AttentionPanel
+        snapshot={attentionSnapshot}
+        refreshError={attentionError}
+        consecutiveRefreshFailures={attentionFailureCount}
+        now={attentionClock}
+        refreshing={attentionRefreshing}
+        onRefresh={() => void refreshAttentionSignals()}
+        teamsMirror={teamsMirror}
+        teamsMirrorPending={teamsMirrorPending}
+        teamsMirrorError={teamsMirrorError}
+        onTeamsMirrorToggle={() =>
+          void runTeamsMirrorCommand(
+            teamsMirror?.enabled
+              ? "stop_teams_mirror"
+              : "start_teams_mirror",
+          )
+        }
+      />
 
-      <p>Milestone 1 Windows appointment-store evidence</p>
-
-      <section aria-live="polite">
-        <div className="section-heading">
-          <div>
-            <h2>Windows calendar access</h2>
-            <p>
-              Read-only access to calendars already available through Windows.
-              The seven-day debug snapshot excludes bodies, people, and meeting
-              links.
-            </p>
-          </div>
-          <button
-            disabled={calendarPending || calendarReport?.apiAvailable === false}
-            onClick={() =>
-              void runCalendarCommand("request_calendar_read_access")
-            }
-            type="button"
-          >
-            {calendarPending ? "Waiting for Windows…" : "Request read-only access"}
-          </button>
-        </div>
-
-        {calendarError && (
-          <p className="error">Calendar diagnostic error: {calendarError}</p>
-        )}
-
-        {calendarReport ? (
-          <>
-            <dl>
-              <dt>Access result</dt>
-              <dd data-status={calendarReport.accessStatus}>
-                {calendarReport.accessStatus}
-              </dd>
-
-              <dt>WinRT API available</dt>
-              <dd>{String(calendarReport.apiAvailable)}</dd>
-
-              <dt>Package identity present</dt>
-              <dd>{String(calendarReport.packageIdentity.present)}</dd>
-
-              <dt>Package full name</dt>
-              <dd>{calendarReport.packageIdentity.fullName ?? "—"}</dd>
-
-              <dt>Appointment store returned</dt>
-              <dd>{String(calendarReport.storeAvailable)}</dd>
-            </dl>
-
-            <h3>Calendar diagnostics</h3>
-            {calendarReport.diagnostics.length > 0 ? (
-              <ul>
-                {calendarReport.diagnostics.map((diagnostic) => (
-                  <li key={diagnostic}>{diagnostic}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>None.</p>
-            )}
-
-            <button
-              disabled={calendarPending}
-              onClick={() =>
-                void runCalendarCommand("get_calendar_access_status")
-              }
-              type="button"
-            >
-              Refresh environment diagnostic
-            </button>
-
-            <button
-              disabled={
-                calendarSnapshotPending ||
-                calendarReport.accessStatus !== "allowed"
-              }
-              onClick={() => void refreshCalendarSnapshot()}
-              type="button"
-            >
-              {calendarSnapshotPending
-                ? "Reading calendars…"
-                : "Refresh seven-day snapshot"}
-            </button>
-          </>
-        ) : (
-          <p>Inspecting Windows calendar API availability…</p>
-        )}
-
-        {calendarSnapshot && (
-          <>
-            <h3>Current seven-day calendar snapshot</h3>
-            <p>
-              Calendars: <strong>{calendarSnapshot.calendars.length}</strong>;
-              appointments: <strong>{calendarSnapshot.appointments.length}</strong>;
-              captured: <time>{calendarSnapshot.capturedAt}</time>
-            </p>
-            <p>
-              UTC range: <time>{calendarSnapshot.rangeStart}</time> to{" "}
-              <time>{calendarSnapshot.rangeEnd}</time>
-            </p>
-
-            {calendarSnapshot.calendars.length > 0 ? (
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Calendar</th>
-                      <th>Source</th>
-                      <th>Hidden</th>
-                      <th>Calendar ID / diagnostics</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calendarSnapshot.calendars.map((calendar) => (
-                      <tr key={calendar.id}>
-                        <td>{calendar.displayName}</td>
-                        <td>{calendar.sourceDisplayName ?? "—"}</td>
-                        <td>{String(calendar.hidden)}</td>
-                        <td>
-                          {calendar.id}
-                          {calendar.diagnostics.length > 0 && (
-                            <pre>{JSON.stringify(calendar.diagnostics, null, 2)}</pre>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p>No appointment calendars returned.</p>
-            )}
-
-            {calendarSnapshot.appointments.length > 0 ? (
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Start / end (UTC)</th>
-                      <th>Subject / location</th>
-                      <th>State</th>
-                      <th>Calendar / appointment ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calendarSnapshot.appointments.map((appointment) => (
-                      <tr
-                        key={`${appointment.calendarId}-${appointment.id}-${appointment.startAt}`}
-                      >
-                        <td>
-                          {appointment.startAt}
-                          <small>{appointment.endAt}</small>
-                        </td>
-                        <td>
-                          {appointment.subject ?? "—"}
-                          <small>{appointment.location ?? "No location"}</small>
-                        </td>
-                        <td>
-                          {appointment.busyStatus ?? "unknown"}
-                          <small>
-                            sensitivity: {appointment.sensitivity ?? "unknown"}
-                          </small>
-                          <small>all day: {String(appointment.allDay)}</small>
-                          <small>
-                            recurring: {String(appointment.isRecurring)}
-                          </small>
-                        </td>
-                        <td>
-                          {appointment.calendarId}
-                          <small>{appointment.id}</small>
-                          {appointment.diagnostics.length > 0 && (
-                            <pre>
-                              {JSON.stringify(appointment.diagnostics, null, 2)}
-                            </pre>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p>No appointments returned in the current seven-day range.</p>
-            )}
-
-            {calendarSnapshot.diagnostics.length > 0 && (
-              <>
-                <h3>Snapshot diagnostics</h3>
-                <ul>
-                  {calendarSnapshot.diagnostics.map((diagnostic) => (
-                    <li key={diagnostic}>{diagnostic}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </>
-        )}
-      </section>
-
-      <hr />
-
-      <section aria-live="polite">
-        <div className="section-heading">
-          <div>
-            <h2>Teams visual mirror (optional)</h2>
-            <p>
-              Shows live Teams taskbar pixels in a movable companion window.
-              Attention Hub does not read those pixels or convert the badge into
-              a count.
-            </p>
-          </div>
-          <button
-            disabled={teamsMirrorPending || teamsMirror === null}
-            onClick={() =>
-              void runTeamsMirrorCommand(
-                teamsMirror?.enabled
-                  ? "stop_teams_mirror"
-                  : "start_teams_mirror",
-              )
-            }
-            type="button"
-          >
-            {teamsMirrorPending
-              ? "Updating…"
-              : teamsMirror?.enabled
-                ? "Stop mirror"
-                : "Show Teams visual"}
-          </button>
-        </div>
-
-        {teamsMirrorError && (
-          <p className="error">Teams mirror error: {teamsMirrorError}</p>
-        )}
-
-        {teamsMirror ? (
-          <dl>
-            <dt>Status</dt>
-            <dd data-status={teamsMirror.lifecycle}>{teamsMirror.lifecycle}</dd>
-
-            <dt>Pixels visible</dt>
-            <dd>{String(teamsMirror.visible)}</dd>
-
-            <dt>Interpretation</dt>
-            <dd>{teamsMirror.visualOnly ? "visual only" : "unexpected"}</dd>
-
-            <dt>Position check</dt>
-            <dd>{teamsMirror.pollIntervalMs} ms</dd>
-
-            {teamsMirror.diagnostic && (
-              <>
-                <dt>Diagnostic</dt>
-                <dd>{teamsMirror.diagnostic}</dd>
-              </>
-            )}
-          </dl>
-        ) : (
-          <p>Reading Teams mirror status…</p>
-        )}
-      </section>
-
-      <hr />
-
+      <details className="technical-details">
+        <summary>
+          <span>Technical diagnostics</span>
+          <small>Notifications and raw source data</small>
+        </summary>
+        <div className="technical-details__content">
       <p>Milestone 0 persistent attention-signal evidence</p>
 
       <section aria-live="polite">
@@ -783,6 +774,14 @@ function App() {
               Signals: <strong>{attentionSnapshot.signals.length}</strong>;
               captured: <time>{attentionSnapshot.capturedAt}</time>
             </p>
+            <dl>
+              {attentionSnapshot.sources.map((source) => (
+                <div className="source-observation" key={source.sourceKey}>
+                  <dt>{source.displayName}</dt>
+                  <dd data-status={source.state}>{source.state}</dd>
+                </div>
+              ))}
+            </dl>
             {attentionSnapshot.signals.length > 0 ? (
               <div className="table-scroll">
                 <table>
@@ -801,7 +800,10 @@ function App() {
                       <tr key={`${signal.sourceKey}-${signal.kind}`}>
                         <td>{signal.displayName}</td>
                         <td>{signal.kind}</td>
-                        <td>{signal.count ?? "not exposed"}</td>
+                        <td>
+                          {signal.count ?? "not exposed"}
+                          {signal.inferred && <small>inferred observation</small>}
+                        </td>
                         <td>
                           {signal.needsAttention === null
                             ? "unknown"
@@ -998,8 +1000,25 @@ function App() {
           <p>No snapshot requested yet.</p>
         )}
       </section>
+        </div>
+      </details>
     </main>
   );
+}
+
+function App() {
+  const windowLabel = getCurrentWindow().label;
+
+  useEffect(() => {
+    document.documentElement.dataset.window = windowLabel;
+    document.body.dataset.window = windowLabel;
+    return () => {
+      delete document.documentElement.dataset.window;
+      delete document.body.dataset.window;
+    };
+  }, [windowLabel]);
+
+  return windowLabel === "advanced" ? <AdvancedView /> : <WidgetView />;
 }
 
 export default App;

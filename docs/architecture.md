@@ -2,7 +2,13 @@
 
 ## Status
 
-This document describes the implemented Milestone 0 debug architecture and the remaining reliability questions. Notification access, sparse identity, and the first source-owned attention-signal path have been validated on the development machine; their broader reliability remains under test.
+This document describes the implemented Windows observation architecture
+through the Milestone 4D saved work-calendar widget integration. Notification
+access, sparse identity, the source-owned attention-signal path, live Teams and
+Telegram taskbar crops, the movable widget shell, and one Published ICS
+active-or-next selection have been validated to their recorded milestone
+gates; multi-monitor reliability, additional sources, remaining calendar edge
+cases, and daily product usefulness remain under test.
 
 ## System boundary
 
@@ -19,7 +25,7 @@ Application-owned normalized model
 Tauri commands + change signal
         |
         v
-React debug UI
+React widget or on-demand Advanced UI
 ```
 
 React must not import or model WinRT objects. The adapter owns Windows API calls, thread/apartment concerns, access-status mapping, content extraction, and conversion failures. The Tauri boundary exposes only serializable application-owned types.
@@ -39,7 +45,74 @@ Application-owned normalized signal model
 Tauri commands/events -> React debug UI
 ```
 
-This remains an observer boundary. The probe may read window titles and UI Automation properties but must not click, type, focus, dismiss, or otherwise control source applications.
+Observation remains read-only. The only source-window action is an explicit
+user activation from an app button: Attention Hub may restore and foreground an
+existing Teams, Telegram, or Outlook top-level window, but it does not launch,
+click inside, type into, dismiss, or otherwise control the source application.
+
+## Window and visual composition
+
+The primary Tauri window is a fixed-height, frameless widget with three React
+zones. It is skipped from the taskbar, starts pinned, and uses supported Tauri
+window APIs for dragging, always-on-top, physical position events, and
+work-area-aware position restoration. Local storage keeps only widget position,
+pin state, the selected IANA timezone, normalized panel appearance, and the
+three fixed app keys in their user-selected order; it does not persist attention
+data or source labels. Tauri events synchronize that record between the widget
+and Advanced WebViews.
+
+The Advanced WebView is created only when the ellipsis is activated and is
+destroyed when closed. This keeps Graph, calendar, Notification Center, and raw
+diagnostic initialization out of the ordinary widget runtime.
+
+DWM thumbnails registered on the Tauri parent render behind its WebView child,
+so live taskbar visuals cannot be React components. React owns local fallback
+glyphs; Rust owns two rounded, borderless, no-activate inset surfaces owned by
+the widget:
+
+```text
+source app window monitor
+       | orders primary and secondary taskbar surfaces
+       | UIA discovers one source rectangle
+       | DWM composes source pixels
+       v
+Teams live tile   Telegram live tile   Outlook React button
+       \             /
+        local-glyph button slots
+               |
+               v
+       Tauri widget WebView
+```
+
+Each 40-pixel rounded popup is centered with a 4-pixel inset inside its current
+48-pixel ordered button and tracks the widget's physical position, current DPI,
+and shared Teams or Telegram slot index every 100 ms
+while its existing cached source-rectangle check runs. Once per second a cheap
+top-level-window/taskbar topology check detects monitor movement, taskbar-count
+changes, and Explorer replacement; a full UI Automation rediscovery runs only
+when recovery is required. Each popup composes a bounded square around the
+complete taskbar button and starts only while the separate source signal reports
+attention. Owned tool windows do not create taskbar buttons or
+take focus. If discovery becomes absent or ambiguous, the popup hides while the
+local glyph and semantic React state remain available. The two sources have
+separate lifecycle/status records and failures.
+
+The three React slots are real buttons with keyboard focus, accessible status
+labels, stale/retrying/unavailable presentation, and local app glyphs. A user
+activation restores and foregrounds an existing source-owned top-level window.
+It never launches an application or forwards input into application content.
+The two native DWM inset surfaces handle the same activation on pointer release
+while remaining visual-only.
+
+No bitmap crosses into Attention Hub. DWM retains pixel composition, and the
+application cannot claim which numeric badge the user sees. The structured
+Telegram numeric signals, Outlook aggregate English Inbox unread signal, and
+qualitative Teams activity signal remain distinct queryable contracts. Missing
+or inaccessible Outlook labels are `notExposed`, never zero. After one observed
+Outlook result, the React widget can retain that count in process memory while a
+running/minimized Outlook becomes `notExposed`. The fallback is explicitly
+styled and announced as last-observed, updates when observation returns, and is
+cleared when Outlook is no longer running or Attention Hub restarts.
 
 The completed Teams exact-count experiment used an explicitly separate manual diagnostic. It performed a broader Teams-owned accessibility traversal only on demand and never entered the normal two-second attention-snapshot loop. Raw Teams accessibility values were inspected transiently in Rust and discarded; only sanitized structural metadata crossed Tauri IPC. The experiment found no useful numeric badge property and its command, DTOs, native traversal, and React table were removed. Only the qualitative Teams `activityStatus` signal remains implemented.
 
@@ -111,6 +184,15 @@ The implemented source-owned contract is separate and equally application-owned:
 ```ts
 interface AttentionSignalSnapshot {
   capturedAt: string;
+  sources: AttentionSourceObservation[];
+  signals: AttentionSignal[];
+  diagnostics: string[];
+}
+
+interface AttentionSourceObservation {
+  sourceKey: "telegram" | "outlook" | "teams";
+  displayName: string;
+  state: "observed" | "notRunning" | "notExposed" | "error";
   signals: AttentionSignal[];
   diagnostics: string[];
 }
@@ -124,12 +206,21 @@ interface AttentionSignal {
   origin: string;
   rawLabel: string | null;
   confidence: "low" | "medium" | "high";
+  inferred: boolean;
   meaning: string;
   diagnostics: string[];
 }
 ```
 
 The contract distinguishes signal kind and meaning instead of forcing Telegram application counters, unread-chat counts, and qualitative Teams activity into a misleading universal “unread count.” Raw labels and confidence are debug-spike metadata, not a proposed production UI contract.
+
+Milestone 3A adds one structured observation for each fixed source. Source
+absence and capture failure no longer have to be reconstructed from English
+diagnostic strings. Telegram, Outlook, and Teams capture independently, so a
+failure in one provider cannot prevent the later providers from being checked.
+The flattened `signals` list remains as technical evidence. `inferred` marks a
+zero produced from a successfully observed source whose count disappears at
+zero; it is not used to increase confidence or hide provider limitations.
 
 ## Snapshot and update strategy
 
@@ -144,7 +235,20 @@ The complete current snapshot is authoritative. Native `NotificationChanged` eve
 
 This trades small repeated reads for inspectability and recovery. Milestone 0 notification volume is expected to be small; measure before optimizing.
 
-The source-owned debug UI currently requests a complete attention-signal snapshot every two seconds. Requests do not overlap: the next timer starts only after the previous command completes. This proved recovery after a transient startup failure and avoids fragile incremental frontend state, but full UI Automation traversal every two seconds is not a production recommendation. Before Milestone 1, compare UI Automation property-change/window events, slower adaptive refresh, and refresh-on-resume while retaining complete snapshot recovery.
+The widget and Milestone 3A Advanced panel request complete attention-signal snapshots
+five seconds after the previous request completes. A shared frontend in-flight
+guard also prevents a manual refresh from overlapping the automatic request.
+The last successful snapshot remains visible when IPC refresh fails: the first
+failure is presented as retrying, while two consecutive failures or data older
+than three nominal polling intervals is stale. This five-second cadence is a
+dogfood variable, not a production architecture decision. UI Automation events,
+adaptive refresh, and refresh-on-resume remain deferred until daily-use evidence
+demonstrates which reliability work matters.
+
+The overall panel derives attention separately from health. A positive observed
+signal remains visible even if another source is unhealthy. `All clear` is
+reserved for fresh, observed, clear state from all three fixed sources; partial
+coverage is described as no attention detected rather than false reassurance.
 
 The removed Teams accessibility diagnostic was manual because it traversed a larger application tree and existed only to answer a bounded feasibility question. Its negative result was never merged into `AttentionSignal`. The existing `activityStatus` signal is the authoritative implemented Teams behavior; exact Teams counts and message details are deferred rather than approximated.
 
@@ -254,6 +358,78 @@ though hidden process-owned windows remained. The companion is therefore not a
 passive background provider. Attention Hub will not automatically open another
 application to refresh it, and normalized companion agenda extraction is
 stopped. The temporary probe is evidence, not a new provider architecture.
+
+ADR 0011 adds a separate manual New Outlook My Day structure gate. The user
+opens My Day Calendar; Attention Hub never controls Outlook. A Tauri command
+runs a fresh Windows UI Automation walk behind the process-wide priority gate
+and returns only fixed control roles, bounds, state booleans, property lengths,
+pattern presence, counts, timing, and traversal limits. Raw labels and calendar
+content do not cross IPC. The gate is bounded to 750 ms of UIA-lock wait, 2.5
+seconds of scanning, 512 desktop roots, eight Outlook windows, 4,000 elements,
+depth 32, and 64 returned candidates. Semantic extraction remains hard-disabled
+and source identity explicitly unverified. The visible and fully covered probes
+observed structure, but a minimized Outlook window exposed only 12 elements and
+no My Day or Calendar markers. This activates the ADR 0011 stop condition. The
+provider will not proceed to semantic extraction or widget integration.
+
+ADR 0012 adds a separate one-shot Published ICS structure gate. The frontend
+accepts one masked secret and clears it on submit. The Rust backend accepts only
+Microsoft 365 Outlook work-calendar publication hosts and the bounded
+`/owa/calendar/.../calendar.ics` path shape, normalizes webcal to HTTPS, rejects
+credentials/query/fragment/non-default ports, disables redirects and Referrer,
+and applies fixed connect/request/body/parser limits. It scans property and
+component names in memory, zeroes the body, and returns only sanitized status,
+header-presence booleans, counts, limits, and timing. The URL, response/header
+values, and event values never cross IPC or enter logs. No background polling
+or provider cache exists. The Microsoft 365 Calendar companion is a manual
+freshness oracle only. Live Phase A evidence observed one balanced calendar and
+approximately 30-second to two-minute propagation across a harmless
+create/update/delete cycle. Published ICS is therefore retained for a bounded
+semantic phase, while secret persistence, polling, and widget integration stay
+unapproved.
+
+ADR 0013 implements that bounded semantic phase as another manual one-shot
+command. It requires confirmation of the user-approved title-capable
+publication, keeps the ADR 0012 network and body bounds, and returns one
+application-owned selection containing only subject, start, end,
+active/upcoming classification, and nullable meeting-link presence. The parser
+uses RFC 5545 recurrence precedence, bounded recurrence expansion, IANA or
+CLDR-mapped Windows timezones, cancellation filtering, deterministic overlap
+ordering, and private/confidential redaction. Ambiguous time or recurrence
+behavior produces unavailable. Date-only all-day boundaries follow the
+viewer's current Windows calendar date; timezone-less timed values remain
+rejected. Selection values are not logged. Durable secret
+storage, polling, and widget integration remain outside the boundary.
+
+ADR 0014 separately approves the smallest widget integration. Advanced first
+requires a fresh successful title-capable selection, then stores exactly one
+publication link as a generic Windows credential for the current user with
+local-machine persistence. The link never crosses response IPC or browser
+storage. A process-wide async gate serializes saved-source work; the widget
+polls at most every two minutes and at event start/end boundaries. Any timeout,
+ambiguity, storage/read failure, busy result, or missing configuration replaces
+the prior state with no selection. Save and removal emit only a payload-free
+invalidation event. The widget renders subject and local time plus
+active/upcoming and meeting-link presence; it never receives a meeting URL and
+has no join action.
+
+ADR 0015 refines the single-selection policy after a live multi-day all-day
+entry masked the next scheduled appointment. Candidate expansion now preserves
+the internal all-day flag. Active timed events rank first, then upcoming timed
+events; active and upcoming all-day entries remain fallbacks. The widget
+derives a relative `In …` or `Ends in …` label from the approved start/end
+fields and continues to display the exact local time range.
+
+ADR 0016 adds a bounded active-event acknowledgement flow. When the primary is
+active, the semantic DTO may also contain exactly one earliest future
+companion. Both events retain the existing private-content fields plus a
+non-sensitive `allDay` boolean so contextual fallbacks never trigger call
+alerts. The widget uses a fixed five-minute amber warning, a red pulse from
+timed-event start until **I'm in**, and normal current-plus-next presentation
+after acknowledgement. Acknowledgement is keyed only by start/end in React
+process memory; it never crosses IPC, persists, or writes to a provider. Event
+timestamps render with a forced 24-hour clock, and reduced-motion preferences
+disable animation without removing the alert color.
 
 ## Tauri IPC and security
 

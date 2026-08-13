@@ -2,11 +2,23 @@
 
 ## Product statement
 
-Attention Hub is a small, persistent Windows information panel that answers:
+Attention Hub is a small, movable Windows desktop widget that answers:
 
 > What currently needs my attention?
 
-It is an observer, not a container. Microsoft Teams, Microsoft Outlook, Telegram, and other applications continue to run independently in their existing windows and positions. Attention Hub observes useful operating-system state and presents a compact, persistent summary controlled by the user.
+It is an observer, not a container. Microsoft Teams, Microsoft Outlook,
+Telegram, and other applications continue to run independently. Attention Hub
+composes a compact user-positioned widget from source-owned operating-system
+state, local clocks, and an approved passive calendar source.
+
+The intended widget has three stable zones:
+
+1. live communication application icons and badges on the left;
+2. large local and configurable secondary-zone clocks in the center;
+3. the active or next work-calendar event on the right.
+
+Detailed source health, settings, and evidence belong in an on-demand Advanced
+window rather than in the primary at-a-glance surface.
 
 ## Problem
 
@@ -38,10 +50,38 @@ The first milestone is intentionally a technical spike. It must prove that usefu
 
 Milestone 0 supports continuing with constraints: Tauri and a small Windows boundary are viable, but there is no universal cross-application unread-count contract. The next product priority is calendar awareness—especially upcoming Outlook/Teams meetings—because time-bound commitments are more actionable than further reverse-engineering of one application's badge. The first calendar hypothesis remains local-first and credential-free through Windows' appointment store; Microsoft Graph requires a separate product-policy decision.
 
+Calendar investigation subsequently established that Windows' appointment data
+is stale legacy residue and that the Microsoft 365 Calendar companion exposes
+useful event structure only while its flyout is visible. Attention Hub's own
+Graph work remains paused before registration or consent because it requires an
+organization-owned policy decision. Milestone 3B therefore validates the actual
+widget form factor and native visual composition with the already-proven Teams
+and Telegram taskbar surfaces. Milestone 4A tests one final bounded local
+hypothesis: whether a user-opened New Outlook My Day Calendar tree remains
+passively available while covered or minimized. The first phase exposes only
+sanitized structure and keeps semantic extraction disabled. The widget retains
+a truthful calendar-unavailable state. The gate passed while Outlook was
+visible and fully covered but failed when Outlook was minimized, so the New
+Outlook My Day UI Automation provider is rejected and semantic extraction did
+not begin. Milestone 4B tests a user-controlled Published ICS source before
+Graph: one exact calendar, a secret-safe bounded fetch, and sanitized structure
+and freshness evidence only. The Microsoft 365 Calendar companion remains the
+visible comparison oracle during that test; it is not treated as a background
+API. The structure/freshness gate passed a harmless create/update/delete cycle,
+so Published ICS remains the leading provider candidate for a bounded semantic
+phase before any widget integration. The user approved the title-capable
+publication tradeoff, and Milestone 4C implements a separate one-shot
+current/next semantic gate that deliberately discards location and meeting
+URLs. Live semantic validation is still required before any production provider
+or widget decision.
+
 ## Success direction
 
 Attention Hub should eventually be useful at a glance, remain quiet when nothing needs attention, and require no duplicate account configuration. Milestone 0 succeeds more narrowly when it produces enough evidence to decide whether source-owned Windows desktop state, optional notification state, and Tauri are a viable foundation.
 
 ## Non-goals for the current milestone
 
-Milestone 0 does not include production UI, a design system, calendar integration, history storage, settings, themes, tray behavior, autostart, global shortcuts, application launching/focusing, filtering UI, privacy mode, production installation/update work, cloud functionality, analytics, or telemetry.
+Milestone 3B does not add Slack or Viber observation, a calendar provider,
+semantic Teams counts, OCR, image recognition, pixel readback, application
+input, a final design system, autostart, installation/update work, analytics, or
+telemetry.
