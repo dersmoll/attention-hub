@@ -363,14 +363,14 @@ mod windows_probe {
                     AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow,
                     DispatchMessageW, EnumWindows, FindWindowW, GetClassNameW, GetForegroundWindow,
                     GetMessageW, GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowRect,
-                    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, LoadCursorW,
-                    PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow, SetTimer,
-                    SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
-                    CW_USEDEFAULT, GWL_EXSTYLE, GW_OWNER, IDC_HAND, MSG, SM_CXSCREEN, SM_CYSCREEN,
-                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SW_HIDE, SW_RESTORE,
-                    SW_SHOWNOACTIVATE, SW_SHOWNORMAL, WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY,
-                    WM_LBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-                    WS_OVERLAPPEDWINDOW, WS_POPUP,
+                    GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindow,
+                    IsWindowVisible, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
+                    SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage,
+                    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWL_EXSTYLE, GW_OWNER, IDC_HAND, MSG,
+                    SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SW_HIDE,
+                    SW_RESTORE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, WINDOW_EX_STYLE, WM_CLOSE,
+                    WM_DESTROY, WM_LBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE,
+                    WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_POPUP,
                 },
             },
         },
@@ -753,12 +753,20 @@ mod windows_probe {
             )
         })?;
 
-        if unsafe { IsIconic(window) }.as_bool() {
+        let restored_from_hidden = !unsafe { IsWindowVisible(window) }.as_bool();
+        if restored_from_hidden {
+            unsafe {
+                let _ = ShowWindow(window, SW_SHOWNORMAL);
+            }
+        } else if unsafe { IsIconic(window) }.as_bool() {
             unsafe {
                 let _ = ShowWindow(window, SW_RESTORE);
             }
         }
         if !unsafe { SetForegroundWindow(window) }.as_bool() {
+            if restored_from_hidden && unsafe { IsWindowVisible(window) }.as_bool() {
+                return Ok(());
+            }
             return Err(Error::new(
                 E_FAIL,
                 format!(
@@ -879,9 +887,7 @@ mod windows_probe {
         let foreground = unsafe { GetForegroundWindow() };
         let mut candidates = Vec::new();
         for window in enumerate_top_level_windows()? {
-            if !unsafe { IsWindowVisible(window) }.as_bool() {
-                continue;
-            }
+            let visible = unsafe { IsWindowVisible(window) }.as_bool();
             let ex_style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) } as u32;
             if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
                 continue;
@@ -912,14 +918,52 @@ mod windows_probe {
             }
             let area = i64::from((bounds.right - bounds.left).max(0))
                 .saturating_mul(i64::from((bounds.bottom - bounds.top).max(0)));
-            candidates.push((window, area));
+            let width = (bounds.right - bounds.left).max(0);
+            let height = (bounds.bottom - bounds.top).max(0);
+            let title_length = unsafe { GetWindowTextLengthW(window) };
+            let class_name = window_class_name(window);
+            if !source_window_candidate_is_usable(
+                source,
+                visible,
+                title_length,
+                width,
+                height,
+                &class_name,
+            ) {
+                continue;
+            }
+            candidates.push((window, visible, area));
         }
 
-        candidates.sort_by_key(|(window, area)| {
+        candidates.sort_by_key(|(window, visible, area)| {
+            let visibility_rank = u8::from(!visible);
             let foreground_rank = u8::from(window.0 != foreground.0);
-            (foreground_rank, std::cmp::Reverse(*area))
+            (visibility_rank, foreground_rank, std::cmp::Reverse(*area))
         });
-        Ok(candidates.first().map(|(window, _)| *window))
+        Ok(candidates.first().map(|(window, _, _)| *window))
+    }
+
+    fn source_window_candidate_is_usable(
+        source: AttentionAppSource,
+        visible: bool,
+        title_length: i32,
+        width: i32,
+        height: i32,
+        class_name: &str,
+    ) -> bool {
+        let messenger_class_matches = match source {
+            AttentionAppSource::Slack => class_name == "Chrome_WidgetWin_1",
+            AttentionAppSource::Viber => class_name.ends_with("QWindowIcon"),
+            AttentionAppSource::WhatsApp => class_name == "WinUIDesktopWin32WindowClass",
+            _ => return visible,
+        };
+        if !messenger_class_matches || width < MINIMUM_WINDOW_CLIENT_WIDTH || height < 200 {
+            return false;
+        }
+        if visible {
+            return true;
+        }
+        title_length > 0
     }
 
     fn source_executable_matches(source: AttentionAppSource, executable: &str) -> bool {
@@ -2097,10 +2141,10 @@ mod windows_probe {
     #[cfg(test)]
     mod tests {
         use super::{
-            fit_within, source_identity_matches, source_name_matches, square_source_crop,
-            widget_slot_left, RECT,
+            fit_within, source_identity_matches, source_name_matches,
+            source_window_candidate_is_usable, square_source_crop, widget_slot_left, RECT,
         };
-        use crate::teams_mirror::TaskbarMirrorSource;
+        use crate::teams_mirror::{AttentionAppSource, TaskbarMirrorSource};
 
         #[test]
         fn source_matching_keeps_fixed_sources_distinct() {
@@ -2161,6 +2205,74 @@ mod windows_probe {
             assert_eq!(widget_slot_left(1, 6), 68);
             assert_eq!(widget_slot_left(5, 6), 292);
             assert_eq!(widget_slot_left(0, 1), 12);
+        }
+
+        #[test]
+        fn hidden_restore_candidates_are_bounded_to_messenger_main_windows() {
+            assert!(source_window_candidate_is_usable(
+                AttentionAppSource::Viber,
+                false,
+                13,
+                1179,
+                1066,
+                "Qt6103QWindowIcon",
+            ));
+            assert!(source_window_candidate_is_usable(
+                AttentionAppSource::WhatsApp,
+                false,
+                8,
+                1116,
+                861,
+                "WinUIDesktopWin32WindowClass",
+            ));
+            assert!(!source_window_candidate_is_usable(
+                AttentionAppSource::Viber,
+                false,
+                22,
+                1884,
+                1059,
+                "Qt6103TrayIconMessageWindowClass",
+            ));
+            assert!(!source_window_candidate_is_usable(
+                AttentionAppSource::Outlook,
+                false,
+                8,
+                1116,
+                861,
+                "WinUIDesktopWin32WindowClass",
+            ));
+            assert!(source_window_candidate_is_usable(
+                AttentionAppSource::Slack,
+                false,
+                12,
+                1200,
+                800,
+                "Chrome_WidgetWin_1",
+            ));
+            assert!(!source_window_candidate_is_usable(
+                AttentionAppSource::Slack,
+                false,
+                0,
+                1884,
+                1059,
+                "Chrome_WidgetWin_0",
+            ));
+            assert!(!source_window_candidate_is_usable(
+                AttentionAppSource::Slack,
+                true,
+                48,
+                160,
+                28,
+                "Chrome_WidgetWin_1",
+            ));
+            assert!(source_window_candidate_is_usable(
+                AttentionAppSource::Outlook,
+                true,
+                0,
+                800,
+                600,
+                "UnchangedVisibleOutlookWindow",
+            ));
         }
     }
 }

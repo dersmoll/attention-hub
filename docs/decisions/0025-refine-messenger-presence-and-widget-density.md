@@ -22,10 +22,14 @@ interpretation was not attempted.
 
 - Detect fixed messenger presence with the Windows process snapshot, independent
   of visible or UI Automation windows. Continue to report unread as not exposed.
-- Keep activation bounded to an existing source-owned window; process presence
-  does not authorize launching an application or clicking its tray icon.
+- Keep activation bounded to an existing source-owned window. For fixed
+  messengers only, a titled, unowned, non-tool hidden window with main-window
+  dimensions and the source's known main-window class may be restored from the
+  tray. Process presence does not authorize launching an application or
+  clicking its tray icon. A successful restore remains successful if Windows
+  shows the window but declines a separate foreground-focus request.
 - Give the converter's native time input an explicit high-contrast light color
-  scheme.
+  scheme and enough width for the complete `HH:mm` value and native picker.
 - Add a persisted Compact/Auto/Wide width preference. Compact uses a 304-pixel
   calendar, Auto uses 336 pixels for one event and 432 pixels only for the
   acknowledged-current-plus-next composition, and Wide always uses 432 pixels.
