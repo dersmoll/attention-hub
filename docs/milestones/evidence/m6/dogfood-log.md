@@ -39,9 +39,11 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
   three recorded Explorer restarts, and secondary-to-primary-to-secondary
   movement
 - Source availability periods by `observed`, `notRunning`, `notExposed`, or
-  `error`: semantic details were not persisted from this lifecycle-only pass
-- Outlook fresh/last-observed/cleared transitions: not executable from the
-  current `notExposed` baseline; no fresh value was invented
+  `error`: Teams and Telegram were `observed`; Outlook moved between `observed`
+  and explicit `lastObserved`; no source values were persisted
+- Outlook fresh/last-observed/cleared transitions: three real minimize/restore
+  cycles passed `observed` → `lastObserved` → `observed`; stopped/cleared was not
+  executed because the closeout did not terminate Outlook
 - Mirror hide/recovery behavior: one first-cycle Explorer restart exposed only
   the Teams surface at the 35-second deadline; the next restart recovered both
   in 6.49 seconds and a settled recheck recovered both in 14.34 seconds; both
@@ -62,7 +64,8 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
   the settled state
 - No-issue cases explicitly observed: startup, restart, Explorer recovery,
   S3 resume, same-DPI monitor movement, preference/uninstall retention, in-place
-  upgrade, and the resource threshold gate
+  upgrade, Outlook minimized fallback/recovery, Advanced isolation, complete
+  normal process-tree exit, and the resource threshold gate
 
 ## Five-day exit summary
 

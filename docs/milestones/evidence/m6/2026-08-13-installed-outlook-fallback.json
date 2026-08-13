@@ -1,0 +1,54 @@
+{
+  "CapturedAt": "2026-08-13T15:27:02.5342430+03:00",
+  "ExecutablePath": "C:\\Users\\dersm\\AppData\\Local\\Attention Hub\\attention-hub.exe",
+  "Version": "0.4.0-beta.1",
+  "ProcessId": 11944,
+  "Privacy": "Only classifications, timings, and process continuity recorded; no counts, labels, account identifiers, content, or pixels.",
+  "InitialClassification": "observed",
+  "OutlookCycles": [
+    {
+      "Cycle": 1,
+      "Status": "passed",
+      "MinimizedClassification": "lastObserved",
+      "MinimizedTransitionMilliseconds": 5089.0,
+      "RestoredClassification": "observed",
+      "RestoredTransitionMilliseconds": 5650.0
+    },
+    {
+      "Cycle": 2,
+      "Status": "passed",
+      "MinimizedClassification": "lastObserved",
+      "MinimizedTransitionMilliseconds": 5389.0,
+      "RestoredClassification": "observed",
+      "RestoredTransitionMilliseconds": 5393.0
+    },
+    {
+      "Cycle": 3,
+      "Status": "passed",
+      "MinimizedClassification": "lastObserved",
+      "MinimizedTransitionMilliseconds": 5408.0,
+      "RestoredClassification": "observed",
+      "RestoredTransitionMilliseconds": 5420.0
+    }
+  ],
+  "OutlookProcessCountBefore": 1,
+  "OutlookProcessCountAfter": 1,
+  "AdvancedCycles": [
+    {
+      "Cycle": 1,
+      "Status": "passed",
+      "OpenMilliseconds": 2218.0,
+      "WidgetSurvived": true,
+      "ApplicationSurvived": true
+    },
+    {
+      "Cycle": 2,
+      "Status": "passed",
+      "OpenMilliseconds": 2263.0,
+      "WidgetSurvived": true,
+      "ApplicationSurvived": true
+    }
+  ],
+  "ApplicationStillRunning": true,
+  "WidgetStillAvailable": true
+}

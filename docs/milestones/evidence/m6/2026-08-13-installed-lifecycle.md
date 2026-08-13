@@ -43,6 +43,24 @@
   208, and 194 ms.
 - Every cycle restored `-1040,985,960,80` and two visible 40 by 40 native
   surfaces. No development server was listening on port 1420.
+- One additional normal widget close removed the complete Attention Hub-owned
+  process tree. A direct installed restart exposed the widget after 203 ms.
+
+## Outlook fallback and Advanced isolation
+
+- With a real running Outlook window, the widget initially classified Outlook
+  as `observed`. No unread value, source label, account identifier, or content
+  was persisted in the diagnostic.
+- Three minimize/restore cycles passed. Minimize changed the widget to explicit
+  `lastObserved` after 5.09, 5.39, and 5.41 seconds. Restore returned it to fresh
+  `observed` after 5.65, 5.39, and 5.42 seconds.
+- The same Outlook process remained running throughout. Outlook termination and
+  the corresponding `notRunning` clear remain user-driven because this pass did
+  not stop source applications.
+- Advanced opened and closed twice in 2.22 and 2.26 seconds. Each close destroyed
+  only Advanced; the widget and installed process remained available.
+- `scripts/windows/test-attention-hub-outlook-fallback.ps1` records only state
+  classifications, transition timings, and process continuity.
 
 ## Explorer and display recovery
 
@@ -126,6 +144,7 @@ clean-machine installation.
   execution therefore requires an explicit Windows feature/VM decision.
 - Mixed-DPI and display disconnect/reconnect remain unavailable without changing
   the current Windows display configuration.
-- Outlook fresh/last-observed/cleared transitions, real taskbar-button reorder,
-  and source close/reopen/activation cases require the corresponding real source
-  state; none was fabricated for this closeout.
+- Outlook observed/minimized-last-observed/restored-observed transitions passed.
+  Outlook stopped/cleared, real taskbar-button reorder, source close/reopen, and
+  real-user source/native-surface activation remain manual because this
+  closeout did not terminate source apps or synthesize user foreground input.
