@@ -9,6 +9,7 @@ use attention_signals::AttentionSignalSnapshot;
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
+use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use teams_mirror::{
     AttentionAppSource, TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus,
@@ -181,6 +182,87 @@ fn stop_telegram_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarM
 }
 
 #[tauri::command]
+fn get_taskbar_mirror_status(
+    state: tauri::State<'_, TaskbarMirrorState>,
+    source_key: String,
+) -> Result<TaskbarMirrorStatus, String> {
+    let source = TaskbarMirrorSource::from_key(&source_key)
+        .ok_or_else(|| format!("Unsupported visual source: {source_key}"))?;
+    Ok(state.status(source))
+}
+
+#[tauri::command]
+fn start_taskbar_mirror(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, TaskbarMirrorState>,
+    source_key: String,
+) -> Result<TaskbarMirrorStatus, String> {
+    let source = TaskbarMirrorSource::from_key(&source_key)
+        .ok_or_else(|| format!("Unsupported visual source: {source_key}"))?;
+    #[cfg(target_os = "windows")]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "Attention Hub widget window is unavailable.".to_owned())?;
+        let owner = window
+            .hwnd()
+            .map_err(|error| format!("Could not access the Attention Hub widget: {error}"))?;
+        state.start(source, owner.0 as isize)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        state.start(source, 0)
+    }
+}
+
+#[tauri::command]
+fn stop_taskbar_mirror(
+    state: tauri::State<'_, TaskbarMirrorState>,
+    source_key: String,
+) -> Result<TaskbarMirrorStatus, String> {
+    let source = TaskbarMirrorSource::from_key(&source_key)
+        .ok_or_else(|| format!("Unsupported visual source: {source_key}"))?;
+    Ok(state.stop(source))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskbarMirrorSlot {
+    source_key: String,
+    slot: i32,
+}
+
+#[tauri::command]
+fn set_fixed_taskbar_mirror_layout(
+    state: tauri::State<'_, TaskbarMirrorState>,
+    source_slots: Vec<TaskbarMirrorSlot>,
+    visible_source_count: i32,
+) -> Result<(), String> {
+    if !(0..=6).contains(&visible_source_count) {
+        return Err("Visible source count must be from 0 through 6.".into());
+    }
+    let mut seen_sources = Vec::new();
+    let mut seen_slots = Vec::new();
+    for item in source_slots {
+        let source = TaskbarMirrorSource::from_key(&item.source_key)
+            .ok_or_else(|| format!("Unsupported visual source: {}", item.source_key))?;
+        if item.slot < 0
+            || item.slot >= visible_source_count
+            || seen_sources.contains(&source)
+            || seen_slots.contains(&item.slot)
+        {
+            return Err("Visual source slots must be unique visible app positions.".into());
+        }
+        seen_sources.push(source);
+        seen_slots.push(item.slot);
+        state.set_layout(source, Some(item.slot), visible_source_count);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn set_taskbar_mirror_layout(
     state: tauri::State<'_, TaskbarMirrorState>,
     teams_slot: Option<i32>,
@@ -242,6 +324,10 @@ pub fn run() {
             get_telegram_mirror_status,
             start_telegram_mirror,
             stop_telegram_mirror,
+            get_taskbar_mirror_status,
+            start_taskbar_mirror,
+            stop_taskbar_mirror,
+            set_fixed_taskbar_mirror_layout,
             set_taskbar_mirror_layout,
             activate_attention_source,
             quit_application

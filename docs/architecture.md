@@ -3,9 +3,9 @@
 ## Status
 
 This document describes the implemented Windows observation architecture
-through the Milestone 4D saved work-calendar widget integration. Notification
-access, sparse identity, the source-owned attention-signal path, live Teams and
-Telegram taskbar crops, the movable widget shell, and one Published ICS
+through the Milestone 8 fixed-messenger and clock refinement. Notification
+access, sparse identity, the source-owned attention-signal path, five fixed live
+taskbar crops, the responsive movable widget shell, and one Published ICS
 active-or-next selection have been validated to their recorded milestone
 gates; multi-monitor reliability, additional sources, remaining calendar edge
 cases, and daily product usefulness remain under test.
@@ -47,20 +47,20 @@ Tauri commands/events -> React debug UI
 
 Observation remains read-only. The only source-window action is an explicit
 user activation from an app button: Attention Hub may restore and foreground an
-existing Teams, Telegram, or Outlook top-level window, but it does not launch,
+existing fixed-source top-level window, but it does not launch,
 click inside, type into, dismiss, or otherwise control the source application.
 
 ## Window and visual composition
 
-The primary Tauri window is a fixed-height, frameless widget with three React
-zones. It is skipped from the taskbar, starts pinned, and uses supported Tauri
-window APIs for dragging, always-on-top, physical position events, and
+The primary Tauri window is a fixed-height, responsive-width frameless widget
+with three React zones. It is skipped from the taskbar, starts pinned, and uses
+supported Tauri window APIs for dragging, always-on-top, physical position events, and
 work-area-aware position restoration. Local storage keeps only widget position,
-pin state, the selected IANA timezone, normalized panel appearance, the three
+pin state, the selected IANA timezone, normalized panel appearance, the six
 fixed app keys in their user-selected order, the selected subset of those fixed
-sources, and the independent Teams/Telegram live-visual preferences; it does
+sources, and the independent five-source live-visual preferences; it does
 not persist attention data or source labels. Missing source-control fields
-migrate to all three sources and both visuals enabled. Tauri events synchronize
+migrate once to the six-source catalog and five visuals enabled. Tauri events synchronize
 that record between the widget and Advanced WebViews.
 
 The Advanced WebView is created only when the ellipsis is activated and is
@@ -69,7 +69,7 @@ diagnostic initialization out of the ordinary widget runtime.
 
 DWM thumbnails registered on the Tauri parent render behind its WebView child,
 so live taskbar visuals cannot be React components. React owns local fallback
-glyphs; Rust owns two rounded, borderless, no-activate inset surfaces owned by
+glyphs; Rust owns five rounded, borderless, no-activate inset surfaces owned by
 the widget:
 
 ```text
@@ -78,8 +78,9 @@ source app window monitor
        | UIA discovers one source rectangle
        | DWM composes source pixels
        v
-Teams live tile   Telegram live tile   Outlook React button
-       \             /
+Teams  Telegram  Outlook  Slack  Viber  WhatsApp
+ live    live     React    live   live    live
+       \          |          /
         local-glyph button slots
                |
                v
@@ -88,22 +89,23 @@ Teams live tile   Telegram live tile   Outlook React button
 
 Each 40-pixel rounded popup is centered with a 4-pixel inset inside its current
 48-pixel ordered button and tracks the widget's physical position, current DPI,
-visible-source count, and shared Teams or Telegram slot index every 100 ms
+visible-source count, and fixed-source slot index every 100 ms
 while its existing cached source-rectangle check runs. Once per second a cheap
 top-level-window/taskbar topology check detects monitor movement, taskbar-count
 changes, and Explorer replacement; a full UI Automation rediscovery runs only
 when recovery is required. Each popup composes a bounded square around the
-complete taskbar button and starts only while the separate source signal reports
-attention. Owned tool windows do not create taskbar buttons or
+complete taskbar button. Teams and Telegram start only while their separate
+source signal reports attention; Slack, Viber, and WhatsApp follow observed app
+presence. Owned tool windows do not create taskbar buttons or
 take focus. If discovery becomes absent or ambiguous, the popup hides while the
-local glyph and semantic React state remain available. The two sources have
+local glyph and React state remain available. The five sources have
 separate lifecycle/status records and failures.
 
 The selected React slots are real buttons with keyboard focus, accessible status
 labels, stale/retrying/unavailable presentation, and local app glyphs. A user
 activation restores and foregrounds an existing source-owned top-level window.
 It never launches an application or forwards input into application content.
-The two native DWM inset surfaces handle the same activation on pointer release
+The five native DWM inset surfaces handle the same activation on pointer release
 while remaining visual-only.
 
 No bitmap crosses into Attention Hub. DWM retains pixel composition, and the
@@ -114,7 +116,9 @@ or inaccessible Outlook labels are `notExposed`, never zero. After one observed
 Outlook result, the React widget can retain that count in process memory while a
 running/minimized Outlook becomes `notExposed`. The fallback is explicitly
 styled and announced as last-observed, updates when observation returns, and is
-cleared when Outlook is no longer running or Attention Hub restarts.
+cleared when Outlook is no longer running or Attention Hub restarts. Slack,
+Viber, and WhatsApp expose app presence and optional visual-only taskbar
+surfaces, but do not contribute to semantic coverage or all-clear claims.
 
 The completed Teams exact-count experiment used an explicitly separate manual diagnostic. It performed a broader Teams-owned accessibility traversal only on demand and never entered the normal two-second attention-snapshot loop. Raw Teams accessibility values were inspected transiently in Rust and discarded; only sanitized structural metadata crossed Tauri IPC. The experiment found no useful numeric badge property and its command, DTOs, native traversal, and React table were removed. Only the qualitative Teams `activityStatus` signal remains implemented.
 
@@ -192,7 +196,7 @@ interface AttentionSignalSnapshot {
 }
 
 interface AttentionSourceObservation {
-  sourceKey: "telegram" | "outlook" | "teams";
+  sourceKey: "telegram" | "outlook" | "teams" | "slack" | "viber" | "whatsapp";
   displayName: string;
   state: "observed" | "notRunning" | "notExposed" | "error";
   signals: AttentionSignal[];

@@ -16,7 +16,9 @@ import type {
 } from "./work-calendar-model";
 import {
   type AttentionAppKey,
+  type LiveVisualAppKey,
   DEFAULT_APP_ORDER,
+  DEFAULT_LIVE_VISUAL_SOURCES,
   DEFAULT_WIDGET_PREFERENCES,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
@@ -180,7 +182,7 @@ function AdvancedView() {
   );
 
   const toggleLiveVisual = useCallback(
-    (sourceKey: "teams" | "telegram") => {
+    (sourceKey: LiveVisualAppKey) => {
       const selected = new Set(widgetPreferences.liveVisualSources);
       if (selected.has(sourceKey)) {
         selected.delete(sourceKey);
@@ -188,7 +190,7 @@ function AdvancedView() {
         selected.add(sourceKey);
       }
       applyWidgetPreferences({
-        liveVisualSources: (["teams", "telegram"] as const).filter((key) =>
+        liveVisualSources: DEFAULT_LIVE_VISUAL_SOURCES.filter((key) =>
           selected.has(key),
         ),
       });
@@ -566,6 +568,9 @@ function AdvancedView() {
                   teams: "Microsoft Teams",
                   telegram: "Telegram",
                   outlook: "Microsoft Outlook",
+                  slack: "Slack",
+                  viber: "Viber",
+                  whatsapp: "WhatsApp",
                 };
                 return (
                   <li key={sourceKey}>
@@ -593,8 +598,8 @@ function AdvancedView() {
               })}
             </ol>
             <small>
-              Advanced remains fixed at the end. Native Teams and Telegram
-              visuals follow their app positions.
+              Advanced remains fixed at the end. Enabled native visual surfaces
+              follow their app positions.
             </small>
             <button
               onClick={() =>
@@ -609,8 +614,9 @@ function AdvancedView() {
           <fieldset className="widget-preference-card">
             <legend>Source monitoring</legend>
             <p>
-              Monitoring {widgetPreferences.monitoredSources.length} of 3 fixed
-              sources. A disabled source is excluded, never treated as clear.
+              Showing {widgetPreferences.monitoredSources.length} of 6 fixed
+              sources. The first three provide semantic attention state; the
+              messenger additions provide app presence and visual-only badges.
             </p>
             <div className="widget-source-controls">
               {widgetPreferences.appOrder.map((sourceKey) => {
@@ -618,6 +624,9 @@ function AdvancedView() {
                   teams: "Microsoft Teams",
                   telegram: "Telegram",
                   outlook: "Microsoft Outlook",
+                  slack: "Slack",
+                  viber: "Viber",
+                  whatsapp: "WhatsApp",
                 };
                 const monitored = widgetPreferences.monitoredSources.includes(
                   sourceKey,
@@ -631,7 +640,7 @@ function AdvancedView() {
                         onChange={() => toggleMonitoredSource(sourceKey)}
                         type="checkbox"
                       />
-                      Monitor {labels[sourceKey]}
+                        Show {labels[sourceKey]}
                     </label>
                     {supportsVisual && (
                       <label className="widget-source-control__visual">
@@ -643,7 +652,7 @@ function AdvancedView() {
                           onChange={() => toggleLiveVisual(sourceKey)}
                           type="checkbox"
                         />
-                        Show live taskbar visual when attention is reported
+                        Show live taskbar icon and badge surface
                       </label>
                     )}
                   </div>
@@ -658,7 +667,7 @@ function AdvancedView() {
               onClick={() =>
                 applyWidgetPreferences({
                   monitoredSources: [...DEFAULT_APP_ORDER],
-                  liveVisualSources: ["teams", "telegram"],
+                  liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
                 })
               }
               type="button"

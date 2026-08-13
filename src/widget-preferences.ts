@@ -2,10 +2,17 @@ export const WIDGET_PREFERENCES_KEY = "attention-hub.widget.v1";
 export const WIDGET_PREFERENCES_CHANGED_EVENT = "widget-preferences-changed";
 export const DEFAULT_TIME_ZONE = "America/New_York";
 
-export type AttentionAppKey = "teams" | "telegram" | "outlook";
-export type LiveVisualAppKey = "teams" | "telegram";
+export type AttentionAppKey =
+  | "teams"
+  | "telegram"
+  | "outlook"
+  | "slack"
+  | "viber"
+  | "whatsapp";
+export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
 
 export interface WidgetPreferences {
+  sourceCatalogVersion: 2;
   pinned: boolean;
   secondaryTimeZone: string;
   x: number | null;
@@ -21,13 +28,22 @@ export const DEFAULT_APP_ORDER: AttentionAppKey[] = [
   "teams",
   "telegram",
   "outlook",
+  "slack",
+  "viber",
+  "whatsapp",
 ];
 export const DEFAULT_LIVE_VISUAL_SOURCES: LiveVisualAppKey[] = [
   "teams",
   "telegram",
+  "slack",
+  "viber",
+  "whatsapp",
 ];
+const LEGACY_APP_ORDER: AttentionAppKey[] = ["teams", "telegram", "outlook"];
+const LEGACY_LIVE_VISUAL_SOURCES: LiveVisualAppKey[] = ["teams", "telegram"];
 
 export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
+  sourceCatalogVersion: 2,
   pinned: true,
   secondaryTimeZone: DEFAULT_TIME_ZONE,
   x: null,
@@ -69,7 +85,10 @@ function normalizeCoordinate(value: unknown) {
     : null;
 }
 
-function normalizeAppOrder(value: unknown): AttentionAppKey[] {
+function normalizeAppOrder(
+  value: unknown,
+  migrateLegacyCatalog: boolean,
+): AttentionAppKey[] {
   if (!Array.isArray(value)) {
     return [...DEFAULT_APP_ORDER];
   }
@@ -78,27 +97,52 @@ function normalizeAppOrder(value: unknown): AttentionAppKey[] {
     (key, index): key is AttentionAppKey =>
       supported.has(key as AttentionAppKey) && value.indexOf(key) === index,
   );
-  return unique.length === DEFAULT_APP_ORDER.length
-    ? unique
-    : [...DEFAULT_APP_ORDER];
+  if (unique.length === DEFAULT_APP_ORDER.length) {
+    return unique;
+  }
+  if (
+    migrateLegacyCatalog &&
+    unique.length === LEGACY_APP_ORDER.length &&
+    LEGACY_APP_ORDER.every((key) => unique.includes(key))
+  ) {
+    return [
+      ...unique,
+      ...DEFAULT_APP_ORDER.filter((key) => !unique.includes(key)),
+    ];
+  }
+  return [...DEFAULT_APP_ORDER];
 }
 
 function normalizeSourceSubset<T extends AttentionAppKey>(
   value: unknown,
   supportedSources: readonly T[],
   fallback: readonly T[],
+  legacyDefaults: readonly T[] = [],
+  migrateLegacyCatalog = false,
 ): T[] {
   if (!Array.isArray(value)) {
     return [...fallback];
   }
   const selected = new Set(value);
-  return supportedSources.filter((sourceKey) => selected.has(sourceKey));
+  const normalized = supportedSources.filter((sourceKey) =>
+    selected.has(sourceKey),
+  );
+  if (
+    migrateLegacyCatalog &&
+    normalized.length === legacyDefaults.length &&
+    legacyDefaults.every((key) => normalized.includes(key))
+  ) {
+    return [...fallback];
+  }
+  return normalized;
 }
 
 export function normalizeWidgetPreferences(
   value: Partial<WidgetPreferences> | null | undefined,
 ): WidgetPreferences {
+  const migrateLegacyCatalog = value?.sourceCatalogVersion !== 2;
   return {
+    sourceCatalogVersion: 2,
     pinned:
       typeof value?.pinned === "boolean"
         ? value.pinned
@@ -108,16 +152,20 @@ export function normalizeWidgetPreferences(
     y: normalizeCoordinate(value?.y),
     panelColor: normalizeColor(value?.panelColor),
     panelOpacity: normalizeOpacity(value?.panelOpacity),
-    appOrder: normalizeAppOrder(value?.appOrder),
+    appOrder: normalizeAppOrder(value?.appOrder, migrateLegacyCatalog),
     monitoredSources: normalizeSourceSubset(
       value?.monitoredSources,
       DEFAULT_APP_ORDER,
       DEFAULT_WIDGET_PREFERENCES.monitoredSources,
+      LEGACY_APP_ORDER,
+      migrateLegacyCatalog,
     ),
     liveVisualSources: normalizeSourceSubset(
       value?.liveVisualSources,
       DEFAULT_LIVE_VISUAL_SOURCES,
       DEFAULT_WIDGET_PREFERENCES.liveVisualSources,
+      LEGACY_LIVE_VISUAL_SOURCES,
+      migrateLegacyCatalog,
     ),
   };
 }

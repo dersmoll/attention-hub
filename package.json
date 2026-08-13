@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "test:attention-model": "node scripts/test-attention-model.mjs",
     "test:preferences": "node scripts/test-widget-preferences.mjs",
+    "test:time-zone": "node scripts/test-time-zone-converter.mjs",
+    "test:widget-layout": "node scripts/test-widget-layout.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

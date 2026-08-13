@@ -1,0 +1,25 @@
+export const WIDGET_CLOCK_WIDTH = 296;
+export const WIDGET_CALENDAR_WIDTH = 432;
+export const WIDGET_ZONE_GAP = 8;
+export const WIDGET_ICON_SIZE = 48;
+export const WIDGET_ICON_GAP = 8;
+export const WIDGET_LEFT_PADDING = 24;
+
+export function widgetLeftWidth(visibleSourceCount: number) {
+  const boundedCount = Math.min(6, Math.max(0, Math.trunc(visibleSourceCount)));
+  const appCount = boundedCount + 1;
+  return (
+    WIDGET_LEFT_PADDING +
+    appCount * WIDGET_ICON_SIZE +
+    Math.max(0, appCount - 1) * WIDGET_ICON_GAP
+  );
+}
+
+export function widgetWidth(visibleSourceCount: number) {
+  return (
+    widgetLeftWidth(visibleSourceCount) +
+    WIDGET_CLOCK_WIDTH +
+    WIDGET_CALENDAR_WIDTH +
+    WIDGET_ZONE_GAP * 2
+  );
+}

@@ -30,15 +30,23 @@ const legacy = preferences.normalizeWidgetPreferences({
   y: -45.6,
 });
 assert.deepEqual(legacy, {
+  sourceCatalogVersion: 2,
   pinned: false,
   secondaryTimeZone: "Europe/Kyiv",
   x: 120,
   y: -46,
   panelColor: "#f8fafc",
   panelOpacity: 100,
-  appOrder: ["teams", "telegram", "outlook"],
-  monitoredSources: ["teams", "telegram", "outlook"],
-  liveVisualSources: ["teams", "telegram"],
+  appOrder: ["teams", "telegram", "outlook", "slack", "viber", "whatsapp"],
+  monitoredSources: [
+    "teams",
+    "telegram",
+    "outlook",
+    "slack",
+    "viber",
+    "whatsapp",
+  ],
+  liveVisualSources: ["teams", "telegram", "slack", "viber", "whatsapp"],
 });
 
 const malformed = preferences.normalizeWidgetPreferences({
@@ -56,13 +64,50 @@ assert.deepEqual(malformed, {
 });
 
 const sourceControls = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
   monitoredSources: ["outlook", "unsupported", "outlook"],
   liveVisualSources: ["telegram", "outlook", "telegram"],
 });
 assert.deepEqual(sourceControls.monitoredSources, ["outlook"]);
 assert.deepEqual(sourceControls.liveVisualSources, ["telegram"]);
 
+const migratedFixedSources = preferences.normalizeWidgetPreferences({
+  appOrder: ["outlook", "teams", "telegram"],
+  monitoredSources: ["teams", "telegram", "outlook"],
+  liveVisualSources: ["teams", "telegram"],
+});
+assert.deepEqual(migratedFixedSources.appOrder, [
+  "outlook",
+  "teams",
+  "telegram",
+  "slack",
+  "viber",
+  "whatsapp",
+]);
+assert.deepEqual(
+  migratedFixedSources.monitoredSources,
+  preferences.DEFAULT_APP_ORDER,
+);
+assert.deepEqual(
+  migratedFixedSources.liveVisualSources,
+  preferences.DEFAULT_LIVE_VISUAL_SOURCES,
+);
+
+const currentFixedSources = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
+  appOrder: preferences.DEFAULT_APP_ORDER,
+  monitoredSources: ["teams", "telegram", "outlook"],
+  liveVisualSources: ["teams", "telegram"],
+});
+assert.deepEqual(currentFixedSources.monitoredSources, [
+  "teams",
+  "telegram",
+  "outlook",
+]);
+assert.deepEqual(currentFixedSources.liveVisualSources, ["teams", "telegram"]);
+
 const paused = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
   monitoredSources: [],
   liveVisualSources: [],
 });
@@ -91,15 +136,30 @@ storedValues.set(
   }),
 );
 assert.deepEqual(preferences.readWidgetPreferences(), {
+  sourceCatalogVersion: 2,
   pinned: false,
   secondaryTimeZone: "UTC",
   x: 10,
   y: 20,
   panelColor: "#f8fafc",
   panelOpacity: 100,
-  appOrder: ["teams", "telegram", "outlook"],
-  monitoredSources: ["teams", "telegram", "outlook"],
-  liveVisualSources: ["teams", "telegram"],
+  appOrder: [
+    "teams",
+    "telegram",
+    "outlook",
+    "slack",
+    "viber",
+    "whatsapp",
+  ],
+  monitoredSources: [
+    "teams",
+    "telegram",
+    "outlook",
+    "slack",
+    "viber",
+    "whatsapp",
+  ],
+  liveVisualSources: ["teams", "telegram", "slack", "viber", "whatsapp"],
 });
 
 console.log("widget preference migration tests passed");

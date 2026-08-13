@@ -8,16 +8,17 @@ controlling the source applications.
 
 The primary window is a compact, frameless three-zone widget:
 
-- left: aligned Microsoft Teams, Telegram, and New Outlook buttons; Teams and
-  Telegram can show smaller inset live taskbar tiles while Outlook uses its
-  local glyph and truthful semantic state;
-- center: local time and a configurable secondary timezone, defaulting to
-  `America/New_York` with automatic EST/EDT handling;
-- right: the active or next timed work-calendar event, with all-day entries used
-  only as fallback context.
+- left: ordered Microsoft Teams, Telegram, New Outlook, Slack, Viber, and
+  WhatsApp buttons; five sources can use inset live taskbar pixels while Outlook
+  uses its local glyph and truthful semantic state;
+- center: doubled-size local and secondary clocks, defaulting to DST-aware
+  **ET · Miami**, with an inline Miami-to-local time converter;
+- right: the active or next timed work-calendar event, with a thin active-event
+  progress line and all-day entries used only as fallback context.
 
-The approved compact shell is a 960 by 80 logical-pixel window. Its aligned
-304, 208, and 432-pixel panels are 72 pixels high with 8-pixel gaps. App and
+The next-release shell is an 816–1152 by 80 logical-pixel window whose left
+panel follows the enabled app count. The clock and calendar panels are 296 and
+432 pixels; all panels are 72 pixels high with 8-pixel gaps. App and
 Advanced targets are 48 pixels square, pin and close have dedicated 40-pixel
 targets inside the calendar panel, and the two clocks share one horizontal row.
 
@@ -30,17 +31,21 @@ is reported against the selected sources, and selecting none reports monitoring
 paused rather than all clear. The ellipsis creates the Advanced window on
 demand. Advanced contains these bounded widget preferences, the production
 work-calendar configuration,
-the structured Telegram, New Outlook, and Teams attention panel, and retained
+the structured fixed-source attention panel and retained
 Notification Center/source diagnostics. Advanced remains fixed last in the app
-row; native Teams and Telegram visuals follow reordered slots.
+row; enabled native visual surfaces follow reordered slots.
 
-The live Teams and Telegram tiles are inset DWM-composed crops
+The live Teams, Telegram, Slack, Viber, and WhatsApp tiles are inset
+DWM-composed crops
 selected from the taskbar on the source application's monitor, with bounded
-fallback across the available taskbars. They appear only while the separate
-semantic source reports attention. Attention Hub does not read, recognize, or
+fallback across the available taskbars. Teams and Telegram appear only while
+their separate semantic source reports attention; the added messenger surfaces
+follow running app presence. Attention Hub does not read, recognize, or
 convert their pixels into counts. Semantic values remain separate: Telegram exposes numeric
 signals, New Outlook exposes aggregate Inbox unread only when its English UI
 Automation label is available, and Teams exposes qualitative activity only.
+Slack, Viber, and WhatsApp do not contribute to semantic coverage because their
+current source surfaces do not expose a trustworthy unread contract.
 Selecting an app button activates an existing source window; it does not launch
 the app or interact with its contents.
 
@@ -81,6 +86,7 @@ The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
 - [Milestone 5C widget alignment and personalization](docs/milestones/milestone-5c-widget-personalization.md)
 - [Milestone 6 beta hardening and daily-use evidence](docs/milestones/milestone-6-beta-hardening.md)
 - [Milestone 7 fixed-source monitoring controls](docs/milestones/milestone-7-fixed-source-controls.md)
+- [Milestone 8 messenger and clock refinement](docs/milestones/milestone-8-messenger-clock-refinement.md)
 - [Attention Hub 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md)
 - [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)

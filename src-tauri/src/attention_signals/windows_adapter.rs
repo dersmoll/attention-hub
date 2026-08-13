@@ -32,6 +32,9 @@ use super::{
 
 const TELEGRAM_EXECUTABLE: &str = "telegram.exe";
 const OUTLOOK_EXECUTABLE: &str = "olk.exe";
+const SLACK_EXECUTABLES: &[&str] = &["slack.exe"];
+const VIBER_EXECUTABLES: &[&str] = &["viber.exe"];
+const WHATSAPP_EXECUTABLES: &[&str] = &["whatsapp.exe", "whatsapp.root.exe"];
 const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
 
 pub fn get_snapshot(source_keys: &[String]) -> AttentionSignalSnapshot {
@@ -84,7 +87,7 @@ fn capture_sources(
     let _apartment = ComApartment::initialize()?;
     let automation: IUIAutomation =
         unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)? };
-    let mut sources = Vec::with_capacity(3);
+    let mut sources = Vec::with_capacity(6);
 
     if source_is_selected(source_keys, "telegram") {
         record_source_capture(&mut sources, "telegram", "Telegram", || {
@@ -100,6 +103,17 @@ fn capture_sources(
         record_source_capture(&mut sources, "teams", "Microsoft Teams", || {
             capture_notification_area(&automation)
         });
+    }
+    for (source_key, display_name, executables) in [
+        ("slack", "Slack", SLACK_EXECUTABLES),
+        ("viber", "Viber", VIBER_EXECUTABLES),
+        ("whatsapp", "WhatsApp", WHATSAPP_EXECUTABLES),
+    ] {
+        if source_is_selected(source_keys, source_key) {
+            record_source_capture(&mut sources, source_key, display_name, || {
+                capture_presence_source(&automation, source_key, display_name, executables)
+            });
+        }
     }
 
     Ok(sources)
@@ -131,6 +145,9 @@ fn error_sources(source_keys: &[String], diagnostic: String) -> Vec<AttentionSou
         ("telegram", "Telegram"),
         ("outlook", "Microsoft Outlook"),
         ("teams", "Microsoft Teams"),
+        ("slack", "Slack"),
+        ("viber", "Viber"),
+        ("whatsapp", "WhatsApp"),
     ]
     .into_iter()
     .filter(|(source_key, _)| source_is_selected(source_keys, source_key))
@@ -142,6 +159,50 @@ fn error_sources(source_keys: &[String], diagnostic: String) -> Vec<AttentionSou
         diagnostics: vec![diagnostic.clone()],
     })
     .collect()
+}
+
+fn capture_presence_source(
+    automation: &IUIAutomation,
+    source_key: &str,
+    display_name: &str,
+    executables: &[&str],
+) -> windows::core::Result<AttentionSourceObservation> {
+    let condition = unsafe { automation.CreateTrueCondition()? };
+    let desktop = unsafe { automation.GetRootElement()? };
+    let windows = unsafe { desktop.FindAll(TreeScope_Children, &condition)? };
+    let length = unsafe { windows.Length()? };
+    let running = (0..length).any(|index| {
+        let Ok(element) = (unsafe { windows.GetElement(index) }) else {
+            return false;
+        };
+        let Ok(process_id) = (unsafe { element.CurrentProcessId() }) else {
+            return false;
+        };
+        if process_id <= 0 {
+            return false;
+        }
+        process_executable_name(process_id as u32).is_ok_and(|executable| {
+            executables
+                .iter()
+                .any(|candidate| executable.eq_ignore_ascii_case(candidate))
+        })
+    });
+
+    Ok(AttentionSourceObservation {
+        source_key: source_key.into(),
+        display_name: display_name.into(),
+        state: if running {
+            AttentionSourceState::NotExposed
+        } else {
+            AttentionSourceState::NotRunning
+        },
+        signals: Vec::new(),
+        diagnostics: if running {
+            vec!["The application is available, but no trustworthy semantic unread count is exposed; an enabled taskbar surface remains visual-only.".into()]
+        } else {
+            Vec::new()
+        },
+    })
 }
 
 fn capture_outlook(

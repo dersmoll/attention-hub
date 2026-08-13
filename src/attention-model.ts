@@ -1,7 +1,13 @@
 export const ATTENTION_POLL_INTERVAL_MS = 5_000;
 export const ATTENTION_STALE_AFTER_MS = ATTENTION_POLL_INTERVAL_MS * 3;
 
-export type AttentionSourceKey = "telegram" | "outlook" | "teams";
+export type AttentionSourceKey =
+  | "telegram"
+  | "outlook"
+  | "teams"
+  | "slack"
+  | "viber"
+  | "whatsapp";
 export type AttentionSourceState =
   | "observed"
   | "notRunning"
@@ -38,7 +44,7 @@ export interface AttentionSignal {
 }
 
 export interface TaskbarMirrorStatus {
-  sourceKey: "teams" | "telegram";
+  sourceKey: Exclude<AttentionSourceKey, "outlook">;
   displayName: string;
   lifecycle: string;
   enabled: boolean;
@@ -81,10 +87,14 @@ export interface AttentionPanelModel {
 const SOURCE_DEFINITIONS: ReadonlyArray<{
   key: AttentionSourceKey;
   displayName: string;
+  semantic: boolean;
 }> = [
-  { key: "telegram", displayName: "Telegram" },
-  { key: "outlook", displayName: "Microsoft Outlook" },
-  { key: "teams", displayName: "Microsoft Teams" },
+  { key: "telegram", displayName: "Telegram", semantic: true },
+  { key: "outlook", displayName: "Microsoft Outlook", semantic: true },
+  { key: "teams", displayName: "Microsoft Teams", semantic: true },
+  { key: "slack", displayName: "Slack", semantic: false },
+  { key: "viber", displayName: "Viber", semantic: false },
+  { key: "whatsapp", displayName: "WhatsApp", semantic: false },
 ];
 
 function missingObservation(
@@ -145,12 +155,16 @@ export function buildAttentionPanelModel(
   ),
 ): AttentionPanelModel {
   const sources = sourceViews(snapshot, monitoredSources);
-  const sourceCount = sources.length;
-  const observedCount = sources.filter(
+  const semanticKeys = SOURCE_DEFINITIONS.filter(({ semantic }) => semantic).map(
+    ({ key }) => key,
+  );
+  const semanticSources = sources.filter(({ key }) => semanticKeys.includes(key));
+  const sourceCount = semanticSources.length;
+  const observedCount = semanticSources.filter(
     ({ observation }) => observation.state === "observed",
   ).length;
-  const attentionSources = sources.filter(({ needsAttention }) => needsAttention);
-  const failedSourceCount = sources.filter(
+  const attentionSources = semanticSources.filter(({ needsAttention }) => needsAttention);
+  const failedSourceCount = semanticSources.filter(
     ({ observation }) => observation.state === "error",
   ).length;
   const age = snapshotAge(snapshot, now);
@@ -177,7 +191,7 @@ export function buildAttentionPanelModel(
       detail: refreshError
         ? "No usable attention snapshot is available. See technical diagnostics."
         : sourceCount === 0
-          ? "Monitoring is paused. Enable a source in Widget settings."
+          ? "Semantic monitoring is paused. App shortcuts remain independent."
           : `Checking ${sourceCount} selected source${sourceCount === 1 ? "" : "s"}.`,
       capturedAt: null,
       sources,
@@ -189,8 +203,8 @@ export function buildAttentionPanelModel(
     return {
       kind: "nothingObserved",
       freshness,
-      headline: "Monitoring paused",
-      detail: "0/0 sources selected. Enable a source in Widget settings.",
+      headline: "Semantic monitoring paused",
+      detail: "0/0 semantic sources selected. App shortcuts and visual-only taskbar surfaces do not create an all-clear claim.",
       capturedAt: snapshot.capturedAt,
       sources,
       observedCount,
@@ -232,7 +246,10 @@ export function buildAttentionPanelModel(
     };
   }
 
-  if (observedCount === sourceCount && sources.every(({ isClear }) => isClear)) {
+  if (
+    observedCount === sourceCount &&
+    semanticSources.every(({ isClear }) => isClear)
+  ) {
     return {
       kind: "allClear",
       freshness,

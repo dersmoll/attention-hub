@@ -688,7 +688,10 @@ body[data-window="main"] #root {
   position: relative;
   display: grid;
   align-items: stretch;
-  grid-template-columns: 304px 208px 432px;
+  grid-template-columns:
+    var(--widget-left-width, 240px)
+    var(--widget-clock-width, 296px)
+    432px;
   gap: 8px;
   width: 100%;
   height: 100%;
@@ -717,11 +720,10 @@ body[data-window="main"] #root {
 .widget-apps {
   position: absolute;
   top: 11px;
-  left: 50%;
+  left: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
-  transform: translateX(-50%);
 }
 
 .widget-app-slot,
@@ -749,6 +751,8 @@ body[data-window="main"] #root {
 .widget-app-slot:focus-visible,
 .widget-more:focus-visible,
 .widget-clock select:focus-visible,
+.widget-clock input:focus-visible,
+.widget-clock button:focus-visible,
 .widget-controls button:focus-visible {
   position: relative;
   z-index: 6;
@@ -829,15 +833,15 @@ body[data-window="main"] #root {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 4px 8px;
   text-align: center;
 }
 
 .widget-clock > div {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 1px;
   line-height: 1.15;
 }
 
@@ -850,8 +854,8 @@ body[data-window="main"] #root {
   position: relative;
   display: flex;
   width: 100%;
-  height: 24px;
-  min-height: 24px;
+  height: 17px;
+  min-height: 17px;
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -865,8 +869,8 @@ body[data-window="main"] #root {
 
 .widget-clock select {
   width: 100%;
-  height: 24px;
-  min-height: 24px;
+  height: 17px;
+  min-height: 17px;
   padding: 0 14px 0 2px;
   overflow: hidden;
   border: 0;
@@ -875,7 +879,7 @@ body[data-window="main"] #root {
   background: transparent;
   font-size: 11px;
   font-weight: 500;
-  line-height: 24px;
+  line-height: 17px;
   text-align: center;
   text-overflow: ellipsis;
   cursor: pointer;
@@ -897,10 +901,81 @@ body[data-window="main"] #root {
 .widget-clock time {
   font-family: "Cascadia Mono", "Segoe UI Mono", ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 18px;
+  font-size: 36px;
   font-weight: 500;
   letter-spacing: -0.02em;
-  line-height: 1.15;
+  line-height: 1;
+}
+
+.widget-clock__time-button {
+  display: grid;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.widget-clock__time-button:hover {
+  color: #1d4ed8;
+}
+
+.widget-clock > .widget-clock-converter {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto 74px minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+
+.widget-clock-converter label,
+.widget-clock-converter output span {
+  color: var(--widget-panel-muted, #475569);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.widget-clock-converter input {
+  width: 74px;
+  height: 34px;
+  padding: 3px 5px;
+  border: 1px solid var(--widget-panel-border, #64748b);
+  border-radius: 6px;
+  color: inherit;
+  background: #fff;
+  font: 600 15px/1 "Cascadia Mono", "Segoe UI Mono", ui-monospace, monospace;
+}
+
+.widget-clock-converter output {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.widget-clock-converter output strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-clock-converter > button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .widget-calendar {
@@ -1032,6 +1107,25 @@ body[data-window="main"] #root {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.widget-calendar__progress {
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--widget-panel-border, #64748b) 24%,
+    transparent
+  );
+}
+
+.widget-calendar__progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--widget-panel-border, #64748b);
 }
 
 .widget-calendar__next {

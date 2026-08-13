@@ -91,11 +91,14 @@ pub async fn get_snapshot(source_keys: Vec<String>) -> Result<AttentionSignalSna
     })
 }
 
-fn source_definitions() -> [(&'static str, &'static str); 3] {
+fn source_definitions() -> [(&'static str, &'static str); 6] {
     [
         ("telegram", "Telegram"),
         ("outlook", "Microsoft Outlook"),
         ("teams", "Microsoft Teams"),
+        ("slack", "Slack"),
+        ("viber", "Viber"),
+        ("whatsapp", "WhatsApp"),
     ]
 }
 
@@ -140,8 +143,8 @@ mod tests {
     #[test]
     fn source_selection_is_bounded_and_deduplicated() {
         assert_eq!(
-            normalize_source_keys(vec!["teams".into(), "teams".into(), "outlook".into()]).unwrap(),
-            vec!["teams".to_owned(), "outlook".to_owned()]
+            normalize_source_keys(vec!["teams".into(), "teams".into(), "whatsapp".into()]).unwrap(),
+            vec!["teams".to_owned(), "whatsapp".to_owned()]
         );
         assert!(normalize_source_keys(vec!["unsupported".into()]).is_err());
         assert!(normalize_source_keys(Vec::new()).unwrap().is_empty());

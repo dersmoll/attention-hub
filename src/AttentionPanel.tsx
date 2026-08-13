@@ -201,6 +201,31 @@ function TeamsCard({
   );
 }
 
+function VisualOnlySourceCard({ source }: { source: AttentionSourceView }) {
+  return (
+    <article className="source-card">
+      <SourceHeader source={source} />
+      <div className="attention-metrics">
+        <Metric
+          label="Application"
+          value={
+            source.observation.state === "notRunning"
+              ? "Not running"
+              : source.observation.state === "error"
+                ? "Presence check failed"
+                : "Available"
+          }
+        />
+        <Metric label="Unread count" value="Not exposed" />
+      </div>
+      <p className="source-card__meaning">
+        Fixed app shortcut with an optional visual-only taskbar icon and badge
+        surface. It does not contribute to semantic attention coverage.
+      </p>
+    </article>
+  );
+}
+
 export function AttentionPanel({
   snapshot,
   refreshError,
@@ -227,6 +252,9 @@ export function AttentionPanel({
     }
     if (source.key === "outlook") {
       return <OutlookCard key={source.key} source={source} />;
+    }
+    if (source.key !== "teams") {
+      return <VisualOnlySourceCard key={source.key} source={source} />;
     }
     return (
       <TeamsCard

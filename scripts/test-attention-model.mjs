@@ -94,8 +94,19 @@ const paused = model.buildAttentionPanelModel(
   [],
 );
 assert.equal(paused.kind, "nothingObserved");
-assert.equal(paused.headline, "Monitoring paused");
+assert.equal(paused.headline, "Semantic monitoring paused");
 assert.equal(paused.observedCount, 0);
+
+const visualOnly = model.buildAttentionPanelModel(
+  { ...snapshot, sources: [source("slack", false, "notExposed")] },
+  null,
+  0,
+  Date.now(),
+  ["slack"],
+);
+assert.equal(visualOnly.kind, "nothingObserved");
+assert.equal(visualOnly.headline, "Semantic monitoring paused");
+assert.equal(visualOnly.sources.length, 1);
 
 const missingSelected = model.buildAttentionPanelModel(
   { ...snapshot, sources: [source("teams", false)] },

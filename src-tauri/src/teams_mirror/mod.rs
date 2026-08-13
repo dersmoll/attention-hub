@@ -8,6 +8,9 @@ pub enum AttentionAppSource {
     Teams,
     Telegram,
     Outlook,
+    Slack,
+    Viber,
+    WhatsApp,
 }
 
 impl AttentionAppSource {
@@ -16,6 +19,9 @@ impl AttentionAppSource {
             "teams" => Some(Self::Teams),
             "telegram" => Some(Self::Telegram),
             "outlook" => Some(Self::Outlook),
+            "slack" => Some(Self::Slack),
+            "viber" => Some(Self::Viber),
+            "whatsapp" => Some(Self::WhatsApp),
             _ => None,
         }
     }
@@ -25,6 +31,9 @@ impl AttentionAppSource {
             Self::Teams => "teams",
             Self::Telegram => "telegram",
             Self::Outlook => "outlook",
+            Self::Slack => "slack",
+            Self::Viber => "viber",
+            Self::WhatsApp => "whatsapp",
         }
     }
 
@@ -33,6 +42,9 @@ impl AttentionAppSource {
             Self::Teams => "Microsoft Teams",
             Self::Telegram => "Telegram",
             Self::Outlook => "Microsoft Outlook",
+            Self::Slack => "Slack",
+            Self::Viber => "Viber",
+            Self::WhatsApp => "WhatsApp",
         }
     }
 }
@@ -41,13 +53,38 @@ impl AttentionAppSource {
 pub enum TaskbarMirrorSource {
     Teams,
     Telegram,
+    Slack,
+    Viber,
+    WhatsApp,
 }
 
 impl TaskbarMirrorSource {
+    pub const ALL: [Self; 5] = [
+        Self::Teams,
+        Self::Telegram,
+        Self::Slack,
+        Self::Viber,
+        Self::WhatsApp,
+    ];
+
+    pub fn from_key(value: &str) -> Option<Self> {
+        match value {
+            "teams" => Some(Self::Teams),
+            "telegram" => Some(Self::Telegram),
+            "slack" => Some(Self::Slack),
+            "viber" => Some(Self::Viber),
+            "whatsapp" => Some(Self::WhatsApp),
+            _ => None,
+        }
+    }
+
     pub fn key(self) -> &'static str {
         match self {
             Self::Teams => "teams",
             Self::Telegram => "telegram",
+            Self::Slack => "slack",
+            Self::Viber => "viber",
+            Self::WhatsApp => "whatsapp",
         }
     }
 
@@ -55,6 +92,9 @@ impl TaskbarMirrorSource {
         match self {
             Self::Teams => "Microsoft Teams",
             Self::Telegram => "Telegram",
+            Self::Slack => "Slack",
+            Self::Viber => "Viber",
+            Self::WhatsApp => "WhatsApp",
         }
     }
 
@@ -62,6 +102,9 @@ impl TaskbarMirrorSource {
         match self {
             Self::Teams => 0,
             Self::Telegram => 1,
+            Self::Slack => 3,
+            Self::Viber => 4,
+            Self::WhatsApp => 5,
         }
     }
 
@@ -69,6 +112,9 @@ impl TaskbarMirrorSource {
         match self {
             Self::Teams => AttentionAppSource::Teams,
             Self::Telegram => AttentionAppSource::Telegram,
+            Self::Slack => AttentionAppSource::Slack,
+            Self::Viber => AttentionAppSource::Viber,
+            Self::WhatsApp => AttentionAppSource::WhatsApp,
         }
     }
 }

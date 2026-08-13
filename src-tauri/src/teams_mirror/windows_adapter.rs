@@ -31,6 +31,9 @@ use super::{TaskbarMirrorSource, TaskbarMirrorStatus};
 pub struct TaskbarMirrorState {
     teams: MirrorInstance,
     telegram: MirrorInstance,
+    slack: MirrorInstance,
+    viber: MirrorInstance,
+    whatsapp: MirrorInstance,
 }
 
 struct MirrorInstance {
@@ -52,6 +55,9 @@ impl TaskbarMirrorState {
         Self {
             teams: MirrorInstance::new(TaskbarMirrorSource::Teams),
             telegram: MirrorInstance::new(TaskbarMirrorSource::Telegram),
+            slack: MirrorInstance::new(TaskbarMirrorSource::Slack),
+            viber: MirrorInstance::new(TaskbarMirrorSource::Viber),
+            whatsapp: MirrorInstance::new(TaskbarMirrorSource::WhatsApp),
         }
     }
 
@@ -89,12 +95,18 @@ impl TaskbarMirrorState {
     pub fn stop_all(&self) {
         let _ = self.teams.stop();
         let _ = self.telegram.stop();
+        let _ = self.slack.stop();
+        let _ = self.viber.stop();
+        let _ = self.whatsapp.stop();
     }
 
     fn instance(&self, source: TaskbarMirrorSource) -> &MirrorInstance {
         match source {
             TaskbarMirrorSource::Teams => &self.teams,
             TaskbarMirrorSource::Telegram => &self.telegram,
+            TaskbarMirrorSource::Slack => &self.slack,
+            TaskbarMirrorSource::Viber => &self.viber,
+            TaskbarMirrorSource::WhatsApp => &self.whatsapp,
         }
     }
 }
@@ -116,7 +128,7 @@ impl MirrorInstance {
             status: Arc::new(Mutex::new(TaskbarMirrorStatus::stopped(source))),
             destination: Arc::new(AtomicIsize::new(0)),
             slot_index: Arc::new(AtomicI32::new(source.slot_index())),
-            visible_source_count: Arc::new(AtomicI32::new(3)),
+            visible_source_count: Arc::new(AtomicI32::new(6)),
         }
     }
 
@@ -367,7 +379,7 @@ mod windows_probe {
     const E_FAIL: windows::core::HRESULT = windows::core::HRESULT(0x8000_4005_u32 as i32);
     const MINIMUM_WINDOW_CLIENT_WIDTH: i32 = 320;
     const WIDGET_ICON_LOGICAL_SIZE: i32 = 48;
-    const WIDGET_LEFT_PANEL_LOGICAL_WIDTH: i32 = 304;
+    const WIDGET_LEFT_PANEL_LOGICAL_PADDING: i32 = 12;
     const WIDGET_MIRROR_LOGICAL_SIZE: i32 = 40;
     const WIDGET_MIRROR_LOGICAL_INSET: i32 = 4;
     const WIDGET_MIRROR_LOGICAL_RADIUS: i32 = 8;
@@ -385,6 +397,10 @@ mod windows_probe {
     const TEAMS_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR = w!("Attention Hub - Teams visual");
     const TELEGRAM_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR =
         w!("Attention Hub - Telegram visual");
+    const SLACK_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR = w!("Attention Hub - Slack visual");
+    const VIBER_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR = w!("Attention Hub - Viber visual");
+    const WHATSAPP_PRODUCT_WINDOW_TITLE: windows::core::PCWSTR =
+        w!("Attention Hub - WhatsApp visual");
     const PRIMARY_TASKBAR_CLASS: &str = "Shell_TrayWnd";
     const SECONDARY_TASKBAR_CLASS: &str = "Shell_SecondaryTrayWnd";
     const TELEGRAM_EXECUTABLE: &str = "telegram.exe";
@@ -538,6 +554,15 @@ mod windows_probe {
                 }
                 ProbeMode::TrackedCrop(TaskbarMirrorSource::Telegram) if owner.is_some() => {
                     TELEGRAM_PRODUCT_WINDOW_TITLE
+                }
+                ProbeMode::TrackedCrop(TaskbarMirrorSource::Slack) if owner.is_some() => {
+                    SLACK_PRODUCT_WINDOW_TITLE
+                }
+                ProbeMode::TrackedCrop(TaskbarMirrorSource::Viber) if owner.is_some() => {
+                    VIBER_PRODUCT_WINDOW_TITLE
+                }
+                ProbeMode::TrackedCrop(TaskbarMirrorSource::WhatsApp) if owner.is_some() => {
+                    WHATSAPP_PRODUCT_WINDOW_TITLE
                 }
                 _ => WINDOW_TITLE,
             },
@@ -905,6 +930,12 @@ mod windows_probe {
             }
             AttentionAppSource::Telegram => executable.eq_ignore_ascii_case(TELEGRAM_EXECUTABLE),
             AttentionAppSource::Outlook => executable.eq_ignore_ascii_case(OUTLOOK_EXECUTABLE),
+            AttentionAppSource::Slack => executable.eq_ignore_ascii_case("slack.exe"),
+            AttentionAppSource::Viber => executable.eq_ignore_ascii_case("viber.exe"),
+            AttentionAppSource::WhatsApp => {
+                executable.eq_ignore_ascii_case("whatsapp.exe")
+                    || executable.eq_ignore_ascii_case("whatsapp.root.exe")
+            }
         }
     }
 
@@ -1136,6 +1167,9 @@ mod windows_probe {
         match source {
             TaskbarMirrorSource::Teams => value.contains("microsoft teams"),
             TaskbarMirrorSource::Telegram => value.contains("telegram"),
+            TaskbarMirrorSource::Slack => value.contains("slack"),
+            TaskbarMirrorSource::Viber => value.contains("viber"),
+            TaskbarMirrorSource::WhatsApp => value.contains("whatsapp"),
         }
     }
 
@@ -1148,6 +1182,9 @@ mod windows_probe {
                     || value.contains("microsoft.teams")
             }
             TaskbarMirrorSource::Telegram => value.contains("telegram"),
+            TaskbarMirrorSource::Slack => value.contains("slack"),
+            TaskbarMirrorSource::Viber => value.contains("viber"),
+            TaskbarMirrorSource::WhatsApp => value.contains("whatsapp"),
         }
     }
 
@@ -1232,8 +1269,8 @@ mod windows_probe {
             .unwrap_or_else(|| source.slot_index());
         let source_count = visible_source_count
             .map(|value| value.load(Ordering::Acquire))
-            .unwrap_or(3)
-            .clamp(0, 3);
+            .unwrap_or(6)
+            .clamp(0, 6);
         let slot_left = widget_slot_left(slot_index, source_count);
         let x = owner_rect.left + scale(slot_left) + inset;
         let y = owner_rect.top + scale(WIDGET_ICON_TOP) + inset;
@@ -1253,11 +1290,14 @@ mod windows_probe {
     }
 
     fn widget_slot_left(slot_index: i32, visible_source_count: i32) -> i32 {
-        let source_count = visible_source_count.clamp(0, 3);
-        let app_count = source_count + 1;
-        let group_width = app_count * WIDGET_ICON_LOGICAL_SIZE + (app_count - 1) * WIDGET_ICON_GAP;
-        let group_left = (WIDGET_LEFT_PANEL_LOGICAL_WIDTH - group_width) / 2;
-        group_left + slot_index * (WIDGET_ICON_LOGICAL_SIZE + WIDGET_ICON_GAP)
+        let source_count = visible_source_count.clamp(0, 6);
+        let bounded_slot = if source_count > 0 {
+            slot_index.clamp(0, source_count - 1)
+        } else {
+            0
+        };
+        WIDGET_LEFT_PANEL_LOGICAL_PADDING
+            + bounded_slot * (WIDGET_ICON_LOGICAL_SIZE + WIDGET_ICON_GAP)
     }
 
     fn mask_mirror_window(window: HWND, size: (i32, i32)) -> Result<()> {
@@ -2033,6 +2073,9 @@ mod windows_probe {
                 Self::TeamsStaticCrop => "teams_static_crop",
                 Self::TrackedCrop(TaskbarMirrorSource::Teams) => "teams_tracked_crop",
                 Self::TrackedCrop(TaskbarMirrorSource::Telegram) => "telegram_tracked_crop",
+                Self::TrackedCrop(TaskbarMirrorSource::Slack) => "slack_tracked_crop",
+                Self::TrackedCrop(TaskbarMirrorSource::Viber) => "viber_tracked_crop",
+                Self::TrackedCrop(TaskbarMirrorSource::WhatsApp) => "whatsapp_tracked_crop",
             }
         }
     }
@@ -2060,7 +2103,7 @@ mod windows_probe {
         use crate::teams_mirror::TaskbarMirrorSource;
 
         #[test]
-        fn source_matching_keeps_teams_and_telegram_distinct() {
+        fn source_matching_keeps_fixed_sources_distinct() {
             assert!(source_name_matches(
                 TaskbarMirrorSource::Teams,
                 "Microsoft Teams (work or school)"
@@ -2085,6 +2128,12 @@ mod windows_probe {
                 TaskbarMirrorSource::Teams,
                 "Telegram.TelegramDesktop"
             ));
+            assert!(source_name_matches(TaskbarMirrorSource::Slack, "Slack (1)"));
+            assert!(source_identity_matches(TaskbarMirrorSource::Viber, "Viber"));
+            assert!(source_name_matches(
+                TaskbarMirrorSource::WhatsApp,
+                "WhatsApp"
+            ));
         }
 
         #[test]
@@ -2107,12 +2156,11 @@ mod windows_probe {
         }
 
         #[test]
-        fn compressed_widget_slots_remain_centered() {
-            assert_eq!(widget_slot_left(0, 3), 44);
-            assert_eq!(widget_slot_left(1, 3), 100);
-            assert_eq!(widget_slot_left(0, 2), 72);
-            assert_eq!(widget_slot_left(1, 2), 128);
-            assert_eq!(widget_slot_left(0, 1), 100);
+        fn responsive_widget_slots_keep_a_fixed_inner_inset() {
+            assert_eq!(widget_slot_left(0, 6), 12);
+            assert_eq!(widget_slot_left(1, 6), 68);
+            assert_eq!(widget_slot_left(5, 6), 292);
+            assert_eq!(widget_slot_left(0, 1), 12);
         }
     }
 }

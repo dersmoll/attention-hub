@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
+  LogicalSize,
   PhysicalPosition,
   availableMonitors,
   getCurrentWindow,
@@ -29,7 +30,17 @@ import {
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
 import {
+  convertZonedTimeToInstant,
+  formatLocalConversion,
+} from "./time-zone-converter";
+import {
+  WIDGET_CLOCK_WIDTH,
+  widgetLeftWidth,
+  widgetWidth,
+} from "./widget-layout";
+import {
   type AttentionAppKey,
+  type LiveVisualAppKey,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
   readWidgetPreferences,
@@ -39,9 +50,18 @@ import {
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
+const MIAMI_TIME_ZONE = "America/New_York";
+const VISUAL_SOURCES: LiveVisualAppKey[] = [
+  "teams",
+  "telegram",
+  "slack",
+  "viber",
+  "whatsapp",
+];
+const SEMANTIC_VISUAL_SOURCES: LiveVisualAppKey[] = ["teams", "telegram"];
 
 const TIME_ZONE_OPTIONS = [
-  { value: "America/New_York", label: "New York" },
+  { value: MIAMI_TIME_ZONE, label: "ET · Miami" },
   { value: "America/Los_Angeles", label: "Los Angeles" },
   { value: "Europe/London", label: "London" },
   { value: "Europe/Kyiv", label: "Kyiv" },
@@ -162,7 +182,7 @@ function mirrorLabel(status: TaskbarMirrorStatus | null) {
   return "Semantic fallback shown";
 }
 
-function AppGlyph({ sourceKey }: { sourceKey: "teams" | "telegram" | "outlook" }) {
+function AppGlyph({ sourceKey }: { sourceKey: AttentionAppKey }) {
   if (sourceKey === "telegram") {
     return (
       <svg aria-hidden="true" viewBox="0 0 32 32">
@@ -178,6 +198,38 @@ function AppGlyph({ sourceKey }: { sourceKey: "teams" | "telegram" | "outlook" }
         <path d="m11 10 7.5 6L26 10v13H11Z" fill="#5db7ff" />
         <rect x="3" y="8" width="14" height="17" rx="2" fill="#106ebe" />
         <text x="10" y="20" fill="#fff" fontSize="11" fontWeight="800" textAnchor="middle">O</text>
+      </svg>
+    );
+  }
+  if (sourceKey === "slack") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <rect x="13" y="2" width="6" height="13" rx="3" fill="#36c5f0" />
+        <rect x="17" y="13" width="13" height="6" rx="3" fill="#2eb67d" />
+        <rect x="13" y="17" width="6" height="13" rx="3" fill="#ecb22e" />
+        <rect x="2" y="13" width="13" height="6" rx="3" fill="#e01e5a" />
+        <circle cx="10" cy="10" r="3" fill="#e01e5a" />
+        <circle cx="22" cy="10" r="3" fill="#36c5f0" />
+        <circle cx="22" cy="22" r="3" fill="#2eb67d" />
+        <circle cx="10" cy="22" r="3" fill="#ecb22e" />
+      </svg>
+    );
+  }
+  if (sourceKey === "viber") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="15" fill="#7360f2" />
+        <path d="M9 8.7c6.5-2.7 13.8.2 14.9 6.4.6 3.7-1 7.2-4.2 9.1l-.4 3.5-3.3-2.1c-5.9.6-10.6-2.8-10.9-8.1-.2-3.7 1.2-6.8 3.9-8.8Z" fill="#fff" />
+        <path d="M11.1 11.8c.5-.5 1.4-.3 1.8.3l1.2 2c.3.5.2 1.1-.2 1.5l-.8.7c.7 1.6 1.9 2.8 3.5 3.6l.8-.9c.4-.4 1-.5 1.5-.2l2 1.2c.7.4.8 1.3.3 1.8-.8.9-2.1 1.3-3.3.9-4.3-1.4-7.7-4.8-9.1-9.1-.4-1.2.1-2.5 1-3.3Z" fill="#7360f2" />
+      </svg>
+    );
+  }
+  if (sourceKey === "whatsapp") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="15" fill="#25d366" />
+        <path d="M8.2 25.4 9.5 21A10.2 10.2 0 1 1 13 24.2l-4.8 1.2Z" fill="#fff" />
+        <path d="M12.1 10.8c.4-.5 1.2-.4 1.5.2l1 2c.2.5.1 1-.3 1.4l-.7.6c.8 1.7 2.1 3 3.8 3.8l.7-.8c.4-.4.9-.5 1.4-.2l2 1.1c.6.3.7 1.1.2 1.6-.9.9-2.2 1.2-3.4.8-3.8-1.3-6.9-4.3-8.2-8.2-.4-1.1 0-2.4 1-3.3Z" fill="#25d366" />
       </svg>
     );
   }
@@ -250,7 +302,7 @@ function AppSlot({
   disabled,
   onActivate,
 }: {
-  sourceKey: "teams" | "telegram" | "outlook";
+  sourceKey: AttentionAppKey;
   label: string;
   badge: string | null;
   badgeLastKnown?: boolean;
@@ -320,6 +372,22 @@ function clampSavedPosition(
   };
 }
 
+function presenceHealth(
+  source: AttentionSourceObservation | undefined,
+  stale: boolean,
+  refreshFailed: boolean,
+) {
+  if (stale) {
+    return "stale" as const;
+  }
+  if (refreshFailed) {
+    return "retrying" as const;
+  }
+  return source && source.state !== "notRunning" && source.state !== "error"
+    ? ("observed" as const)
+    : ("unavailable" as const);
+}
+
 export function WidgetView() {
   const initialPreferences = useMemo(readWidgetPreferences, []);
   const [now, setNow] = useState(() => new Date());
@@ -329,10 +397,9 @@ export function WidgetView() {
   const [attentionRefreshFailed, setAttentionRefreshFailed] = useState(false);
   const [lastObservedOutlookInbox, setLastObservedOutlookInbox] =
     useState<AttentionSignal | null>(null);
-  const [teamsMirror, setTeamsMirror] =
-    useState<TaskbarMirrorStatus | null>(null);
-  const [telegramMirror, setTelegramMirror] =
-    useState<TaskbarMirrorStatus | null>(null);
+  const [mirrorStatuses, setMirrorStatuses] = useState<
+    Partial<Record<LiveVisualAppKey, TaskbarMirrorStatus>>
+  >({});
   const [workCalendar, setWorkCalendar] =
     useState<WorkCalendarSnapshot | null>(null);
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
@@ -342,11 +409,20 @@ export function WidgetView() {
     string | null
   >(null);
   const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [convertingMiamiTime, setConvertingMiamiTime] = useState(false);
+  const [miamiTime, setMiamiTime] = useState(() => formatTime(new Date(), MIAMI_TIME_ZONE));
   const attentionInFlight = useRef(false);
   const workCalendarInFlight = useRef(false);
   const widgetWindow = useMemo(getCurrentWindow, []);
   const pinned = preferences.pinned;
   const secondaryTimeZone = preferences.secondaryTimeZone;
+  const visibleSources = useMemo(
+    () =>
+      preferences.appOrder.filter((sourceKey) =>
+        preferences.monitoredSources.includes(sourceKey),
+      ),
+    [preferences.appOrder, preferences.monitoredSources],
+  );
 
   const refreshAttention = useCallback(async () => {
     if (attentionInFlight.current) {
@@ -377,16 +453,20 @@ export function WidgetView() {
   }, [preferences.monitoredSources]);
 
   const refreshMirrors = useCallback(async () => {
-    const [teams, telegram] = await Promise.allSettled([
-      invoke<TaskbarMirrorStatus>("get_teams_mirror_status"),
-      invoke<TaskbarMirrorStatus>("get_telegram_mirror_status"),
-    ]);
-    if (teams.status === "fulfilled") {
-      setTeamsMirror(teams.value);
-    }
-    if (telegram.status === "fulfilled") {
-      setTelegramMirror(telegram.value);
-    }
+    const results = await Promise.allSettled(
+      VISUAL_SOURCES.map((sourceKey) =>
+        invoke<TaskbarMirrorStatus>("get_taskbar_mirror_status", { sourceKey }),
+      ),
+    );
+    setMirrorStatuses((current) => {
+      const next = { ...current };
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          next[VISUAL_SOURCES[index]] = result.value;
+        }
+      });
+      return next;
+    });
   }, []);
 
   const refreshWorkCalendar = useCallback(async () => {
@@ -500,55 +580,43 @@ export function WidgetView() {
   }, [preferences.monitoredSources]);
 
   useEffect(() => {
-    const teams = attentionSnapshot?.sources.find(
-      ({ sourceKey }) => sourceKey === "teams",
-    );
-    const telegram = attentionSnapshot?.sources.find(
-      ({ sourceKey }) => sourceKey === "telegram",
-    );
-    const teamsNeedsAttention =
-      teams !== undefined &&
-      findSignal(teams, "activityStatus")?.needsAttention === true;
-    const telegramNeedsAttention =
-      telegram !== undefined &&
-      findSignal(telegram, "applicationCounter")?.needsAttention === true;
-    const visibleSources = preferences.appOrder.filter((sourceKey) =>
-      preferences.monitoredSources.includes(sourceKey),
-    );
-    const teamsSlot = visibleSources.indexOf("teams");
-    const telegramSlot = visibleSources.indexOf("telegram");
-    const teamsVisualEnabled =
-      preferences.monitoredSources.includes("teams") &&
-      preferences.liveVisualSources.includes("teams");
-    const telegramVisualEnabled =
-      preferences.monitoredSources.includes("telegram") &&
-      preferences.liveVisualSources.includes("telegram");
-
     void (async () => {
       try {
-        await invoke("set_taskbar_mirror_layout", {
-          teamsSlot: teamsSlot >= 0 ? teamsSlot : null,
-          telegramSlot: telegramSlot >= 0 ? telegramSlot : null,
+        await invoke("set_fixed_taskbar_mirror_layout", {
+          sourceSlots: visibleSources
+            .map((sourceKey, slot) => ({ sourceKey, slot }))
+            .filter(({ sourceKey }) => sourceKey !== "outlook"),
           visibleSourceCount: visibleSources.length,
         });
       } catch (error) {
         setWidgetError(`App layout update failed: ${String(error)}`);
       }
-      await Promise.allSettled([
-        invoke<TaskbarMirrorStatus>(
-          teamsNeedsAttention && teamsVisualEnabled
-            ? "start_teams_mirror"
-            : "stop_teams_mirror",
-        ),
-        invoke<TaskbarMirrorStatus>(
-          telegramNeedsAttention && telegramVisualEnabled
-            ? "start_telegram_mirror"
-            : "stop_telegram_mirror",
-        ),
-      ]);
+      await Promise.allSettled(
+        VISUAL_SOURCES.map((sourceKey) => {
+          const observation = attentionSnapshot?.sources.find(
+            (source) => source.sourceKey === sourceKey,
+          );
+          const semanticAttention = observation?.signals.some(
+            (signal) => signal.needsAttention === true,
+          );
+          const presenceAvailable =
+            observation?.state === "notExposed" ||
+            observation?.state === "observed";
+          const shouldStart =
+            preferences.monitoredSources.includes(sourceKey) &&
+            preferences.liveVisualSources.includes(sourceKey) &&
+            (SEMANTIC_VISUAL_SOURCES.includes(sourceKey)
+              ? semanticAttention
+              : presenceAvailable);
+          return invoke<TaskbarMirrorStatus>(
+            shouldStart ? "start_taskbar_mirror" : "stop_taskbar_mirror",
+            { sourceKey },
+          );
+        }),
+      );
       await refreshMirrors();
     })();
-  }, [attentionSnapshot, preferences, refreshMirrors]);
+  }, [attentionSnapshot, preferences, refreshMirrors, visibleSources]);
 
   useEffect(() => {
     let disposed = false;
@@ -568,6 +636,41 @@ export function WidgetView() {
       }
     };
   }, [refreshMirrors]);
+
+  useEffect(() => {
+    let disposed = false;
+    void (async () => {
+      try {
+        await widgetWindow.setSize(
+          new LogicalSize(widgetWidth(visibleSources.length), 80),
+        );
+        const [position, size, monitors] = await Promise.all([
+          widgetWindow.outerPosition(),
+          widgetWindow.outerSize(),
+          availableMonitors(),
+        ]);
+        const clamped = clampSavedPosition(
+          position.x,
+          position.y,
+          size.width,
+          size.height,
+          monitors,
+        );
+        if (clamped.x !== position.x || clamped.y !== position.y) {
+          await widgetWindow.setPosition(
+            new PhysicalPosition(clamped.x, clamped.y),
+          );
+        }
+      } catch (error) {
+        if (!disposed) {
+          setWidgetError(`Widget resize failed: ${String(error)}`);
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, [visibleSources.length, widgetWindow]);
 
   useEffect(() => {
     let disposed = false;
@@ -643,7 +746,7 @@ export function WidgetView() {
   };
 
   const activateSource = async (
-    sourceKey: "teams" | "telegram" | "outlook",
+    sourceKey: AttentionAppKey,
   ) => {
     try {
       await invoke("activate_attention_source", { sourceKey });
@@ -660,6 +763,15 @@ export function WidgetView() {
   );
   const outlook = attentionSnapshot?.sources.find(
     ({ sourceKey }) => sourceKey === "outlook",
+  );
+  const slack = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "slack",
+  );
+  const viber = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "viber",
+  );
+  const whatsapp = attentionSnapshot?.sources.find(
+    ({ sourceKey }) => sourceKey === "whatsapp",
   );
   const telegramCounter = telegram
     ? findSignal(telegram, "applicationCounter")
@@ -752,11 +864,40 @@ export function WidgetView() {
         : workCalendar?.status === "notConfigured"
           ? "Open Advanced to save one published calendar securely."
           : "The last refresh was unavailable; no cached event is shown.";
-  const showNextEvent = activeEventAcknowledged && calendarNextSelection !== null;
-  const panelStyle = widgetPanelStyle(preferences) as CSSProperties;
-  const visibleSources = preferences.appOrder.filter((sourceKey) =>
-    preferences.monitoredSources.includes(sourceKey),
+  const showNextEvent =
+    activeEventAcknowledged && calendarNextSelection !== null;
+  const calendarEndMs = calendarSelection
+    ? Date.parse(calendarSelection.end)
+    : Number.NaN;
+  const calendarProgress =
+    calendarSelection?.classification === "active" &&
+    !calendarSelection.allDay &&
+    Number.isFinite(calendarStartMs) &&
+    Number.isFinite(calendarEndMs) &&
+    calendarEndMs > calendarStartMs
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            ((now.getTime() - calendarStartMs) /
+              (calendarEndMs - calendarStartMs)) *
+              100,
+          ),
+        )
+      : null;
+  const convertedMiamiTime = convertZonedTimeToInstant(
+    miamiTime,
+    now,
+    MIAMI_TIME_ZONE,
   );
+  const localMiamiConversion = convertedMiamiTime
+    ? formatLocalConversion(convertedMiamiTime, now)
+    : "Unavailable at the DST transition";
+  const panelStyle = {
+    ...widgetPanelStyle(preferences),
+    "--widget-left-width": `${widgetLeftWidth(visibleSources.length)}px`,
+    "--widget-clock-width": `${WIDGET_CLOCK_WIDTH}px`,
+  } as CSSProperties;
 
   const renderAppSlot = (sourceKey: AttentionAppKey) => {
     if (sourceKey === "teams") {
@@ -768,7 +909,7 @@ export function WidgetView() {
           badge={teamsBadge}
           statusText={teamsStatus}
           health={sourceHealth(teams, attentionStale, attentionRefreshFailed)}
-          status={teamsMirror}
+          status={mirrorStatuses.teams}
           disabled={teams?.state === "notRunning"}
           onActivate={() => void activateSource(sourceKey)}
         />
@@ -783,26 +924,48 @@ export function WidgetView() {
           badge={telegramBadge}
           statusText={telegramStatus}
           health={sourceHealth(telegram, attentionStale, attentionRefreshFailed)}
-          status={telegramMirror}
+          status={mirrorStatuses.telegram}
           disabled={telegram?.state === "notRunning"}
           onActivate={() => void activateSource(sourceKey)}
         />
       );
     }
+    if (sourceKey === "outlook") {
+      return (
+        <AppSlot
+          key={sourceKey}
+          sourceKey={sourceKey}
+          label="Microsoft Outlook"
+          badge={outlookBadge}
+          badgeLastKnown={outlookUsingLastKnown}
+          statusText={outlookStatus}
+          health={sourceHealth(
+            outlook,
+            attentionStale || outlookUsingLastKnown,
+            attentionRefreshFailed,
+          )}
+          disabled={outlook?.state === "notRunning"}
+          onActivate={() => void activateSource(sourceKey)}
+        />
+      );
+    }
+    const visualSources = { slack, viber, whatsapp };
+    const labels = { slack: "Slack", viber: "Viber", whatsapp: "WhatsApp" };
+    const observation = visualSources[sourceKey];
     return (
       <AppSlot
         key={sourceKey}
         sourceKey={sourceKey}
-        label="Microsoft Outlook"
-        badge={outlookBadge}
-        badgeLastKnown={outlookUsingLastKnown}
-        statusText={outlookStatus}
-        health={sourceHealth(
-          outlook,
-          attentionStale || outlookUsingLastKnown,
+        label={labels[sourceKey]}
+        badge={null}
+        statusText={`${sourceAvailability(observation, attentionStale, attentionRefreshFailed)}; unread count is not semantically exposed`}
+        health={presenceHealth(
+          observation,
+          attentionStale,
           attentionRefreshFailed,
         )}
-        disabled={outlook?.state === "notRunning"}
+        status={mirrorStatuses[sourceKey]}
+        disabled={observation?.state === "notRunning"}
         onActivate={() => void activateSource(sourceKey)}
       />
     );
@@ -835,35 +998,77 @@ export function WidgetView() {
         aria-label="Current time"
         data-tauri-drag-region
       >
-        <div data-tauri-drag-region>
-          <span className="widget-clock__label">Local</span>
-          <time>{formatTime(now)}</time>
-        </div>
-        <div data-tauri-drag-region>
-          <span className="widget-clock__label widget-clock__label--select">
-            <select
-              aria-label="Secondary timezone"
-              value={secondaryTimeZone}
-              onChange={(event) =>
-                setPreferences(
-                  writeWidgetPreferences({
-                    secondaryTimeZone: event.target.value,
-                  }),
-                )
-              }
+        {convertingMiamiTime ? (
+          <div className="widget-clock-converter">
+            <label htmlFor="miami-time">Miami</label>
+            <input
+              id="miami-time"
+              onChange={(event) => setMiamiTime(event.target.value)}
+              step="60"
+              type="time"
+              value={miamiTime}
+            />
+            <output aria-live="polite">
+              <span>Local</span>
+              <strong>{localMiamiConversion}</strong>
+            </output>
+            <button
+              aria-label="Return to live clocks"
+              onClick={() => setConvertingMiamiTime(false)}
+              title="Return to live clocks"
+              type="button"
             >
-              {TIME_ZONE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <svg aria-hidden="true" viewBox="0 0 12 8">
-              <path d="m1 1.5 5 5 5-5" />
-            </svg>
-          </span>
-          <time>{formatTime(now, secondaryTimeZone)}</time>
-        </div>
+              ×
+            </button>
+          </div>
+        ) : (
+          <>
+            <div data-tauri-drag-region>
+              <span className="widget-clock__label">Local</span>
+              <time>{formatTime(now)}</time>
+            </div>
+            <div data-tauri-drag-region>
+              <span className="widget-clock__label widget-clock__label--select">
+                <select
+                  aria-label="Secondary timezone"
+                  value={secondaryTimeZone}
+                  onChange={(event) =>
+                    setPreferences(
+                      writeWidgetPreferences({
+                        secondaryTimeZone: event.target.value,
+                      }),
+                    )
+                  }
+                >
+                  {TIME_ZONE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <svg aria-hidden="true" viewBox="0 0 12 8">
+                  <path d="m1 1.5 5 5 5-5" />
+                </svg>
+              </span>
+              {secondaryTimeZone === MIAMI_TIME_ZONE ? (
+                <button
+                  aria-label={`Miami time ${formatTime(now, secondaryTimeZone)}. Convert a Miami time to local time.`}
+                  className="widget-clock__time-button"
+                  onClick={() => {
+                    setMiamiTime(formatTime(now, MIAMI_TIME_ZONE));
+                    setConvertingMiamiTime(true);
+                  }}
+                  title="Click to convert a Miami time to local"
+                  type="button"
+                >
+                  <time>{formatTime(now, secondaryTimeZone)}</time>
+                </button>
+              ) : (
+                <time>{formatTime(now, secondaryTimeZone)}</time>
+              )}
+            </div>
+          </>
+        )}
       </section>
 
       <section
@@ -899,6 +1104,18 @@ export function WidgetView() {
             </div>
             <strong>{calendarTitle}</strong>
             <small>{calendarDetail}</small>
+            {calendarProgress !== null && (
+              <div
+                aria-label={`Event progress ${Math.round(calendarProgress)} percent`}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={Math.round(calendarProgress)}
+                className="widget-calendar__progress"
+                role="progressbar"
+              >
+                <span style={{ width: `${calendarProgress}%` }} />
+              </div>
+            )}
           </div>
 
           {showNextEvent && calendarNextSelection && (
