@@ -54,5 +54,11 @@ window for Viber and exactly one for WhatsApp. Each became visible with the same
 restore command used by activation, then was returned to its original hidden
 state. No process was launched, stopped, or duplicated.
 
+After the development launcher automatically rebuilt the final native code, an
+end-to-end widget check started with both apps hidden. Clicking the Viber icon
+opened `Qt6103QWindowIcon`; clicking WhatsApp opened
+`WinUIDesktopWin32WindowClass`. Both checks passed and both windows were returned
+to their original hidden state.
+
 The development process tree and private screenshots were removed after the
 check. Installer packaging and user acceptance are not claimed here.
