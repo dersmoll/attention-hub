@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -21,9 +28,15 @@ import {
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
+import {
+  type AttentionAppKey,
+  WIDGET_PREFERENCES_CHANGED_EVENT,
+  normalizeWidgetPreferences,
+  readWidgetPreferences,
+  widgetPanelStyle,
+  writeWidgetPreferences,
+} from "./widget-preferences";
 
-const WIDGET_PREFERENCES_KEY = "attention-hub.widget.v1";
-const DEFAULT_TIME_ZONE = "America/New_York";
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
 
@@ -36,63 +49,13 @@ const TIME_ZONE_OPTIONS = [
   { value: "Asia/Tokyo", label: "Tokyo" },
 ];
 
-interface WidgetPreferences {
-  pinned: boolean;
-  secondaryTimeZone: string;
-  x: number | null;
-  y: number | null;
-}
-
-const DEFAULT_PREFERENCES: WidgetPreferences = {
-  pinned: true,
-  secondaryTimeZone: DEFAULT_TIME_ZONE,
-  x: null,
-  y: null,
-};
-
-function readPreferences(): WidgetPreferences {
-  try {
-    const value = JSON.parse(
-      localStorage.getItem(WIDGET_PREFERENCES_KEY) ?? "null",
-    ) as Partial<WidgetPreferences> | null;
-    return {
-      pinned: value?.pinned ?? DEFAULT_PREFERENCES.pinned,
-      secondaryTimeZone:
-        typeof value?.secondaryTimeZone === "string"
-          ? value.secondaryTimeZone
-          : DEFAULT_PREFERENCES.secondaryTimeZone,
-      x: typeof value?.x === "number" ? value.x : null,
-      y: typeof value?.y === "number" ? value.y : null,
-    };
-  } catch {
-    return DEFAULT_PREFERENCES;
-  }
-}
-
-function writePreferences(update: Partial<WidgetPreferences>) {
-  const next = { ...readPreferences(), ...update };
-  localStorage.setItem(WIDGET_PREFERENCES_KEY, JSON.stringify(next));
-  return next;
-}
-
 function formatTime(now: Date, timeZone?: string) {
   return new Intl.DateTimeFormat([], {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hourCycle: "h23",
     timeZone,
   }).format(now);
-}
-
-function timeZoneAbbreviation(now: Date, timeZone: string) {
-  const part = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    timeZoneName: "short",
-  })
-    .formatToParts(now)
-    .find(({ type }) => type === "timeZoneName");
-  return part?.value ?? timeZone;
 }
 
 function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
@@ -310,16 +273,17 @@ function AppSlot({
       title={accessibleLabel}
       type="button"
     >
-      <AppGlyph sourceKey={sourceKey} />
-      {badge && !status?.visible && (
-        <strong
-          aria-hidden="true"
-          className="widget-app-badge"
-          data-last-known={badgeLastKnown || undefined}
-        >
-          {badge}
-        </strong>
-      )}
+      <span className="widget-app-surface" aria-hidden="true">
+        <AppGlyph sourceKey={sourceKey} />
+        {badge && !status?.visible && (
+          <strong
+            className="widget-app-badge"
+            data-last-known={badgeLastKnown || undefined}
+          >
+            {badge}
+          </strong>
+        )}
+      </span>
     </button>
   );
 }
@@ -357,12 +321,9 @@ function clampSavedPosition(
 }
 
 export function WidgetView() {
-  const initialPreferences = useMemo(readPreferences, []);
+  const initialPreferences = useMemo(readWidgetPreferences, []);
   const [now, setNow] = useState(() => new Date());
-  const [pinned, setPinned] = useState(initialPreferences.pinned);
-  const [secondaryTimeZone, setSecondaryTimeZone] = useState(
-    initialPreferences.secondaryTimeZone,
-  );
+  const [preferences, setPreferences] = useState(initialPreferences);
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionRefreshFailed, setAttentionRefreshFailed] = useState(false);
@@ -384,6 +345,8 @@ export function WidgetView() {
   const attentionInFlight = useRef(false);
   const workCalendarInFlight = useRef(false);
   const widgetWindow = useMemo(getCurrentWindow, []);
+  const pinned = preferences.pinned;
+  const secondaryTimeZone = preferences.secondaryTimeZone;
 
   const refreshAttention = useCallback(async () => {
     if (attentionInFlight.current) {
@@ -508,6 +471,28 @@ export function WidgetView() {
   }, [refreshWorkCalendar]);
 
   useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
+      if (!disposed) {
+        setPreferences(
+          normalizeWidgetPreferences(payload as Partial<typeof preferences>),
+        );
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!attentionSnapshot) {
       return;
     }
@@ -524,17 +509,28 @@ export function WidgetView() {
       telegram !== undefined &&
       findSignal(telegram, "applicationCounter")?.needsAttention === true;
 
-    void Promise.allSettled([
-      invoke<TaskbarMirrorStatus>(
-        teamsNeedsAttention ? "start_teams_mirror" : "stop_teams_mirror",
-      ),
-      invoke<TaskbarMirrorStatus>(
-        telegramNeedsAttention
-          ? "start_telegram_mirror"
-          : "stop_telegram_mirror",
-      ),
-    ]).then(() => void refreshMirrors());
-  }, [attentionSnapshot, refreshMirrors]);
+    void (async () => {
+      try {
+        await invoke("set_taskbar_mirror_slots", {
+          teamsSlot: preferences.appOrder.indexOf("teams"),
+          telegramSlot: preferences.appOrder.indexOf("telegram"),
+        });
+      } catch (error) {
+        setWidgetError(`App order update failed: ${String(error)}`);
+      }
+      await Promise.allSettled([
+        invoke<TaskbarMirrorStatus>(
+          teamsNeedsAttention ? "start_teams_mirror" : "stop_teams_mirror",
+        ),
+        invoke<TaskbarMirrorStatus>(
+          telegramNeedsAttention
+            ? "start_telegram_mirror"
+            : "stop_telegram_mirror",
+        ),
+      ]);
+      await refreshMirrors();
+    })();
+  }, [attentionSnapshot, preferences.appOrder, refreshMirrors]);
 
   useEffect(() => {
     let disposed = false;
@@ -578,7 +574,7 @@ export function WidgetView() {
           );
         }
         unlistenMoved = await widgetWindow.onMoved(({ payload }) => {
-          writePreferences({ x: payload.x, y: payload.y });
+          writeWidgetPreferences({ x: payload.x, y: payload.y });
         });
       } catch (error) {
         if (!disposed) {
@@ -596,8 +592,7 @@ export function WidgetView() {
     const next = !pinned;
     try {
       await widgetWindow.setAlwaysOnTop(next);
-      setPinned(next);
-      writePreferences({ pinned: next });
+      setPreferences(writeWidgetPreferences({ pinned: next }));
     } catch (error) {
       setWidgetError(`Pin update failed: ${String(error)}`);
     }
@@ -739,50 +734,70 @@ export function WidgetView() {
         : workCalendar?.status === "notConfigured"
           ? "Open Advanced to save one published calendar securely."
           : "The last refresh was unavailable; no cached event is shown.";
+  const showNextEvent = activeEventAcknowledged && calendarNextSelection !== null;
+  const panelStyle = widgetPanelStyle(preferences) as CSSProperties;
+
+  const renderAppSlot = (sourceKey: AttentionAppKey) => {
+    if (sourceKey === "teams") {
+      return (
+        <AppSlot
+          key={sourceKey}
+          sourceKey={sourceKey}
+          label="Microsoft Teams"
+          badge={teamsBadge}
+          statusText={teamsStatus}
+          health={sourceHealth(teams, attentionStale, attentionRefreshFailed)}
+          status={teamsMirror}
+          disabled={teams?.state === "notRunning"}
+          onActivate={() => void activateSource(sourceKey)}
+        />
+      );
+    }
+    if (sourceKey === "telegram") {
+      return (
+        <AppSlot
+          key={sourceKey}
+          sourceKey={sourceKey}
+          label="Telegram"
+          badge={telegramBadge}
+          statusText={telegramStatus}
+          health={sourceHealth(telegram, attentionStale, attentionRefreshFailed)}
+          status={telegramMirror}
+          disabled={telegram?.state === "notRunning"}
+          onActivate={() => void activateSource(sourceKey)}
+        />
+      );
+    }
+    return (
+      <AppSlot
+        key={sourceKey}
+        sourceKey={sourceKey}
+        label="Microsoft Outlook"
+        badge={outlookBadge}
+        badgeLastKnown={outlookUsingLastKnown}
+        statusText={outlookStatus}
+        health={sourceHealth(
+          outlook,
+          attentionStale || outlookUsingLastKnown,
+          attentionRefreshFailed,
+        )}
+        disabled={outlook?.state === "notRunning"}
+        onActivate={() => void activateSource(sourceKey)}
+      />
+    );
+  };
 
   return (
-    <main className="widget-shell" data-tauri-drag-region>
+    <main className="widget-shell" data-tauri-drag-region style={panelStyle}>
       <section
         className="widget-zone widget-left"
         aria-label="Application attention"
         data-tauri-drag-region
       >
         <div className="widget-apps" data-tauri-drag-region>
-          <AppSlot
-            sourceKey="teams"
-            label="Microsoft Teams"
-            badge={teamsBadge}
-            statusText={teamsStatus}
-            health={sourceHealth(teams, attentionStale, attentionRefreshFailed)}
-            status={teamsMirror}
-            disabled={teams?.state === "notRunning"}
-            onActivate={() => void activateSource("teams")}
-          />
-          <AppSlot
-            sourceKey="telegram"
-            label="Telegram"
-            badge={telegramBadge}
-            statusText={telegramStatus}
-            health={sourceHealth(telegram, attentionStale, attentionRefreshFailed)}
-            status={telegramMirror}
-            disabled={telegram?.state === "notRunning"}
-            onActivate={() => void activateSource("telegram")}
-          />
-          <AppSlot
-            sourceKey="outlook"
-            label="Microsoft Outlook"
-            badge={outlookBadge}
-            badgeLastKnown={outlookUsingLastKnown}
-            statusText={outlookStatus}
-            health={sourceHealth(
-              outlook,
-              attentionStale || outlookUsingLastKnown,
-              attentionRefreshFailed,
-            )}
-            disabled={outlook?.state === "notRunning"}
-            onActivate={() => void activateSource("outlook")}
-          />
+          {preferences.appOrder.map(renderAppSlot)}
           <button
+            aria-label="Open Advanced view"
             className="widget-more"
             onClick={() => void openAdvanced()}
             title="Open Advanced view"
@@ -800,24 +815,32 @@ export function WidgetView() {
         data-tauri-drag-region
       >
         <div data-tauri-drag-region>
-          <span>Local</span>
+          <span className="widget-clock__label">Local</span>
           <time>{formatTime(now)}</time>
         </div>
         <div data-tauri-drag-region>
-          <select
-            aria-label="Secondary timezone"
-            value={secondaryTimeZone}
-            onChange={(event) => {
-              setSecondaryTimeZone(event.target.value);
-              writePreferences({ secondaryTimeZone: event.target.value });
-            }}
-          >
-            {TIME_ZONE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label} · {timeZoneAbbreviation(now, option.value)}
-              </option>
-            ))}
-          </select>
+          <span className="widget-clock__label widget-clock__label--select">
+            <select
+              aria-label="Secondary timezone"
+              value={secondaryTimeZone}
+              onChange={(event) =>
+                setPreferences(
+                  writeWidgetPreferences({
+                    secondaryTimeZone: event.target.value,
+                  }),
+                )
+              }
+            >
+              {TIME_ZONE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <svg aria-hidden="true" viewBox="0 0 12 8">
+              <path d="m1 1.5 5 5 5-5" />
+            </svg>
+          </span>
           <time>{formatTime(now, secondaryTimeZone)}</time>
         </div>
       </section>
@@ -828,7 +851,11 @@ export function WidgetView() {
         aria-label="Work calendar"
         data-tauri-drag-region
       >
-        <div className="widget-calendar__content" data-tauri-drag-region>
+        <div
+          className="widget-calendar__content"
+          data-has-next={showNextEvent || undefined}
+          data-tauri-drag-region
+        >
           <div className="widget-calendar__event" data-tauri-drag-region>
             <div className="widget-calendar__event-header">
               <span
@@ -853,8 +880,12 @@ export function WidgetView() {
             <small>{calendarDetail}</small>
           </div>
 
-          {activeEventAcknowledged && calendarNextSelection && (
-            <div className="widget-calendar__next" data-tauri-drag-region>
+          {showNextEvent && calendarNextSelection && (
+            <div
+              aria-label="Next work-calendar event"
+              className="widget-calendar__next"
+              data-tauri-drag-region
+            >
               <span>Up next</span>
               <strong>{calendarNextSelection.subject}</strong>
               <small>
@@ -863,25 +894,30 @@ export function WidgetView() {
             </div>
           )}
         </div>
+        <div className="widget-controls">
+          <button
+            aria-label={
+              pinned ? "Unpin Attention Hub" : "Pin Attention Hub always on top"
+            }
+            aria-pressed={pinned}
+            onClick={() => void togglePinned()}
+            title={pinned ? "Unpin from always on top" : "Pin always on top"}
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
+            </svg>
+          </button>
+          <button
+            aria-label="Close Attention Hub"
+            onClick={() => void invoke("quit_application")}
+            title="Close Attention Hub"
+            type="button"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
       </section>
-
-      <div className="widget-controls">
-        <button
-          aria-pressed={pinned}
-          onClick={() => void togglePinned()}
-          title={pinned ? "Unpin from always on top" : "Pin always on top"}
-          type="button"
-        >
-          {pinned ? "Pinned" : "Pin"}
-        </button>
-        <button
-          onClick={() => void invoke("quit_application")}
-          title="Close Attention Hub"
-          type="button"
-        >
-          ×
-        </button>
-      </div>
 
       {widgetError && (
         <p className="widget-error" role="status">

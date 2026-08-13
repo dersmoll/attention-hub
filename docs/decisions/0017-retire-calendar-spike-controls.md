@@ -25,7 +25,9 @@ intermediates, not alternative releases.
 
 ## Consequences
 
-There is one visible calendar path and one installer format. Historical source
-and evidence remain available for engineering review without exposing retired
-experiments as product actions. Reopening Graph, Outlook UI Automation, or a
-different provider requires a new explicit decision.
+There is one visible calendar path and one installer format. Historical
+decision and milestone evidence remain available for engineering review without
+exposing retired experiments as product actions. ADR 0021 later removes the
+unreferenced spike implementations from the beta source tree. Reopening Graph,
+Outlook UI Automation, or a different provider requires a new explicit decision
+and a fresh implementation branch.

@@ -148,6 +148,8 @@ impl TaskbarMirrorState {
         self.status(source)
     }
 
+    pub fn set_slot_index(&self, _source: TaskbarMirrorSource, _slot_index: i32) {}
+
     pub fn stop_all(&self) {}
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
 import { WidgetView } from "./WidgetView";
@@ -13,6 +13,15 @@ import type {
   WorkCalendarConfiguration,
   WorkCalendarSnapshot,
 } from "./work-calendar-model";
+import {
+  type AttentionAppKey,
+  DEFAULT_APP_ORDER,
+  DEFAULT_WIDGET_PREFERENCES,
+  WIDGET_PREFERENCES_CHANGED_EVENT,
+  normalizeWidgetPreferences,
+  readWidgetPreferences,
+  writeWidgetPreferences,
+} from "./widget-preferences";
 import "./App.css";
 
 type NotificationAccessStatus =
@@ -90,6 +99,9 @@ async function invokePublishedIcsWithDeadline<T>(
 }
 
 function AdvancedView() {
+  const [widgetPreferences, setWidgetPreferences] = useState(
+    readWidgetPreferences,
+  );
   const [publishedIcsUrl, setPublishedIcsUrl] = useState("");
   const [titleCapabilityConfirmed, setTitleCapabilityConfirmed] =
     useState(false);
@@ -123,6 +135,34 @@ function AdvancedView() {
     "refresh" | "request" | "snapshot" | null
   >(null);
   const [frontendError, setFrontendError] = useState<string | null>(null);
+
+  const applyWidgetPreferences = useCallback(
+    (update: Parameters<typeof writeWidgetPreferences>[0]) => {
+      const next = writeWidgetPreferences(update);
+      setWidgetPreferences(next);
+      void emit(WIDGET_PREFERENCES_CHANGED_EVENT, next).catch((error) =>
+        setFrontendError(`Widget preference update failed: ${String(error)}`),
+      );
+    },
+    [],
+  );
+
+  const moveApp = useCallback(
+    (sourceKey: AttentionAppKey, direction: -1 | 1) => {
+      const currentIndex = widgetPreferences.appOrder.indexOf(sourceKey);
+      const nextIndex = currentIndex + direction;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= DEFAULT_APP_ORDER.length) {
+        return;
+      }
+      const appOrder = [...widgetPreferences.appOrder];
+      [appOrder[currentIndex], appOrder[nextIndex]] = [
+        appOrder[nextIndex],
+        appOrder[currentIndex],
+      ];
+      applyWidgetPreferences({ appOrder });
+    },
+    [applyWidgetPreferences, widgetPreferences.appOrder],
+  );
 
   const refreshAttentionSignals = useCallback(async () => {
     if (attentionRequestInFlight.current) {
@@ -316,6 +356,30 @@ function AdvancedView() {
   }, [refreshWorkCalendarConfiguration]);
 
   useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
+      if (!disposed) {
+        setWidgetPreferences(
+          normalizeWidgetPreferences(
+            payload as Partial<typeof widgetPreferences>,
+          ),
+        );
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
+
+  useEffect(() => {
     void runCommand("get_notification_access_status", "refresh");
   }, [runCommand]);
 
@@ -423,6 +487,117 @@ function AdvancedView() {
         <h1>Attention Hub</h1>
         <p>What currently needs my attention?</p>
       </header>
+
+      <section aria-labelledby="widget-preferences-heading">
+        <p className="eyebrow">Compact widget</p>
+        <h2 id="widget-preferences-heading">Appearance and app order</h2>
+        <p>
+          Changes apply immediately. Calendar warning colors remain fixed so
+          “starting soon” and “meeting started” keep their meaning.
+        </p>
+
+        <div className="widget-preferences-grid">
+          <fieldset className="widget-preference-card">
+            <legend>Panel surface</legend>
+            <label htmlFor="widget-panel-color">Background color</label>
+            <div className="widget-color-control">
+              <input
+                id="widget-panel-color"
+                onChange={(event) =>
+                  applyWidgetPreferences({ panelColor: event.target.value })
+                }
+                type="color"
+                value={widgetPreferences.panelColor}
+              />
+              <output htmlFor="widget-panel-color">
+                {widgetPreferences.panelColor.toUpperCase()}
+              </output>
+            </div>
+
+            <label htmlFor="widget-panel-opacity">
+              Background opacity
+              <output htmlFor="widget-panel-opacity">
+                {widgetPreferences.panelOpacity}%
+              </output>
+            </label>
+            <input
+              id="widget-panel-opacity"
+              max="100"
+              min="85"
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  panelOpacity: Number(event.target.value),
+                })
+              }
+              step="1"
+              type="range"
+              value={widgetPreferences.panelOpacity}
+            />
+            <small>
+              Text and border colors are selected automatically for contrast.
+            </small>
+            <button
+              onClick={() =>
+                applyWidgetPreferences({
+                  panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
+                  panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
+                })
+              }
+              type="button"
+            >
+              Reset panel appearance
+            </button>
+          </fieldset>
+
+          <fieldset className="widget-preference-card">
+            <legend>Left-panel app order</legend>
+            <ol className="widget-app-order">
+              {widgetPreferences.appOrder.map((sourceKey, index) => {
+                const labels: Record<AttentionAppKey, string> = {
+                  teams: "Microsoft Teams",
+                  telegram: "Telegram",
+                  outlook: "Microsoft Outlook",
+                };
+                return (
+                  <li key={sourceKey}>
+                    <span>{labels[sourceKey]}</span>
+                    <span className="widget-app-order__actions">
+                      <button
+                        aria-label={`Move ${labels[sourceKey]} up`}
+                        disabled={index === 0}
+                        onClick={() => moveApp(sourceKey, -1)}
+                        type="button"
+                      >
+                        Move up
+                      </button>
+                      <button
+                        aria-label={`Move ${labels[sourceKey]} down`}
+                        disabled={index === widgetPreferences.appOrder.length - 1}
+                        onClick={() => moveApp(sourceKey, 1)}
+                        type="button"
+                      >
+                        Move down
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <small>
+              Advanced remains fixed at the end. Native Teams and Telegram
+              visuals follow their app positions.
+            </small>
+            <button
+              onClick={() =>
+                applyWidgetPreferences({ appOrder: [...DEFAULT_APP_ORDER] })
+              }
+              type="button"
+            >
+              Reset default order
+            </button>
+          </fieldset>
+        </div>
+      </section>
 
       <section aria-live="polite">
         <p className="eyebrow">Work calendar</p>

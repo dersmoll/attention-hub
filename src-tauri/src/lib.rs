@@ -179,6 +179,21 @@ fn stop_telegram_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarM
 }
 
 #[tauri::command]
+fn set_taskbar_mirror_slots(
+    state: tauri::State<'_, TaskbarMirrorState>,
+    teams_slot: i32,
+    telegram_slot: i32,
+) -> Result<(), String> {
+    let valid_slot = |slot: i32| (0..=2).contains(&slot);
+    if !valid_slot(teams_slot) || !valid_slot(telegram_slot) || teams_slot == telegram_slot {
+        return Err("Taskbar mirror slots must be distinct app positions from 0 through 2.".into());
+    }
+    state.set_slot_index(TaskbarMirrorSource::Teams, teams_slot);
+    state.set_slot_index(TaskbarMirrorSource::Telegram, telegram_slot);
+    Ok(())
+}
+
+#[tauri::command]
 fn activate_attention_source(source_key: String) -> Result<(), String> {
     let source = AttentionAppSource::from_key(&source_key)
         .ok_or_else(|| format!("Unsupported attention source: {source_key}"))?;
@@ -212,6 +227,7 @@ pub fn run() {
             get_telegram_mirror_status,
             start_telegram_mirror,
             stop_telegram_mirror,
+            set_taskbar_mirror_slots,
             activate_attention_source,
             quit_application
         ])

@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-08-12
+- Geometry note: ADR 0019 supersedes the shell, target, and mirror dimensions;
+  source semantics and activation decisions in this ADR remain accepted.
 
 ## Context
 

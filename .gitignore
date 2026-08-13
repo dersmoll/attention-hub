@@ -16,10 +16,6 @@ dist-ssr
 # Rust build output
 src-tauri/target
 
-# Windows native helper build output
-src-native/**/bin
-src-native/**/obj
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

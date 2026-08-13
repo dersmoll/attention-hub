@@ -16,11 +16,18 @@ The primary window is a compact, frameless three-zone widget:
 - right: the active or next timed work-calendar event, with all-day entries used
   only as fallback context.
 
+The approved compact shell is a 960 by 80 logical-pixel window. Its aligned
+304, 208, and 432-pixel panels are 72 pixels high with 8-pixel gaps. App and
+Advanced targets are 48 pixels square, pin and close have dedicated 40-pixel
+targets inside the calendar panel, and the two clocks share one horizontal row.
+
 The widget can move, toggle always-on-top, and restores its physical position,
-pin state, and secondary timezone. The ellipsis creates the Advanced window on
-demand. Advanced contains the production work-calendar configuration, the
-structured Telegram, New Outlook, and Teams attention panel, and retained
-Notification Center/source diagnostics.
+pin state, secondary timezone, panel color and opacity, and left-panel app
+order. The ellipsis creates the Advanced window on demand. Advanced contains
+these bounded widget preferences, the production work-calendar configuration,
+the structured Telegram, New Outlook, and Teams attention panel, and retained
+Notification Center/source diagnostics. Advanced remains fixed last in the app
+row; native Teams and Telegram visuals follow reordered slots.
 
 The live Teams and Telegram tiles are inset DWM-composed crops
 selected from the taskbar on the source application's monitor, with bounded
@@ -46,12 +53,14 @@ returns meeting URLs or controls Outlook. Earlier My Day, AppointmentStore, and
 Graph provider experiments are retired from the production command surface and
 remain documented as historical evidence.
 
-## Canonical Windows build
+## Production-ready beta
 
-Version `0.2.0` uses one supported distributable: the NSIS setup executable
-created by `pnpm tauri build`. Development executables and Cargo/Vite output are
-not release artifacts. The exact validated installer path and SHA-256 are
-recorded in [the 0.2.0 release record](docs/releases/attention-hub-0.2.0.md).
+Version `0.3.0-beta.1` is the production-ready daily-use beta. It uses one
+supported distributable: the NSIS setup executable created by
+`pnpm tauri build`. Development executables and Cargo/Vite output are not
+release artifacts. The exact validated installer path and SHA-256 are recorded
+in [the 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md).
+The previous `0.2.0` release record remains historical evidence.
 
 ## Source of truth
 
@@ -63,6 +72,9 @@ recorded in [the 0.2.0 release record](docs/releases/attention-hub-0.2.0.md).
 - [Milestone 4C Published ICS semantic gate](docs/milestones/milestone-4c-published-ics-semantics.md)
 - [Milestone 4D saved work-calendar widget](docs/milestones/milestone-4d-widget-calendar.md)
 - [Milestone 5A left icon panel polish](docs/milestones/milestone-5a-left-icon-panel.md)
+- [Milestone 5B compact widget Option A](docs/milestones/milestone-5b-compact-widget-option-a.md)
+- [Milestone 5C widget alignment and personalization](docs/milestones/milestone-5c-widget-personalization.md)
+- [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)
 - [Architecture decisions](docs/decisions/)
 

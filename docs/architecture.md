@@ -56,8 +56,10 @@ The primary Tauri window is a fixed-height, frameless widget with three React
 zones. It is skipped from the taskbar, starts pinned, and uses supported Tauri
 window APIs for dragging, always-on-top, physical position events, and
 work-area-aware position restoration. Local storage keeps only widget position,
-pin state, and the selected IANA timezone; it does not persist attention data or
-source labels.
+pin state, the selected IANA timezone, normalized panel appearance, and the
+three fixed app keys in their user-selected order; it does not persist attention
+data or source labels. Tauri events synchronize that record between the widget
+and Advanced WebViews.
 
 The Advanced WebView is created only when the ellipsis is activated and is
 destroyed when closed. This keeps Graph, calendar, Notification Center, and raw
@@ -82,8 +84,9 @@ Teams live tile   Telegram live tile   Outlook React button
        Tauri widget WebView
 ```
 
-Each 44-pixel rounded popup is centered with a 4-pixel inset inside its 52-pixel
-button and tracks the widget's physical position and current DPI every 100 ms
+Each 40-pixel rounded popup is centered with a 4-pixel inset inside its current
+48-pixel ordered button and tracks the widget's physical position, current DPI,
+and shared Teams or Telegram slot index every 100 ms
 while its existing cached source-rectangle check runs. Once per second a cheap
 top-level-window/taskbar topology check detects monitor movement, taskbar-count
 changes, and Explorer replacement; a full UI Automation rediscovery runs only
