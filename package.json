@@ -1,11 +1,13 @@
 {
   "name": "attention-hub",
   "private": true,
-  "version": "0.3.0-beta.1",
+  "version": "0.4.0-beta.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:attention-model": "node scripts/test-attention-model.mjs",
+    "test:preferences": "node scripts/test-widget-preferences.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

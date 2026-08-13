@@ -7,6 +7,7 @@ import { WidgetView } from "./WidgetView";
 import {
   ATTENTION_POLL_INTERVAL_MS,
   type AttentionSignalSnapshot,
+  type AttentionSourceKey,
   type TeamsMirrorStatus,
 } from "./attention-model";
 import type {
@@ -121,7 +122,6 @@ function AdvancedView() {
   const [attentionClock, setAttentionClock] = useState(() => Date.now());
   const attentionRequestInFlight = useRef(false);
   const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
-  const [teamsMirrorPending, setTeamsMirrorPending] = useState(false);
   const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
   const [report, setReport] = useState<NotificationAccessReport | null>(null);
   const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null);
@@ -164,6 +164,38 @@ function AdvancedView() {
     [applyWidgetPreferences, widgetPreferences.appOrder],
   );
 
+  const toggleMonitoredSource = useCallback(
+    (sourceKey: AttentionAppKey) => {
+      const selected = new Set(widgetPreferences.monitoredSources);
+      if (selected.has(sourceKey)) {
+        selected.delete(sourceKey);
+      } else {
+        selected.add(sourceKey);
+      }
+      applyWidgetPreferences({
+        monitoredSources: DEFAULT_APP_ORDER.filter((key) => selected.has(key)),
+      });
+    },
+    [applyWidgetPreferences, widgetPreferences.monitoredSources],
+  );
+
+  const toggleLiveVisual = useCallback(
+    (sourceKey: "teams" | "telegram") => {
+      const selected = new Set(widgetPreferences.liveVisualSources);
+      if (selected.has(sourceKey)) {
+        selected.delete(sourceKey);
+      } else {
+        selected.add(sourceKey);
+      }
+      applyWidgetPreferences({
+        liveVisualSources: (["teams", "telegram"] as const).filter((key) =>
+          selected.has(key),
+        ),
+      });
+    },
+    [applyWidgetPreferences, widgetPreferences.liveVisualSources],
+  );
+
   const refreshAttentionSignals = useCallback(async () => {
     if (attentionRequestInFlight.current) {
       return;
@@ -175,6 +207,7 @@ function AdvancedView() {
     try {
       const nextSnapshot = await invoke<AttentionSignalSnapshot>(
         "get_attention_signal_snapshot",
+        { sourceKeys: widgetPreferences.monitoredSources },
       );
       setAttentionSnapshot(nextSnapshot);
       setAttentionError(null);
@@ -187,7 +220,7 @@ function AdvancedView() {
       attentionRequestInFlight.current = false;
       setAttentionRefreshing(false);
     }
-  }, []);
+  }, [widgetPreferences.monitoredSources]);
 
   const refreshWorkCalendarConfiguration = useCallback(async () => {
     try {
@@ -294,30 +327,6 @@ function AdvancedView() {
       setTeamsMirrorError(String(error));
     }
   }, []);
-
-  const runTeamsMirrorCommand = useCallback(
-    async (command: "start_teams_mirror" | "stop_teams_mirror") => {
-      setTeamsMirrorPending(true);
-      setTeamsMirrorError(null);
-
-      try {
-        setTeamsMirror(await invoke<TeamsMirrorStatus>(command));
-      } catch (error) {
-        const message = String(error);
-        try {
-          setTeamsMirror(
-            await invoke<TeamsMirrorStatus>("get_teams_mirror_status"),
-          );
-        } catch {
-          // Preserve the command failure below when status refresh also fails.
-        }
-        setTeamsMirrorError(message);
-      } finally {
-        setTeamsMirrorPending(false);
-      }
-    },
-    [],
-  );
 
   const runCommand = useCallback(
     async (
@@ -490,7 +499,7 @@ function AdvancedView() {
 
       <section aria-labelledby="widget-preferences-heading">
         <p className="eyebrow">Compact widget</p>
-        <h2 id="widget-preferences-heading">Appearance and app order</h2>
+        <h2 id="widget-preferences-heading">Widget settings</h2>
         <p>
           Changes apply immediately. Calendar warning colors remain fixed so
           “starting soon” and “meeting started” keep their meaning.
@@ -594,6 +603,67 @@ function AdvancedView() {
               type="button"
             >
               Reset default order
+            </button>
+          </fieldset>
+
+          <fieldset className="widget-preference-card">
+            <legend>Source monitoring</legend>
+            <p>
+              Monitoring {widgetPreferences.monitoredSources.length} of 3 fixed
+              sources. A disabled source is excluded, never treated as clear.
+            </p>
+            <div className="widget-source-controls">
+              {widgetPreferences.appOrder.map((sourceKey) => {
+                const labels: Record<AttentionAppKey, string> = {
+                  teams: "Microsoft Teams",
+                  telegram: "Telegram",
+                  outlook: "Microsoft Outlook",
+                };
+                const monitored = widgetPreferences.monitoredSources.includes(
+                  sourceKey,
+                );
+                const supportsVisual = sourceKey !== "outlook";
+                return (
+                  <div className="widget-source-control" key={sourceKey}>
+                    <label>
+                      <input
+                        checked={monitored}
+                        onChange={() => toggleMonitoredSource(sourceKey)}
+                        type="checkbox"
+                      />
+                      Monitor {labels[sourceKey]}
+                    </label>
+                    {supportsVisual && (
+                      <label className="widget-source-control__visual">
+                        <input
+                          checked={widgetPreferences.liveVisualSources.includes(
+                            sourceKey,
+                          )}
+                          disabled={!monitored}
+                          onChange={() => toggleLiveVisual(sourceKey)}
+                          type="checkbox"
+                        />
+                        Show live taskbar visual when attention is reported
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <small>
+              Live taskbar pixels remain visual-only. Turning them off does not
+              change the source-owned attention signal.
+            </small>
+            <button
+              onClick={() =>
+                applyWidgetPreferences({
+                  monitoredSources: [...DEFAULT_APP_ORDER],
+                  liveVisualSources: ["teams", "telegram"],
+                })
+              }
+              type="button"
+            >
+              Reset source defaults
             </button>
           </fieldset>
         </div>
@@ -724,18 +794,15 @@ function AdvancedView() {
         refreshError={attentionError}
         consecutiveRefreshFailures={attentionFailureCount}
         now={attentionClock}
+        monitoredSources={
+          widgetPreferences.monitoredSources as AttentionSourceKey[]
+        }
         refreshing={attentionRefreshing}
         onRefresh={() => void refreshAttentionSignals()}
         teamsMirror={teamsMirror}
-        teamsMirrorPending={teamsMirrorPending}
         teamsMirrorError={teamsMirrorError}
-        onTeamsMirrorToggle={() =>
-          void runTeamsMirrorCommand(
-            teamsMirror?.enabled
-              ? "stop_teams_mirror"
-              : "start_teams_mirror",
-          )
-        }
+        teamsVisualEnabled={widgetPreferences.liveVisualSources.includes("teams")}
+        onTeamsVisualToggle={() => toggleLiveVisual("teams")}
       />
 
       <details className="technical-details">

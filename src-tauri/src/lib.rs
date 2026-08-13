@@ -16,8 +16,10 @@ use teams_mirror::{
 use work_calendar::{WorkCalendarConfiguration, WorkCalendarSnapshot, WorkCalendarState};
 
 #[tauri::command]
-async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
-    let snapshot = attention_signals::get_snapshot().await;
+async fn get_attention_signal_snapshot(
+    source_keys: Vec<String>,
+) -> Result<AttentionSignalSnapshot, String> {
+    let snapshot = attention_signals::get_snapshot(source_keys).await?;
     let summary = snapshot
         .sources
         .iter()
@@ -35,7 +37,7 @@ async fn get_attention_signal_snapshot() -> AttentionSignalSnapshot {
         snapshot.signals.len(),
         snapshot.diagnostics
     );
-    snapshot
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -179,17 +181,30 @@ fn stop_telegram_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarM
 }
 
 #[tauri::command]
-fn set_taskbar_mirror_slots(
+fn set_taskbar_mirror_layout(
     state: tauri::State<'_, TaskbarMirrorState>,
-    teams_slot: i32,
-    telegram_slot: i32,
+    teams_slot: Option<i32>,
+    telegram_slot: Option<i32>,
+    visible_source_count: i32,
 ) -> Result<(), String> {
     let valid_slot = |slot: i32| (0..=2).contains(&slot);
-    if !valid_slot(teams_slot) || !valid_slot(telegram_slot) || teams_slot == telegram_slot {
-        return Err("Taskbar mirror slots must be distinct app positions from 0 through 2.".into());
+    if !(0..=3).contains(&visible_source_count)
+        || teams_slot.is_some_and(|slot| !valid_slot(slot))
+        || telegram_slot.is_some_and(|slot| !valid_slot(slot))
+        || teams_slot.is_some_and(|slot| slot >= visible_source_count)
+        || telegram_slot.is_some_and(|slot| slot >= visible_source_count)
+        || teams_slot.is_some() && teams_slot == telegram_slot
+    {
+        return Err(
+            "Visible taskbar mirror slots must be distinct app positions from 0 through 2.".into(),
+        );
     }
-    state.set_slot_index(TaskbarMirrorSource::Teams, teams_slot);
-    state.set_slot_index(TaskbarMirrorSource::Telegram, telegram_slot);
+    state.set_layout(TaskbarMirrorSource::Teams, teams_slot, visible_source_count);
+    state.set_layout(
+        TaskbarMirrorSource::Telegram,
+        telegram_slot,
+        visible_source_count,
+    );
     Ok(())
 }
 
@@ -227,7 +242,7 @@ pub fn run() {
             get_telegram_mirror_status,
             start_telegram_mirror,
             stop_telegram_mirror,
-            set_taskbar_mirror_slots,
+            set_taskbar_mirror_layout,
             activate_attention_source,
             quit_application
         ])

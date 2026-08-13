@@ -39,6 +39,7 @@ struct MirrorInstance {
     status: Arc<Mutex<TaskbarMirrorStatus>>,
     destination: Arc<AtomicIsize>,
     slot_index: Arc<AtomicI32>,
+    visible_source_count: Arc<AtomicI32>,
 }
 
 struct MirrorRuntime {
@@ -70,10 +71,19 @@ impl TaskbarMirrorState {
         self.instance(source).stop()
     }
 
-    pub fn set_slot_index(&self, source: TaskbarMirrorSource, slot_index: i32) {
-        self.instance(source)
-            .slot_index
-            .store(slot_index, Ordering::Release);
+    pub fn set_layout(
+        &self,
+        source: TaskbarMirrorSource,
+        slot_index: Option<i32>,
+        visible_source_count: i32,
+    ) {
+        let instance = self.instance(source);
+        if let Some(slot_index) = slot_index {
+            instance.slot_index.store(slot_index, Ordering::Release);
+        }
+        instance
+            .visible_source_count
+            .store(visible_source_count, Ordering::Release);
     }
 
     pub fn stop_all(&self) {
@@ -106,6 +116,7 @@ impl MirrorInstance {
             status: Arc::new(Mutex::new(TaskbarMirrorStatus::stopped(source))),
             destination: Arc::new(AtomicIsize::new(0)),
             slot_index: Arc::new(AtomicI32::new(source.slot_index())),
+            visible_source_count: Arc::new(AtomicI32::new(3)),
         }
     }
 
@@ -139,6 +150,7 @@ impl MirrorInstance {
         self.destination.store(0, Ordering::Release);
         let destination_slot = Arc::clone(&self.destination);
         let slot_index = Arc::clone(&self.slot_index);
+        let visible_source_count = Arc::clone(&self.visible_source_count);
         let thread_cancelled = Arc::clone(&startup_cancelled);
         let cancelled_after_run = Arc::clone(&startup_cancelled);
         let source = self.source;
@@ -152,6 +164,7 @@ impl MirrorInstance {
                     thread_cancelled,
                     destination_slot,
                     slot_index,
+                    visible_source_count,
                 );
                 if let Err(error) = result {
                     let mut status = shared_status
@@ -354,10 +367,10 @@ mod windows_probe {
     const E_FAIL: windows::core::HRESULT = windows::core::HRESULT(0x8000_4005_u32 as i32);
     const MINIMUM_WINDOW_CLIENT_WIDTH: i32 = 320;
     const WIDGET_ICON_LOGICAL_SIZE: i32 = 48;
+    const WIDGET_LEFT_PANEL_LOGICAL_WIDTH: i32 = 304;
     const WIDGET_MIRROR_LOGICAL_SIZE: i32 = 40;
     const WIDGET_MIRROR_LOGICAL_INSET: i32 = 4;
     const WIDGET_MIRROR_LOGICAL_RADIUS: i32 = 8;
-    const WIDGET_ICON_LEFT: i32 = 44;
     const WIDGET_ICON_GAP: i32 = 8;
     const WIDGET_ICON_TOP: i32 = 16;
     const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
@@ -393,7 +406,7 @@ mod windows_probe {
             ProbeMode::WholeTaskbar
         };
 
-        run_mode(mode, None, None, None, None, None)
+        run_mode(mode, None, None, None, None, None, None)
     }
 
     pub fn run_product(
@@ -403,6 +416,7 @@ mod windows_probe {
         startup_cancelled: Arc<AtomicBool>,
         destination_slot: Arc<AtomicIsize>,
         slot_index: Arc<AtomicI32>,
+        visible_source_count: Arc<AtomicI32>,
     ) -> Result<()> {
         let result = run_mode(
             ProbeMode::TrackedCrop(source),
@@ -411,6 +425,7 @@ mod windows_probe {
             Some(startup_cancelled.as_ref()),
             Some(destination_slot.as_ref()),
             Some(slot_index.as_ref()),
+            Some(visible_source_count.as_ref()),
         );
         match result {
             Ok(()) => Ok(()),
@@ -440,6 +455,7 @@ mod windows_probe {
         startup_cancelled: Option<&AtomicBool>,
         destination_slot: Option<&AtomicIsize>,
         slot_index: Option<&AtomicI32>,
+        visible_source_count: Option<&AtomicI32>,
     ) -> Result<()> {
         if mode != ProbeMode::WholeTaskbar {
             ensure_per_monitor_v2_awareness()?;
@@ -550,7 +566,13 @@ mod windows_probe {
             fit_source_to_primary_display(rendered_source_size.0, rendered_source_size.1);
         let destination_size = if let (Some(owner), ProbeMode::TrackedCrop(source)) = (owner, mode)
         {
-            let size = position_widget_destination(destination, owner, source, slot_index)?;
+            let size = position_widget_destination(
+                destination,
+                owner,
+                source,
+                slot_index,
+                visible_source_count,
+            )?;
             mask_mirror_window(destination, size)?;
             size
         } else {
@@ -624,6 +646,7 @@ mod windows_probe {
                 taskbar_monitor.clone(),
                 status.clone(),
                 slot_index,
+                visible_source_count,
             );
             controller.start()?;
             Some(controller)
@@ -1196,6 +1219,7 @@ mod windows_probe {
         owner: HWND,
         source: TaskbarMirrorSource,
         slot_index: Option<&AtomicI32>,
+        visible_source_count: Option<&AtomicI32>,
     ) -> Result<(i32, i32)> {
         let mut owner_rect = RECT::default();
         unsafe { GetWindowRect(owner, &mut owner_rect)? };
@@ -1206,8 +1230,11 @@ mod windows_probe {
         let slot_index = slot_index
             .map(|value| value.load(Ordering::Acquire))
             .unwrap_or_else(|| source.slot_index());
-        let slot_left =
-            WIDGET_ICON_LEFT + slot_index * (WIDGET_ICON_LOGICAL_SIZE + WIDGET_ICON_GAP);
+        let source_count = visible_source_count
+            .map(|value| value.load(Ordering::Acquire))
+            .unwrap_or(3)
+            .clamp(0, 3);
+        let slot_left = widget_slot_left(slot_index, source_count);
         let x = owner_rect.left + scale(slot_left) + inset;
         let y = owner_rect.top + scale(WIDGET_ICON_TOP) + inset;
 
@@ -1223,6 +1250,14 @@ mod windows_probe {
             )?
         };
         Ok((size, size))
+    }
+
+    fn widget_slot_left(slot_index: i32, visible_source_count: i32) -> i32 {
+        let source_count = visible_source_count.clamp(0, 3);
+        let app_count = source_count + 1;
+        let group_width = app_count * WIDGET_ICON_LOGICAL_SIZE + (app_count - 1) * WIDGET_ICON_GAP;
+        let group_left = (WIDGET_LEFT_PANEL_LOGICAL_WIDTH - group_width) / 2;
+        group_left + slot_index * (WIDGET_ICON_LOGICAL_SIZE + WIDGET_ICON_GAP)
     }
 
     fn mask_mirror_window(window: HWND, size: (i32, i32)) -> Result<()> {
@@ -1333,6 +1368,12 @@ mod windows_probe {
                     reflow.activate();
                 }
                 continue;
+            }
+
+            if message.message == WM_CLOSE {
+                if let Some(reflow) = reflow.as_mut() {
+                    reflow.release_thumbnail();
+                }
             }
 
             unsafe {
@@ -1448,6 +1489,7 @@ mod windows_probe {
         metrics: RuntimeMetrics,
         status: Option<Arc<Mutex<TaskbarMirrorStatus>>>,
         slot_index: Option<&'a AtomicI32>,
+        visible_source_count: Option<&'a AtomicI32>,
     }
 
     impl<'a> ReflowController<'a> {
@@ -1468,6 +1510,7 @@ mod windows_probe {
             taskbar_monitor: Option<String>,
             status: Option<Arc<Mutex<TaskbarMirrorStatus>>>,
             slot_index: Option<&'a AtomicI32>,
+            visible_source_count: Option<&'a AtomicI32>,
         ) -> Self {
             Self {
                 source,
@@ -1500,6 +1543,7 @@ mod windows_probe {
                 metrics: RuntimeMetrics::new(),
                 status,
                 slot_index,
+                visible_source_count,
             }
         }
 
@@ -1533,6 +1577,7 @@ mod windows_probe {
                     owner,
                     self.source,
                     self.slot_index,
+                    self.visible_source_count,
                 )?;
                 if destination_size != self.destination_size {
                     mask_mirror_window(self.destination, destination_size)?;
@@ -1753,6 +1798,12 @@ mod windows_probe {
             if let Some(mut thumbnail) = self.thumbnail.take() {
                 let _ = thumbnail.hide();
                 thumbnail.suppress_cleanup_error();
+            }
+        }
+
+        fn release_thumbnail(&mut self) {
+            if let Some(thumbnail) = self.thumbnail.take() {
+                let _ = thumbnail.hide();
             }
         }
 
@@ -2003,7 +2054,8 @@ mod windows_probe {
     #[cfg(test)]
     mod tests {
         use super::{
-            fit_within, source_identity_matches, source_name_matches, square_source_crop, RECT,
+            fit_within, source_identity_matches, source_name_matches, square_source_crop,
+            widget_slot_left, RECT,
         };
         use crate::teams_mirror::TaskbarMirrorSource;
 
@@ -2052,6 +2104,15 @@ mod windows_probe {
                 (0, 0, 48, 48)
             );
             assert_eq!(fit_within(48, 48, 40, 40), (40, 40));
+        }
+
+        #[test]
+        fn compressed_widget_slots_remain_centered() {
+            assert_eq!(widget_slot_left(0, 3), 44);
+            assert_eq!(widget_slot_left(1, 3), 100);
+            assert_eq!(widget_slot_left(0, 2), 72);
+            assert_eq!(widget_slot_left(1, 2), 128);
+            assert_eq!(widget_slot_left(0, 1), 100);
         }
     }
 }

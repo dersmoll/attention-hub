@@ -23,8 +23,13 @@ targets inside the calendar panel, and the two clocks share one horizontal row.
 
 The widget can move, toggle always-on-top, and restores its physical position,
 pin state, secondary timezone, panel color and opacity, and left-panel app
-order. The ellipsis creates the Advanced window on demand. Advanced contains
-these bounded widget preferences, the production work-calendar configuration,
+order. Advanced can monitor any selected subset of the three fixed sources and
+can independently disable the visual-only Teams or Telegram taskbar surface;
+existing preferences migrate to all sources and both visuals enabled. Coverage
+is reported against the selected sources, and selecting none reports monitoring
+paused rather than all clear. The ellipsis creates the Advanced window on
+demand. Advanced contains these bounded widget preferences, the production
+work-calendar configuration,
 the structured Telegram, New Outlook, and Teams attention panel, and retained
 Notification Center/source diagnostics. Advanced remains fixed last in the app
 row; native Teams and Telegram visuals follow reordered slots.
@@ -53,14 +58,14 @@ returns meeting URLs or controls Outlook. Earlier My Day, AppointmentStore, and
 Graph provider experiments are retired from the production command surface and
 remain documented as historical evidence.
 
-## Production-ready beta
+## Current beta
 
-Version `0.3.0-beta.1` is the production-ready daily-use beta. It uses one
+Version `0.4.0-beta.1` is the current daily-use beta. It uses one
 supported distributable: the NSIS setup executable created by
 `pnpm tauri build`. Development executables and Cargo/Vite output are not
 release artifacts. The exact validated installer path and SHA-256 are recorded
-in [the 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md).
-The previous `0.2.0` release record remains historical evidence.
+in [the 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md).
+The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
 
 ## Source of truth
 
@@ -74,6 +79,9 @@ The previous `0.2.0` release record remains historical evidence.
 - [Milestone 5A left icon panel polish](docs/milestones/milestone-5a-left-icon-panel.md)
 - [Milestone 5B compact widget Option A](docs/milestones/milestone-5b-compact-widget-option-a.md)
 - [Milestone 5C widget alignment and personalization](docs/milestones/milestone-5c-widget-personalization.md)
+- [Milestone 6 beta hardening and daily-use evidence](docs/milestones/milestone-6-beta-hardening.md)
+- [Milestone 7 fixed-source monitoring controls](docs/milestones/milestone-7-fixed-source-controls.md)
+- [Attention Hub 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md)
 - [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)
 - [Architecture decisions](docs/decisions/)

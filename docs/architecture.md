@@ -56,10 +56,12 @@ The primary Tauri window is a fixed-height, frameless widget with three React
 zones. It is skipped from the taskbar, starts pinned, and uses supported Tauri
 window APIs for dragging, always-on-top, physical position events, and
 work-area-aware position restoration. Local storage keeps only widget position,
-pin state, the selected IANA timezone, normalized panel appearance, and the
-three fixed app keys in their user-selected order; it does not persist attention
-data or source labels. Tauri events synchronize that record between the widget
-and Advanced WebViews.
+pin state, the selected IANA timezone, normalized panel appearance, the three
+fixed app keys in their user-selected order, the selected subset of those fixed
+sources, and the independent Teams/Telegram live-visual preferences; it does
+not persist attention data or source labels. Missing source-control fields
+migrate to all three sources and both visuals enabled. Tauri events synchronize
+that record between the widget and Advanced WebViews.
 
 The Advanced WebView is created only when the ellipsis is activated and is
 destroyed when closed. This keeps Graph, calendar, Notification Center, and raw
@@ -86,7 +88,7 @@ Teams live tile   Telegram live tile   Outlook React button
 
 Each 40-pixel rounded popup is centered with a 4-pixel inset inside its current
 48-pixel ordered button and tracks the widget's physical position, current DPI,
-and shared Teams or Telegram slot index every 100 ms
+visible-source count, and shared Teams or Telegram slot index every 100 ms
 while its existing cached source-rectangle check runs. Once per second a cheap
 top-level-window/taskbar topology check detects monitor movement, taskbar-count
 changes, and Explorer replacement; a full UI Automation rediscovery runs only
@@ -97,7 +99,7 @@ take focus. If discovery becomes absent or ambiguous, the popup hides while the
 local glyph and semantic React state remain available. The two sources have
 separate lifecycle/status records and failures.
 
-The three React slots are real buttons with keyboard focus, accessible status
+The selected React slots are real buttons with keyboard focus, accessible status
 labels, stale/retrying/unavailable presentation, and local app glyphs. A user
 activation restores and foregrounds an existing source-owned top-level window.
 It never launches an application or forwards input into application content.
@@ -235,8 +237,11 @@ The complete current snapshot is authoritative. Native `NotificationChanged` eve
 
 This trades small repeated reads for inspectability and recovery. Milestone 0 notification volume is expected to be small; measure before optimizing.
 
-The widget and Milestone 3A Advanced panel request complete attention-signal snapshots
-five seconds after the previous request completes. A shared frontend in-flight
+The widget and Milestone 3A Advanced panel request complete attention-signal
+snapshots for the selected fixed source keys five seconds after the previous
+request completes. Rust validates the selection before capture; disabled
+sources are not traversed, and an empty selection returns **Monitoring paused**
+without initializing UI Automation. A shared frontend in-flight
 guard also prevents a manual refresh from overlapping the automatic request.
 The last successful snapshot remains visible when IPC refresh fails: the first
 failure is presented as retrying, while two consecutive failures or data older
@@ -247,8 +252,10 @@ demonstrates which reliability work matters.
 
 The overall panel derives attention separately from health. A positive observed
 signal remains visible even if another source is unhealthy. `All clear` is
-reserved for fresh, observed, clear state from all three fixed sources; partial
-coverage is described as no attention detected rather than false reassurance.
+reserved for fresh, observed, clear state from every selected fixed source;
+partial selected coverage is described as no attention detected rather than
+false reassurance. Disabled sources are excluded deliberately and never counted
+as clear.
 
 The removed Teams accessibility diagnostic was manual because it traversed a larger application tree and existed only to answer a bounded feasibility question. Its negative result was never merged into `AttentionSignal`. The existing `activityStatus` signal is the authoritative implemented Teams behavior; exact Teams counts and message details are deferred rather than approximated.
 

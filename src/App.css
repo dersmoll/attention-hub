@@ -148,8 +148,17 @@ main {
 
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: 0.85rem;
+}
+
+.source-grid__empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed #9aa5b5;
+  border-radius: 0.65rem;
+  background: #f8fafc;
 }
 
 .source-card {
@@ -460,6 +469,41 @@ section + section {
   cursor: default;
 }
 
+.widget-source-controls {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.widget-source-control {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid #d6dce4;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+}
+
+.widget-source-control label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-weight: 650;
+}
+
+.widget-source-control input {
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.1rem;
+}
+
+.widget-preference-card .widget-source-control__visual {
+  margin-left: 1.6rem;
+  color: #526073;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
 .calendar-configuration p,
 .calendar-configuration .actions {
   margin-block: 0;
@@ -673,10 +717,11 @@ body[data-window="main"] #root {
 .widget-apps {
   position: absolute;
   top: 11px;
-  left: 43px;
+  left: 50%;
   display: flex;
   align-items: center;
   gap: 8px;
+  transform: translateX(-50%);
 }
 
 .widget-app-slot,

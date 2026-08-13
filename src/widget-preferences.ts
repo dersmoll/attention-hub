@@ -3,6 +3,7 @@ export const WIDGET_PREFERENCES_CHANGED_EVENT = "widget-preferences-changed";
 export const DEFAULT_TIME_ZONE = "America/New_York";
 
 export type AttentionAppKey = "teams" | "telegram" | "outlook";
+export type LiveVisualAppKey = "teams" | "telegram";
 
 export interface WidgetPreferences {
   pinned: boolean;
@@ -12,12 +13,18 @@ export interface WidgetPreferences {
   panelColor: string;
   panelOpacity: number;
   appOrder: AttentionAppKey[];
+  monitoredSources: AttentionAppKey[];
+  liveVisualSources: LiveVisualAppKey[];
 }
 
 export const DEFAULT_APP_ORDER: AttentionAppKey[] = [
   "teams",
   "telegram",
   "outlook",
+];
+export const DEFAULT_LIVE_VISUAL_SOURCES: LiveVisualAppKey[] = [
+  "teams",
+  "telegram",
 ];
 
 export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
@@ -28,6 +35,8 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   panelColor: "#f8fafc",
   panelOpacity: 100,
   appOrder: [...DEFAULT_APP_ORDER],
+  monitoredSources: [...DEFAULT_APP_ORDER],
+  liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
 };
 
 function normalizeColor(value: unknown) {
@@ -40,6 +49,24 @@ function normalizeOpacity(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(100, Math.max(85, Math.round(value)))
     : DEFAULT_WIDGET_PREFERENCES.panelOpacity;
+}
+
+function normalizeTimeZone(value: unknown) {
+  if (typeof value !== "string") {
+    return DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(0);
+    return value;
+  } catch {
+    return DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone;
+  }
+}
+
+function normalizeCoordinate(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : null;
 }
 
 function normalizeAppOrder(value: unknown): AttentionAppKey[] {
@@ -56,20 +83,42 @@ function normalizeAppOrder(value: unknown): AttentionAppKey[] {
     : [...DEFAULT_APP_ORDER];
 }
 
+function normalizeSourceSubset<T extends AttentionAppKey>(
+  value: unknown,
+  supportedSources: readonly T[],
+  fallback: readonly T[],
+): T[] {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+  const selected = new Set(value);
+  return supportedSources.filter((sourceKey) => selected.has(sourceKey));
+}
+
 export function normalizeWidgetPreferences(
   value: Partial<WidgetPreferences> | null | undefined,
 ): WidgetPreferences {
   return {
-    pinned: value?.pinned ?? DEFAULT_WIDGET_PREFERENCES.pinned,
-    secondaryTimeZone:
-      typeof value?.secondaryTimeZone === "string"
-        ? value.secondaryTimeZone
-        : DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone,
-    x: typeof value?.x === "number" ? value.x : null,
-    y: typeof value?.y === "number" ? value.y : null,
+    pinned:
+      typeof value?.pinned === "boolean"
+        ? value.pinned
+        : DEFAULT_WIDGET_PREFERENCES.pinned,
+    secondaryTimeZone: normalizeTimeZone(value?.secondaryTimeZone),
+    x: normalizeCoordinate(value?.x),
+    y: normalizeCoordinate(value?.y),
     panelColor: normalizeColor(value?.panelColor),
     panelOpacity: normalizeOpacity(value?.panelOpacity),
     appOrder: normalizeAppOrder(value?.appOrder),
+    monitoredSources: normalizeSourceSubset(
+      value?.monitoredSources,
+      DEFAULT_APP_ORDER,
+      DEFAULT_WIDGET_PREFERENCES.monitoredSources,
+    ),
+    liveVisualSources: normalizeSourceSubset(
+      value?.liveVisualSources,
+      DEFAULT_LIVE_VISUAL_SOURCES,
+      DEFAULT_WIDGET_PREFERENCES.liveVisualSources,
+    ),
   };
 }
 

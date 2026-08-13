@@ -3,6 +3,7 @@ import {
   findSignal,
   type AttentionSignal,
   type AttentionSignalSnapshot,
+  type AttentionSourceKey,
   type AttentionSourceView,
   type TeamsMirrorStatus,
 } from "./attention-model";
@@ -12,12 +13,13 @@ interface AttentionPanelProps {
   refreshError: string | null;
   consecutiveRefreshFailures: number;
   now: number;
+  monitoredSources: AttentionSourceKey[];
   refreshing: boolean;
   onRefresh: () => void;
   teamsMirror: TeamsMirrorStatus | null;
-  teamsMirrorPending: boolean;
   teamsMirrorError: string | null;
-  onTeamsMirrorToggle: () => void;
+  teamsVisualEnabled: boolean;
+  onTeamsVisualToggle: () => void;
 }
 
 function formatCapturedAt(value: string | null) {
@@ -152,15 +154,15 @@ function mirrorStatus(status: TeamsMirrorStatus | null) {
 function TeamsCard({
   source,
   teamsMirror,
-  teamsMirrorPending,
   teamsMirrorError,
-  onTeamsMirrorToggle,
+  teamsVisualEnabled,
+  onTeamsVisualToggle,
 }: {
   source: AttentionSourceView;
   teamsMirror: TeamsMirrorStatus | null;
-  teamsMirrorPending: boolean;
   teamsMirrorError: string | null;
-  onTeamsMirrorToggle: () => void;
+  teamsVisualEnabled: boolean;
+  onTeamsVisualToggle: () => void;
 }) {
   const activity = findSignal(source.observation, "activityStatus");
   const activityLabel =
@@ -183,18 +185,13 @@ function TeamsCard({
         <div>
           <strong>Taskbar visual mirror</strong>
           <small>{mirrorStatus(teamsMirror)}</small>
-          <small>Visual only, primary taskbar, session only.</small>
+          <small>Visual only, from the selected source display.</small>
         </div>
         <button
-          disabled={teamsMirrorPending || teamsMirror === null}
-          onClick={onTeamsMirrorToggle}
+          onClick={onTeamsVisualToggle}
           type="button"
         >
-          {teamsMirrorPending
-            ? "Updating…"
-            : teamsMirror?.enabled
-              ? "Stop mirror"
-              : "Show Teams visual"}
+          {teamsVisualEnabled ? "Disable live visual" : "Enable live visual"}
         </button>
       </div>
       {teamsMirrorError && (
@@ -209,20 +206,39 @@ export function AttentionPanel({
   refreshError,
   consecutiveRefreshFailures,
   now,
+  monitoredSources,
   refreshing,
   onRefresh,
   teamsMirror,
-  teamsMirrorPending,
   teamsMirrorError,
-  onTeamsMirrorToggle,
+  teamsVisualEnabled,
+  onTeamsVisualToggle,
 }: AttentionPanelProps) {
   const model = buildAttentionPanelModel(
     snapshot,
     refreshError,
     consecutiveRefreshFailures,
     now,
+    monitoredSources,
   );
-  const [telegram, outlook, teams] = model.sources;
+  const sourceCards = model.sources.map((source) => {
+    if (source.key === "telegram") {
+      return <TelegramCard key={source.key} source={source} />;
+    }
+    if (source.key === "outlook") {
+      return <OutlookCard key={source.key} source={source} />;
+    }
+    return (
+      <TeamsCard
+        key={source.key}
+        source={source}
+        teamsMirror={teamsMirror}
+        teamsMirrorError={teamsMirrorError}
+        teamsVisualEnabled={teamsVisualEnabled}
+        onTeamsVisualToggle={onTeamsVisualToggle}
+      />
+    );
+  });
 
   return (
     <section className="attention-panel" aria-labelledby="attention-panel-title">
@@ -248,15 +264,13 @@ export function AttentionPanel({
       </div>
 
       <div className="source-grid">
-        <TelegramCard source={telegram} />
-        <OutlookCard source={outlook} />
-        <TeamsCard
-          source={teams}
-          teamsMirror={teamsMirror}
-          teamsMirrorPending={teamsMirrorPending}
-          teamsMirrorError={teamsMirrorError}
-          onTeamsMirrorToggle={onTeamsMirrorToggle}
-        />
+        {sourceCards.length > 0 ? (
+          sourceCards
+        ) : (
+          <p className="source-grid__empty">
+            No source is monitored. Use Source monitoring above to enable one.
+          </p>
+        )}
       </div>
     </section>
   );

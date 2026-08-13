@@ -104,8 +104,11 @@ function missingObservation(
 
 function sourceViews(
   snapshot: AttentionSignalSnapshot | null,
+  monitoredSources: readonly AttentionSourceKey[],
 ): AttentionSourceView[] {
-  return SOURCE_DEFINITIONS.map(({ key, displayName }) => {
+  return SOURCE_DEFINITIONS.filter(({ key }) =>
+    monitoredSources.includes(key),
+  ).map(({ key, displayName }) => {
     const observation =
       snapshot?.sources.find((source) => source.sourceKey === key) ??
       missingObservation(key, displayName);
@@ -137,8 +140,12 @@ export function buildAttentionPanelModel(
   refreshError: string | null,
   consecutiveRefreshFailures: number,
   now: number,
+  monitoredSources: readonly AttentionSourceKey[] = SOURCE_DEFINITIONS.map(
+    ({ key }) => key,
+  ),
 ): AttentionPanelModel {
-  const sources = sourceViews(snapshot);
+  const sources = sourceViews(snapshot, monitoredSources);
+  const sourceCount = sources.length;
   const observedCount = sources.filter(
     ({ observation }) => observation.state === "observed",
   ).length;
@@ -169,8 +176,22 @@ export function buildAttentionPanelModel(
         : "Reading attention signals",
       detail: refreshError
         ? "No usable attention snapshot is available. See technical diagnostics."
-        : "Checking Telegram, Outlook, and Teams.",
+        : sourceCount === 0
+          ? "Monitoring is paused. Enable a source in Widget settings."
+          : `Checking ${sourceCount} selected source${sourceCount === 1 ? "" : "s"}.`,
       capturedAt: null,
+      sources,
+      observedCount,
+    };
+  }
+
+  if (sourceCount === 0) {
+    return {
+      kind: "nothingObserved",
+      freshness,
+      headline: "Monitoring paused",
+      detail: "0/0 sources selected. Enable a source in Widget settings.",
+      capturedAt: snapshot.capturedAt,
       sources,
       observedCount,
     };
@@ -182,7 +203,7 @@ export function buildAttentionPanelModel(
       : freshness === "retrying"
         ? "Refresh failed once; retrying with the last result visible."
         : "Data is current.";
-  const coverageDetail = `${observedCount}/3 sources observed.`;
+  const coverageDetail = `${observedCount}/${sourceCount} selected source${sourceCount === 1 ? "" : "s"} observed.`;
 
   if (attentionSources.length > 0) {
     return {
@@ -211,12 +232,12 @@ export function buildAttentionPanelModel(
     };
   }
 
-  if (observedCount === SOURCE_DEFINITIONS.length && sources.every(({ isClear }) => isClear)) {
+  if (observedCount === sourceCount && sources.every(({ isClear }) => isClear)) {
     return {
       kind: "allClear",
       freshness,
       headline: "All clear",
-      detail: `All 3 sources are observed and currently clear. ${freshnessDetail}`,
+      detail: `All ${sourceCount} selected source${sourceCount === 1 ? " is" : "s are"} observed and currently clear. ${freshnessDetail}`,
       capturedAt: snapshot.capturedAt,
       sources,
       observedCount,

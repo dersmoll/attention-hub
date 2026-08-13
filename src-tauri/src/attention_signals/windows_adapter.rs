@@ -26,19 +26,28 @@ use windows::{
 };
 
 use super::{
-    AttentionSignal, AttentionSignalSnapshot, AttentionSourceObservation, AttentionSourceState,
+    source_is_selected, AttentionSignal, AttentionSignalSnapshot, AttentionSourceObservation,
+    AttentionSourceState,
 };
 
 const TELEGRAM_EXECUTABLE: &str = "telegram.exe";
 const OUTLOOK_EXECUTABLE: &str = "olk.exe";
 const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
 
-pub fn get_snapshot() -> AttentionSignalSnapshot {
+pub fn get_snapshot(source_keys: &[String]) -> AttentionSignalSnapshot {
+    if source_keys.is_empty() {
+        return AttentionSignalSnapshot {
+            captured_at: current_time_iso8601(),
+            sources: Vec::new(),
+            signals: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+    }
     let _uia_guard = crate::uia_gate::lock_background();
     let captured_at = current_time_iso8601();
     let mut diagnostics = Vec::new();
 
-    let sources = match capture_sources() {
+    let sources = match capture_sources(source_keys) {
         Ok(sources) => sources,
         Err(error) => {
             let diagnostic = format_windows_error(
@@ -46,7 +55,7 @@ pub fn get_snapshot() -> AttentionSignalSnapshot {
                 &error,
             );
             diagnostics.push(diagnostic.clone());
-            error_sources(diagnostic)
+            error_sources(source_keys, diagnostic)
         }
     };
     diagnostics.extend(
@@ -69,21 +78,29 @@ pub fn get_snapshot() -> AttentionSignalSnapshot {
     }
 }
 
-fn capture_sources() -> windows::core::Result<Vec<AttentionSourceObservation>> {
+fn capture_sources(
+    source_keys: &[String],
+) -> windows::core::Result<Vec<AttentionSourceObservation>> {
     let _apartment = ComApartment::initialize()?;
     let automation: IUIAutomation =
         unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)? };
     let mut sources = Vec::with_capacity(3);
 
-    record_source_capture(&mut sources, "telegram", "Telegram", || {
-        capture_telegram(&automation)
-    });
-    record_source_capture(&mut sources, "outlook", "Microsoft Outlook", || {
-        capture_outlook(&automation)
-    });
-    record_source_capture(&mut sources, "teams", "Microsoft Teams", || {
-        capture_notification_area(&automation)
-    });
+    if source_is_selected(source_keys, "telegram") {
+        record_source_capture(&mut sources, "telegram", "Telegram", || {
+            capture_telegram(&automation)
+        });
+    }
+    if source_is_selected(source_keys, "outlook") {
+        record_source_capture(&mut sources, "outlook", "Microsoft Outlook", || {
+            capture_outlook(&automation)
+        });
+    }
+    if source_is_selected(source_keys, "teams") {
+        record_source_capture(&mut sources, "teams", "Microsoft Teams", || {
+            capture_notification_area(&automation)
+        });
+    }
 
     Ok(sources)
 }
@@ -109,13 +126,14 @@ fn record_source_capture(
     }
 }
 
-fn error_sources(diagnostic: String) -> Vec<AttentionSourceObservation> {
+fn error_sources(source_keys: &[String], diagnostic: String) -> Vec<AttentionSourceObservation> {
     [
         ("telegram", "Telegram"),
         ("outlook", "Microsoft Outlook"),
         ("teams", "Microsoft Teams"),
     ]
     .into_iter()
+    .filter(|(source_key, _)| source_is_selected(source_keys, source_key))
     .map(|(source_key, display_name)| AttentionSourceObservation {
         source_key: source_key.into(),
         display_name: display_name.into(),

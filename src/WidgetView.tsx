@@ -356,6 +356,7 @@ export function WidgetView() {
     try {
       const snapshot = await invoke<AttentionSignalSnapshot>(
         "get_attention_signal_snapshot",
+        { sourceKeys: preferences.monitoredSources },
       );
       const outlook = snapshot.sources.find(
         ({ sourceKey }) => sourceKey === "outlook",
@@ -373,7 +374,7 @@ export function WidgetView() {
     } finally {
       attentionInFlight.current = false;
     }
-  }, []);
+  }, [preferences.monitoredSources]);
 
   const refreshMirrors = useCallback(async () => {
     const [teams, telegram] = await Promise.allSettled([
@@ -493,13 +494,16 @@ export function WidgetView() {
   }, []);
 
   useEffect(() => {
-    if (!attentionSnapshot) {
-      return;
+    if (!preferences.monitoredSources.includes("outlook")) {
+      setLastObservedOutlookInbox(null);
     }
-    const teams = attentionSnapshot.sources.find(
+  }, [preferences.monitoredSources]);
+
+  useEffect(() => {
+    const teams = attentionSnapshot?.sources.find(
       ({ sourceKey }) => sourceKey === "teams",
     );
-    const telegram = attentionSnapshot.sources.find(
+    const telegram = attentionSnapshot?.sources.find(
       ({ sourceKey }) => sourceKey === "telegram",
     );
     const teamsNeedsAttention =
@@ -508,29 +512,43 @@ export function WidgetView() {
     const telegramNeedsAttention =
       telegram !== undefined &&
       findSignal(telegram, "applicationCounter")?.needsAttention === true;
+    const visibleSources = preferences.appOrder.filter((sourceKey) =>
+      preferences.monitoredSources.includes(sourceKey),
+    );
+    const teamsSlot = visibleSources.indexOf("teams");
+    const telegramSlot = visibleSources.indexOf("telegram");
+    const teamsVisualEnabled =
+      preferences.monitoredSources.includes("teams") &&
+      preferences.liveVisualSources.includes("teams");
+    const telegramVisualEnabled =
+      preferences.monitoredSources.includes("telegram") &&
+      preferences.liveVisualSources.includes("telegram");
 
     void (async () => {
       try {
-        await invoke("set_taskbar_mirror_slots", {
-          teamsSlot: preferences.appOrder.indexOf("teams"),
-          telegramSlot: preferences.appOrder.indexOf("telegram"),
+        await invoke("set_taskbar_mirror_layout", {
+          teamsSlot: teamsSlot >= 0 ? teamsSlot : null,
+          telegramSlot: telegramSlot >= 0 ? telegramSlot : null,
+          visibleSourceCount: visibleSources.length,
         });
       } catch (error) {
-        setWidgetError(`App order update failed: ${String(error)}`);
+        setWidgetError(`App layout update failed: ${String(error)}`);
       }
       await Promise.allSettled([
         invoke<TaskbarMirrorStatus>(
-          teamsNeedsAttention ? "start_teams_mirror" : "stop_teams_mirror",
+          teamsNeedsAttention && teamsVisualEnabled
+            ? "start_teams_mirror"
+            : "stop_teams_mirror",
         ),
         invoke<TaskbarMirrorStatus>(
-          telegramNeedsAttention
+          telegramNeedsAttention && telegramVisualEnabled
             ? "start_telegram_mirror"
             : "stop_telegram_mirror",
         ),
       ]);
       await refreshMirrors();
     })();
-  }, [attentionSnapshot, preferences.appOrder, refreshMirrors]);
+  }, [attentionSnapshot, preferences, refreshMirrors]);
 
   useEffect(() => {
     let disposed = false;
@@ -736,6 +754,9 @@ export function WidgetView() {
           : "The last refresh was unavailable; no cached event is shown.";
   const showNextEvent = activeEventAcknowledged && calendarNextSelection !== null;
   const panelStyle = widgetPanelStyle(preferences) as CSSProperties;
+  const visibleSources = preferences.appOrder.filter((sourceKey) =>
+    preferences.monitoredSources.includes(sourceKey),
+  );
 
   const renderAppSlot = (sourceKey: AttentionAppKey) => {
     if (sourceKey === "teams") {
@@ -795,7 +816,7 @@ export function WidgetView() {
         data-tauri-drag-region
       >
         <div className="widget-apps" data-tauri-drag-region>
-          {preferences.appOrder.map(renderAppSlot)}
+          {visibleSources.map(renderAppSlot)}
           <button
             aria-label="Open Advanced view"
             className="widget-more"
