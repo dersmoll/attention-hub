@@ -14,9 +14,9 @@
       {
         "label": "main",
         "title": "Attention Hub",
-        "width": 1152,
+        "width": 1056,
         "height": 80,
-        "minWidth": 816,
+        "minWidth": 688,
         "minHeight": 80,
         "maxWidth": 1152,
         "maxHeight": 80,

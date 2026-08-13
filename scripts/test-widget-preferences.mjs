@@ -37,6 +37,7 @@ assert.deepEqual(legacy, {
   y: -46,
   panelColor: "#f8fafc",
   panelOpacity: 100,
+  widthMode: "auto",
   appOrder: ["teams", "telegram", "outlook", "slack", "viber", "whatsapp"],
   monitoredSources: [
     "teams",
@@ -143,6 +144,7 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   y: 20,
   panelColor: "#f8fafc",
   panelOpacity: 100,
+  widthMode: "auto",
   appOrder: [
     "teams",
     "telegram",

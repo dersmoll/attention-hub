@@ -547,11 +547,33 @@ function AdvancedView() {
             <small>
               Text and border colors are selected automatically for contrast.
             </small>
+            <label htmlFor="widget-width-mode">Widget width</label>
+            <select
+              id="widget-width-mode"
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  widthMode: event.target.value as
+                    | "compact"
+                    | "auto"
+                    | "wide",
+                })
+              }
+              value={widgetPreferences.widthMode}
+            >
+              <option value="compact">Compact</option>
+              <option value="auto">Auto (recommended)</option>
+              <option value="wide">Wide</option>
+            </select>
+            <small>
+              Auto uses a narrower calendar for one event and expands only when
+              the acknowledged current event is shown with the next event.
+            </small>
             <button
               onClick={() =>
                 applyWidgetPreferences({
                   panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
                   panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
+                  widthMode: DEFAULT_WIDGET_PREFERENCES.widthMode,
                 })
               }
               type="button"

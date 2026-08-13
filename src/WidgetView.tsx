@@ -35,6 +35,7 @@ import {
 } from "./time-zone-converter";
 import {
   WIDGET_CLOCK_WIDTH,
+  widgetCalendarWidth,
   widgetLeftWidth,
   widgetWidth,
 } from "./widget-layout";
@@ -423,6 +424,18 @@ export function WidgetView() {
       ),
     [preferences.appOrder, preferences.monitoredSources],
   );
+  const resizeCalendarSelection =
+    workCalendar?.status === "observed" ? workCalendar.selection : null;
+  const resizeActiveEventKey =
+    resizeCalendarSelection?.classification === "active" &&
+    !resizeCalendarSelection.allDay
+      ? `${resizeCalendarSelection.start}|${resizeCalendarSelection.end}`
+      : null;
+  const showNextEvent =
+    resizeActiveEventKey !== null &&
+    acknowledgedActiveEvent === resizeActiveEventKey &&
+    workCalendar?.status === "observed" &&
+    workCalendar.nextSelection !== null;
 
   const refreshAttention = useCallback(async () => {
     if (attentionInFlight.current) {
@@ -642,7 +655,14 @@ export function WidgetView() {
     void (async () => {
       try {
         await widgetWindow.setSize(
-          new LogicalSize(widgetWidth(visibleSources.length), 80),
+          new LogicalSize(
+            widgetWidth(
+              visibleSources.length,
+              preferences.widthMode,
+              showNextEvent,
+            ),
+            80,
+          ),
         );
         const [position, size, monitors] = await Promise.all([
           widgetWindow.outerPosition(),
@@ -670,7 +690,12 @@ export function WidgetView() {
     return () => {
       disposed = true;
     };
-  }, [visibleSources.length, widgetWindow]);
+  }, [
+    preferences.widthMode,
+    showNextEvent,
+    visibleSources.length,
+    widgetWindow,
+  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -864,8 +889,6 @@ export function WidgetView() {
         : workCalendar?.status === "notConfigured"
           ? "Open Advanced to save one published calendar securely."
           : "The last refresh was unavailable; no cached event is shown.";
-  const showNextEvent =
-    activeEventAcknowledged && calendarNextSelection !== null;
   const calendarEndMs = calendarSelection
     ? Date.parse(calendarSelection.end)
     : Number.NaN;
@@ -897,6 +920,10 @@ export function WidgetView() {
     ...widgetPanelStyle(preferences),
     "--widget-left-width": `${widgetLeftWidth(visibleSources.length)}px`,
     "--widget-clock-width": `${WIDGET_CLOCK_WIDTH}px`,
+    "--widget-calendar-width": `${widgetCalendarWidth(
+      preferences.widthMode,
+      showNextEvent,
+    )}px`,
   } as CSSProperties;
 
   const renderAppSlot = (sourceKey: AttentionAppKey) => {
@@ -1142,9 +1169,11 @@ export function WidgetView() {
             title={pinned ? "Unpin from always on top" : "Pin always on top"}
             type="button"
           >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
-            </svg>
+            <span className="widget-control__surface">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
+              </svg>
+            </span>
           </button>
           <button
             aria-label="Close Attention Hub"
@@ -1152,7 +1181,9 @@ export function WidgetView() {
             title="Close Attention Hub"
             type="button"
           >
-            <span aria-hidden="true">×</span>
+            <span aria-hidden="true" className="widget-control__surface">
+              ×
+            </span>
           </button>
         </div>
       </section>

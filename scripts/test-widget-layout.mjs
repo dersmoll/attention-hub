@@ -18,8 +18,14 @@ assert.equal(layout.widgetLeftWidth(0), 72);
 assert.equal(layout.widgetLeftWidth(1), 128);
 assert.equal(layout.widgetLeftWidth(3), 240);
 assert.equal(layout.widgetLeftWidth(6), 408);
-assert.equal(layout.widgetWidth(0), 816);
-assert.equal(layout.widgetWidth(6), 1152);
-assert.equal(layout.widgetWidth(99), 1152);
+assert.equal(layout.widgetCalendarWidth("compact", false), 304);
+assert.equal(layout.widgetCalendarWidth("auto", false), 336);
+assert.equal(layout.widgetCalendarWidth("auto", true), 432);
+assert.equal(layout.widgetCalendarWidth("wide", false), 432);
+assert.equal(layout.widgetWidth(0, "compact"), 688);
+assert.equal(layout.widgetWidth(0), 720);
+assert.equal(layout.widgetWidth(6), 1056);
+assert.equal(layout.widgetWidth(6, "auto", true), 1152);
+assert.equal(layout.widgetWidth(99, "wide"), 1152);
 
 console.log("responsive widget layout tests passed");

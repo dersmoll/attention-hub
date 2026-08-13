@@ -213,14 +213,15 @@ function VisualOnlySourceCard({ source }: { source: AttentionSourceView }) {
               ? "Not running"
               : source.observation.state === "error"
                 ? "Presence check failed"
-                : "Available"
+                : "Running (window or tray)"
           }
         />
         <Metric label="Unread count" value="Not exposed" />
       </div>
       <p className="source-card__meaning">
-        Fixed app shortcut with an optional visual-only taskbar icon and badge
-        surface. It does not contribute to semantic attention coverage.
+        Fixed app shortcut with process-level presence and an optional
+        visual-only shell surface. It does not contribute to semantic attention
+        coverage.
       </p>
     </article>
   );

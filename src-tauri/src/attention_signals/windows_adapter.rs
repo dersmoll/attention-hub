@@ -9,6 +9,10 @@ use windows::{
                 CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
                 COINIT_MULTITHREADED,
             },
+            Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+                TH32CS_SNAPPROCESS,
+            },
             SystemInformation::GetSystemTime,
             Threading::{
                 OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
@@ -111,7 +115,7 @@ fn capture_sources(
     ] {
         if source_is_selected(source_keys, source_key) {
             record_source_capture(&mut sources, source_key, display_name, || {
-                capture_presence_source(&automation, source_key, display_name, executables)
+                capture_presence_source(source_key, display_name, executables)
             });
         }
     }
@@ -162,31 +166,11 @@ fn error_sources(source_keys: &[String], diagnostic: String) -> Vec<AttentionSou
 }
 
 fn capture_presence_source(
-    automation: &IUIAutomation,
     source_key: &str,
     display_name: &str,
     executables: &[&str],
 ) -> windows::core::Result<AttentionSourceObservation> {
-    let condition = unsafe { automation.CreateTrueCondition()? };
-    let desktop = unsafe { automation.GetRootElement()? };
-    let windows = unsafe { desktop.FindAll(TreeScope_Children, &condition)? };
-    let length = unsafe { windows.Length()? };
-    let running = (0..length).any(|index| {
-        let Ok(element) = (unsafe { windows.GetElement(index) }) else {
-            return false;
-        };
-        let Ok(process_id) = (unsafe { element.CurrentProcessId() }) else {
-            return false;
-        };
-        if process_id <= 0 {
-            return false;
-        }
-        process_executable_name(process_id as u32).is_ok_and(|executable| {
-            executables
-                .iter()
-                .any(|candidate| executable.eq_ignore_ascii_case(candidate))
-        })
-    });
+    let running = any_process_running(executables)?;
 
     Ok(AttentionSourceObservation {
         source_key: source_key.into(),
@@ -198,11 +182,43 @@ fn capture_presence_source(
         },
         signals: Vec::new(),
         diagnostics: if running {
-            vec!["The application is available, but no trustworthy semantic unread count is exposed; an enabled taskbar surface remains visual-only.".into()]
+            vec!["The application process is running, including when tray-resident, but no trustworthy semantic unread count is exposed; any enabled shell surface remains visual-only.".into()]
         } else {
             Vec::new()
         },
     })
+}
+
+fn any_process_running(executables: &[&str]) -> windows::core::Result<bool> {
+    let snapshot = ProcessHandle(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)? });
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    if unsafe { Process32FirstW(snapshot.0, &mut entry) }.is_err() {
+        return Ok(false);
+    }
+
+    loop {
+        let length = entry
+            .szExeFile
+            .iter()
+            .position(|code_unit| *code_unit == 0)
+            .unwrap_or(entry.szExeFile.len());
+        let executable = String::from_utf16_lossy(&entry.szExeFile[..length]);
+        if executables
+            .iter()
+            .any(|candidate| executable.eq_ignore_ascii_case(candidate))
+        {
+            return Ok(true);
+        }
+        if unsafe { Process32NextW(snapshot.0, &mut entry) }.is_err() {
+            break;
+        }
+    }
+
+    Ok(false)
 }
 
 fn capture_outlook(
@@ -650,8 +666,9 @@ impl Drop for ProcessHandle {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_outlook_inbox_label, parse_outlook_inbox_unread, parse_telegram_unread_chats,
-        parse_trailing_parenthesized_count, record_source_capture, teams_needs_attention,
+        any_process_running, is_outlook_inbox_label, parse_outlook_inbox_unread,
+        parse_telegram_unread_chats, parse_trailing_parenthesized_count, record_source_capture,
+        teams_needs_attention,
     };
     use crate::attention_signals::{AttentionSourceObservation, AttentionSourceState};
     use std::cell::Cell;
@@ -720,5 +737,20 @@ mod tests {
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0].state, AttentionSourceState::Error);
         assert_eq!(sources[1].state, AttentionSourceState::Observed);
+    }
+
+    #[test]
+    fn process_presence_does_not_require_a_window() {
+        let executable = std::env::current_exe().expect("test executable path");
+        let executable_name = executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("test executable name");
+
+        assert!(any_process_running(&[executable_name]).expect("process snapshot"));
+        assert!(
+            !any_process_running(&["attention-hub-impossible-process-name.exe"])
+                .expect("process snapshot")
+        );
     }
 }

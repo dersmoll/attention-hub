@@ -10,6 +10,7 @@ export type AttentionAppKey =
   | "viber"
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
+export type WidgetWidthMode = "compact" | "auto" | "wide";
 
 export interface WidgetPreferences {
   sourceCatalogVersion: 2;
@@ -19,6 +20,7 @@ export interface WidgetPreferences {
   y: number | null;
   panelColor: string;
   panelOpacity: number;
+  widthMode: WidgetWidthMode;
   appOrder: AttentionAppKey[];
   monitoredSources: AttentionAppKey[];
   liveVisualSources: LiveVisualAppKey[];
@@ -50,6 +52,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   y: null,
   panelColor: "#f8fafc",
   panelOpacity: 100,
+  widthMode: "auto",
   appOrder: [...DEFAULT_APP_ORDER],
   monitoredSources: [...DEFAULT_APP_ORDER],
   liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
@@ -65,6 +68,10 @@ function normalizeOpacity(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(100, Math.max(85, Math.round(value)))
     : DEFAULT_WIDGET_PREFERENCES.panelOpacity;
+}
+
+function normalizeWidthMode(value: unknown): WidgetWidthMode {
+  return value === "compact" || value === "wide" ? value : "auto";
 }
 
 function normalizeTimeZone(value: unknown) {
@@ -152,6 +159,7 @@ export function normalizeWidgetPreferences(
     y: normalizeCoordinate(value?.y),
     panelColor: normalizeColor(value?.panelColor),
     panelOpacity: normalizeOpacity(value?.panelOpacity),
+    widthMode: normalizeWidthMode(value?.widthMode),
     appOrder: normalizeAppOrder(value?.appOrder, migrateLegacyCatalog),
     monitoredSources: normalizeSourceSubset(
       value?.monitoredSources,
