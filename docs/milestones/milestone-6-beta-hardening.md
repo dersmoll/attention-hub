@@ -12,6 +12,11 @@ clean-machine evidence remain open and explicitly external to this same-day
 current-machine closeout. This milestone permits only fixes that preserve the
 accepted beta product boundary.
 
+The requirement-by-requirement disposition is maintained in
+`docs/milestones/evidence/m6/closeout-ledger.md`. Partial, manual, and
+environment-blocked cases remain named there rather than being inferred from a
+narrower passing check.
+
 ## Product question
 
 Can the accepted beta survive ordinary daily Windows lifecycle, display,

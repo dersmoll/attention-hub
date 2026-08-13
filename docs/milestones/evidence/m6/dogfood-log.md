@@ -34,10 +34,10 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
 
 - Approximate active-use duration: bounded same-day installed lifecycle session;
   separate 31.4-minute installed resource run completed
-- Start/restart/suspend/Explorer/display transitions exercised: one initial
-  installed cold start, three normal restarts, two S3 suspend/resume cycles,
-  three recorded Explorer restarts, and secondary-to-primary-to-secondary
-  movement
+- Start/restart/suspend/Explorer/display transitions exercised: one true initial
+  installed cold start, a dedicated three-start zero-process gate, three normal
+  restarts, two S3 suspend/resume cycles, three recorded Explorer restarts, and
+  secondary-to-primary-to-secondary movement
 - Source availability periods by `observed`, `notRunning`, `notExposed`, or
   `error`: Teams and Telegram were `observed`; Outlook moved between `observed`
   and explicit `lastObserved`; no source values were persisted

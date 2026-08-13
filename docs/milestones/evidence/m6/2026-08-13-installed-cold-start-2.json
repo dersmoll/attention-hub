@@ -1,0 +1,43 @@
+{
+  "ExecutablePath": "C:\\Users\\dersm\\AppData\\Local\\Attention Hub\\attention-hub.exe",
+  "LaunchedByScript": true,
+  "StartupMilliseconds": 179.0,
+  "ReadinessDelaySeconds": 8,
+  "ExplorerRestartCyclesRequested": 0,
+  "MonitorTopology": [
+    {
+      "DeviceName": "\\\\.\\DISPLAY1",
+      "Primary": true,
+      "Bounds": "{X=0,Y=0,Width=2560,Height=1440}",
+      "WorkingArea": "{X=48,Y=0,Width=2512,Height=1440}"
+    },
+    {
+      "DeviceName": "\\\\.\\DISPLAY2",
+      "Primary": false,
+      "Bounds": "{X=-1920,Y=0,Width=1920,Height=1080}",
+      "WorkingArea": "{X=-1872,Y=0,Width=1872,Height=1080}"
+    }
+  ],
+  "Recoveries": [],
+  "Snapshots": [
+    {
+      "Label": "initial",
+      "Timestamp": "2026-08-13T15:36:45.9636538+03:00",
+      "ProcessId": 40144,
+      "Version": "0.4.0-beta.1",
+      "WidgetBounds": "-1040,985,960,80",
+      "WidgetOffscreen": false,
+      "Visuals": [],
+      "Taskbars": [
+        {
+          "ClassName": "Shell_SecondaryTrayWnd",
+          "Bounds": "-1920,0,48,1080",
+          "Offscreen": false
+        }
+      ],
+      "ExplorerProcessIds": [
+        43780
+      ]
+    }
+  ]
+}

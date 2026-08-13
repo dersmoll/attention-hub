@@ -8,6 +8,9 @@ param(
     [ValidateRange(0, 2)]
     [int]$ExplorerRestartCycles = 0,
 
+    [ValidateRange(0, 30)]
+    [int]$ReadinessDelaySeconds = 0,
+
     [switch]$LeaveRunning
 )
 
@@ -141,6 +144,10 @@ if ($launchedByScript) {
     $startupMilliseconds = [Math]::Round(((Get-Date) - $startedAt).TotalMilliseconds)
 }
 
+if ($ReadinessDelaySeconds -gt 0) {
+    Start-Sleep -Seconds $ReadinessDelaySeconds
+}
+
 $snapshots = [System.Collections.Generic.List[object]]::new()
 $snapshots.Add((Get-LifecycleSnapshot -Process $process -Label 'initial'))
 $recoveries = [System.Collections.Generic.List[object]]::new()
@@ -200,6 +207,7 @@ $result = [pscustomobject]@{
     ExecutablePath = $resolvedExecutable
     LaunchedByScript = $launchedByScript
     StartupMilliseconds = $startupMilliseconds
+    ReadinessDelaySeconds = $ReadinessDelaySeconds
     ExplorerRestartCyclesRequested = $ExplorerRestartCycles
     MonitorTopology = @(
         [System.Windows.Forms.Screen]::AllScreens |

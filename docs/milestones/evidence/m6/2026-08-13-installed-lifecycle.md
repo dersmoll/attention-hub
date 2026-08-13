@@ -38,7 +38,15 @@
 
 ## Startup and restart
 
-- Initial installed cold start exposed the native widget after 242 ms.
+- One true initial installed cold start exposed the native widget after 242 ms.
+- A dedicated exact gate then performed three installed starts from confirmed
+  zero-process states. The widget exposed after 182, 179, and 187 ms; after an
+  eight-second readiness delay, every cycle restored
+  `-1040,985,960,80`. The first two cycles closed normally and the third left
+  the installed beta running.
+- Current source attention did not require native visual surfaces during the
+  dedicated starts. Their absence was therefore not represented as startup or
+  semantic failure.
 - Three subsequent normal quit/restart cycles exposed the widget after 297,
   208, and 194 ms.
 - Every cycle restored `-1040,985,960,80` and two visible 40 by 40 native
@@ -83,7 +91,8 @@
   mixed-DPI behavior cannot be claimed on this topology without changing a
   Windows display setting.
 - `scripts/windows/test-attention-hub-installed-lifecycle.ps1` now provides a
-  repeatable sanitized snapshot and optional one- or two-cycle Explorer test.
+  repeatable sanitized snapshot, an optional stabilization delay, and an
+  optional one- or two-cycle Explorer test.
 
 ## Suspend and resume
 
@@ -132,8 +141,9 @@ sizes and SHA-256 values and were unsigned as documented.
    controls and both live-visual controls enabled.
 
 This proves current-profile uninstall retention and the bounded
-`0.3.0-beta.1` to `0.4.0-beta.1` in-place upgrade. It does not prove a disposable
-clean-machine installation.
+`0.3.0-beta.1` to `0.4.0-beta.1` in-place upgrade relevant to the installed
+candidate. It does not claim the matrix's older `0.2.0` to `0.3.0-beta.1` path
+and does not prove a disposable clean-machine installation.
 
 ## Remaining gates at this checkpoint
 
