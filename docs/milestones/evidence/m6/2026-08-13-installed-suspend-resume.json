@@ -1,0 +1,87 @@
+{
+  "Status": "completed",
+  "ExecutablePath": "C:\\Users\\dersm\\AppData\\Local\\Attention Hub\\attention-hub.exe",
+  "ProcessId": 9020,
+  "RequestedCycles": 2,
+  "WakeAfterMinutes": 2,
+  "StartedAt": "2026-08-13T14:53:37.0285826+03:00",
+  "CompletedAt": "2026-08-13T14:57:03.6334643+03:00",
+  "Cycles": [
+    {
+      "Cycle": 1,
+      "WakeTaskName": "AttentionHub-M6-Wake-9020-1",
+      "WakeScheduledAt": "2026-08-13T14:55:37.0458431+03:00",
+      "WakeTimerArmed": true,
+      "SuspendAccepted": true,
+      "SuspendRequestedAt": "2026-08-13T14:53:37.6782295+03:00",
+      "ResumedAt": "2026-08-13T14:55:10.1005464+03:00",
+      "WallClockGapSeconds": 92.4,
+      "Before": {
+        "Label": "before-1",
+        "Timestamp": "2026-08-13T14:53:37.6464760+03:00",
+        "ProcessSurvived": true,
+        "WidgetAvailable": true,
+        "WidgetBounds": "-1040,985,960,80",
+        "WidgetOffscreen": false,
+        "VisualCount": 2,
+        "VisibleVisualCount": 2,
+        "VisualBounds": [
+          "-936,1005,40,40",
+          "-992,1005,40,40"
+        ]
+      },
+      "After": {
+        "Label": "after-1",
+        "Timestamp": "2026-08-13T14:55:20.2454920+03:00",
+        "ProcessSurvived": true,
+        "WidgetAvailable": true,
+        "WidgetBounds": "-1040,985,960,80",
+        "WidgetOffscreen": false,
+        "VisualCount": 2,
+        "VisibleVisualCount": 2,
+        "VisualBounds": [
+          "-936,1005,40,40",
+          "-992,1005,40,40"
+        ]
+      }
+    },
+    {
+      "Cycle": 2,
+      "WakeTaskName": "AttentionHub-M6-Wake-9020-2",
+      "WakeScheduledAt": "2026-08-13T14:57:21.1952977+03:00",
+      "WakeTimerArmed": true,
+      "SuspendAccepted": true,
+      "SuspendRequestedAt": "2026-08-13T14:55:21.3400117+03:00",
+      "ResumedAt": "2026-08-13T14:56:52.9234292+03:00",
+      "WallClockGapSeconds": 91.6,
+      "Before": {
+        "Label": "before-2",
+        "Timestamp": "2026-08-13T14:55:21.3394011+03:00",
+        "ProcessSurvived": true,
+        "WidgetAvailable": true,
+        "WidgetBounds": "-1040,985,960,80",
+        "WidgetOffscreen": false,
+        "VisualCount": 2,
+        "VisibleVisualCount": 2,
+        "VisualBounds": [
+          "-936,1005,40,40",
+          "-992,1005,40,40"
+        ]
+      },
+      "After": {
+        "Label": "after-2",
+        "Timestamp": "2026-08-13T14:57:02.9807599+03:00",
+        "ProcessSurvived": true,
+        "WidgetAvailable": true,
+        "WidgetBounds": "-1040,985,960,80",
+        "WidgetOffscreen": false,
+        "VisualCount": 2,
+        "VisibleVisualCount": 2,
+        "VisualBounds": [
+          "-936,1005,40,40",
+          "-992,1005,40,40"
+        ]
+      }
+    }
+  ]
+}

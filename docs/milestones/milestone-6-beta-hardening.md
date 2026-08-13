@@ -2,9 +2,13 @@
 
 ## Status
 
-Approved on 2026-08-13. The production baseline is merged `main` commit
-`ab9e228`, tagged `v0.3.0-beta.1`. This milestone adds evidence and permits
-only fixes that preserve the accepted beta product boundary.
+Current-machine closeout passed on 2026-08-13. The production baseline is
+merged `main` commit `ab9e228`, tagged `v0.3.0-beta.1`; the accepted fixed-source
+candidate is `da431d3`, tagged `v0.4.0-beta.1`. Installer retention and upgrade,
+cold/restart, S3 resume, same-DPI monitor movement, preference persistence, and
+the 30-minute resource gate passed. Five-day dogfood and disposable
+clean-machine evidence remain open. This milestone permits only fixes that
+preserve the accepted beta product boundary.
 
 ## Product question
 

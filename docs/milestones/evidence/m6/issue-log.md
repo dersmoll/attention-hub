@@ -83,3 +83,32 @@ private content, or DWM pixels.
   longer logged the DWM cleanup failure; the remaining Teams surface stayed
   active, both mirrors registered again on reset/relaunch, and the original
   multi-monitor taskbar selections remained unchanged
+
+### M6-003 — One visual missed the first Explorer-recovery deadline
+
+- Severity: P2
+- Status: new
+- Revision and launch mode: `da431d3` / `v0.4.0-beta.1`; installed executable
+- Windows/display context: Windows 25H2 build 26220.9022; two 96-DPI monitors;
+  secondary taskbar selected for Telegram and primary taskbar selected for Teams
+- Source state classification only: both live visuals available before restart
+- Preconditions: installed beta remained running after the 30-minute resource
+  session and two successful S3 suspend/resume cycles
+- Reproduction steps: restart Explorer and wait up to 35 seconds for two
+  taskbars and the two previously visible native surfaces
+- Expected accepted-beta behavior: both surfaces recover from the new taskbar
+  owner while the widget process remains running
+- Actual behavior: both taskbars and the Teams surface recovered, but Telegram
+  was absent at the deadline; a second Explorer restart recovered both in 6.49
+  seconds
+- Frequency and recovery time: observed once; one settled restart recheck
+  recovered both surfaces in 14.34 seconds
+- Privacy-safe diagnostics: taskbar/surface counts, logical geometry, process
+  continuity, and recovery timings only
+- Implementation defect or semantic coverage gap: possible intermittent shell
+  lifecycle timing defect; not yet reproducible
+- Smallest permitted fix or proposal boundary: retain evidence and repeat during
+  daily use; no source change unless it reproduces from the same documented
+  state
+- Verification cases: second immediate restart and one settled restart passed;
+  repeat during days 2 through 5

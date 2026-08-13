@@ -30,6 +30,40 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
 - Issue IDs opened or reproduced:
 - No-issue cases explicitly observed:
 
+## Day 1 — 2026-08-13
+
+- Approximate active-use duration: bounded same-day installed lifecycle session;
+  separate 31.4-minute installed resource run completed
+- Start/restart/suspend/Explorer/display transitions exercised: one initial
+  installed cold start, three normal restarts, two S3 suspend/resume cycles,
+  three recorded Explorer restarts, and secondary-to-primary-to-secondary
+  movement
+- Source availability periods by `observed`, `notRunning`, `notExposed`, or
+  `error`: semantic details were not persisted from this lifecycle-only pass
+- Outlook fresh/last-observed/cleared transitions: not executable from the
+  current `notExposed` baseline; no fresh value was invented
+- Mirror hide/recovery behavior: one first-cycle Explorer restart exposed only
+  the Teams surface at the 35-second deadline; the next restart recovered both
+  in 6.49 seconds and a settled recheck recovered both in 14.34 seconds; both
+  remained aligned through suspend/resume and every monitor movement
+- Preference or saved-calendar persistence result: position, always-on-top,
+  opacity, app order, all monitoring/visual selections, and configured calendar
+  survived uninstall, `0.3.0-beta.1` install, and in-place `0.4.0-beta.1` upgrade
+- False positive, false negative, or misleading all-clear: none observed in the
+  executed lifecycle cases
+- Highest-value unrepresentable attention need: not assessed in this bounded
+  lifecycle session
+- UI/accessibility friction: none observed
+- Resource sample file or summary:
+  `2026-08-13-installed-beta-resource-30m.csv`; 360 samples, seven processes
+  throughout the post-warm-up interval, 3.178 percent average normalized CPU,
+  and no every-sample working-set/private-byte/handle growth
+- Issue IDs opened or reproduced: `M6-003` observed once, not reproduced from
+  the settled state
+- No-issue cases explicitly observed: startup, restart, Explorer recovery,
+  S3 resume, same-DPI monitor movement, preference/uninstall retention, in-place
+  upgrade, and the resource threshold gate
+
 ## Five-day exit summary
 
 - Total observed use:

@@ -1,0 +1,154 @@
+{
+  "ExecutablePath": "C:\\Users\\dersm\\AppData\\Local\\Attention Hub\\attention-hub.exe",
+  "LaunchedByScript": false,
+  "StartupMilliseconds": null,
+  "ExplorerRestartCyclesRequested": 2,
+  "MonitorTopology": [
+    {
+      "DeviceName": "\\\\.\\DISPLAY2",
+      "Primary": false,
+      "Bounds": "{X=-1920,Y=0,Width=1920,Height=1080}",
+      "WorkingArea": "{X=0,Y=0,Width=0,Height=0}"
+    },
+    {
+      "DeviceName": "\\\\.\\DISPLAY1",
+      "Primary": true,
+      "Bounds": "{X=0,Y=0,Width=2560,Height=1440}",
+      "WorkingArea": "{X=0,Y=0,Width=0,Height=0}"
+    }
+  ],
+  "Recoveries": [
+    {
+      "Cycle": 1,
+      "RecoveryMilliseconds": 37603.0,
+      "OldExplorerProcessIds": [
+        41832
+      ],
+      "NewExplorerProcessIds": [
+        37696
+      ],
+      "ExpectedTaskbars": 2,
+      "ObservedTaskbars": 2,
+      "ExpectedVisibleVisuals": 2,
+      "ObservedVisibleVisuals": 1,
+      "ApplicationStillRunning": true
+    },
+    {
+      "Cycle": 2,
+      "RecoveryMilliseconds": 6490.0,
+      "OldExplorerProcessIds": [
+        37696
+      ],
+      "NewExplorerProcessIds": [
+        16112
+      ],
+      "ExpectedTaskbars": 2,
+      "ObservedTaskbars": 2,
+      "ExpectedVisibleVisuals": 2,
+      "ObservedVisibleVisuals": 2,
+      "ApplicationStillRunning": true
+    }
+  ],
+  "Snapshots": [
+    {
+      "Label": "initial",
+      "Timestamp": "2026-08-13T14:57:53.7263133+03:00",
+      "ProcessId": 9020,
+      "Version": "0.4.0-beta.1",
+      "WidgetBounds": "-1040,985,960,80",
+      "WidgetOffscreen": false,
+      "Visuals": [
+        {
+          "Name": "Attention Hub - Telegram visual",
+          "Bounds": "-936,1005,40,40",
+          "Offscreen": false
+        },
+        {
+          "Name": "Attention Hub - Teams visual",
+          "Bounds": "-992,1005,40,40",
+          "Offscreen": false
+        }
+      ],
+      "Taskbars": [
+        {
+          "ClassName": "Shell_SecondaryTrayWnd",
+          "Bounds": "-1920,0,48,1080",
+          "Offscreen": false
+        },
+        {
+          "ClassName": "Shell_TrayWnd",
+          "Bounds": "0,0,48,1440",
+          "Offscreen": false
+        }
+      ],
+      "ExplorerProcessIds": [
+        41832
+      ]
+    },
+    {
+      "Label": "explorer-1",
+      "Timestamp": "2026-08-13T14:58:31.3751122+03:00",
+      "ProcessId": 9020,
+      "Version": "0.4.0-beta.1",
+      "WidgetBounds": "-1040,985,960,80",
+      "WidgetOffscreen": false,
+      "Visuals": [
+        {
+          "Name": "Attention Hub - Teams visual",
+          "Bounds": "-992,1005,40,40",
+          "Offscreen": false
+        }
+      ],
+      "Taskbars": [
+        {
+          "ClassName": "Shell_SecondaryTrayWnd",
+          "Bounds": "-1920,0,48,1080",
+          "Offscreen": false
+        },
+        {
+          "ClassName": "Shell_TrayWnd",
+          "Bounds": "0,0,48,1440",
+          "Offscreen": false
+        }
+      ],
+      "ExplorerProcessIds": [
+        37696
+      ]
+    },
+    {
+      "Label": "explorer-2",
+      "Timestamp": "2026-08-13T14:58:37.8863528+03:00",
+      "ProcessId": 9020,
+      "Version": "0.4.0-beta.1",
+      "WidgetBounds": "-1040,985,960,80",
+      "WidgetOffscreen": false,
+      "Visuals": [
+        {
+          "Name": "Attention Hub - Telegram visual",
+          "Bounds": "-936,1005,40,40",
+          "Offscreen": false
+        },
+        {
+          "Name": "Attention Hub - Teams visual",
+          "Bounds": "-992,1005,40,40",
+          "Offscreen": false
+        }
+      ],
+      "Taskbars": [
+        {
+          "ClassName": "Shell_SecondaryTrayWnd",
+          "Bounds": "-1920,0,48,1080",
+          "Offscreen": false
+        },
+        {
+          "ClassName": "Shell_TrayWnd",
+          "Bounds": "0,0,48,1440",
+          "Offscreen": false
+        }
+      ],
+      "ExplorerProcessIds": [
+        16112
+      ]
+    }
+  ]
+}

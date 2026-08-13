@@ -1,0 +1,109 @@
+{
+  "ExecutablePath": "C:\\Users\\dersm\\AppData\\Local\\Attention Hub\\attention-hub.exe",
+  "LaunchedByScript": false,
+  "StartupMilliseconds": null,
+  "ExplorerRestartCyclesRequested": 1,
+  "MonitorTopology": [
+    {
+      "DeviceName": "\\\\.\\DISPLAY1",
+      "Primary": true,
+      "Bounds": "{X=0,Y=0,Width=2560,Height=1440}",
+      "WorkingArea": "{X=48,Y=0,Width=2512,Height=1440}"
+    },
+    {
+      "DeviceName": "\\\\.\\DISPLAY2",
+      "Primary": false,
+      "Bounds": "{X=-1920,Y=0,Width=1920,Height=1080}",
+      "WorkingArea": "{X=-1872,Y=0,Width=1872,Height=1080}"
+    }
+  ],
+  "Recoveries": [
+    {
+      "Cycle": 1,
+      "RecoveryMilliseconds": 14339.0,
+      "OldExplorerProcessIds": [
+        16112
+      ],
+      "NewExplorerProcessIds": [
+        43780
+      ],
+      "ExpectedTaskbars": 2,
+      "ObservedTaskbars": 2,
+      "ExpectedVisibleVisuals": 2,
+      "ObservedVisibleVisuals": 2,
+      "ApplicationStillRunning": true
+    }
+  ],
+  "Snapshots": [
+    {
+      "Label": "initial",
+      "Timestamp": "2026-08-13T14:59:04.0183803+03:00",
+      "ProcessId": 9020,
+      "Version": "0.4.0-beta.1",
+      "WidgetBounds": "-1040,985,960,80",
+      "WidgetOffscreen": false,
+      "Visuals": [
+        {
+          "Name": "Attention Hub - Telegram visual",
+          "Bounds": "-936,1005,40,40",
+          "Offscreen": false
+        },
+        {
+          "Name": "Attention Hub - Teams visual",
+          "Bounds": "-992,1005,40,40",
+          "Offscreen": false
+        }
+      ],
+      "Taskbars": [
+        {
+          "ClassName": "Shell_SecondaryTrayWnd",
+          "Bounds": "-1920,0,48,1080",
+          "Offscreen": false
+        },
+        {
+          "ClassName": "Shell_TrayWnd",
+          "Bounds": "0,0,48,1440",
+          "Offscreen": false
+        }
+      ],
+      "ExplorerProcessIds": [
+        16112
+      ]
+    },
+    {
+      "Label": "explorer-1",
+      "Timestamp": "2026-08-13T14:59:18.3948789+03:00",
+      "ProcessId": 9020,
+      "Version": "0.4.0-beta.1",
+      "WidgetBounds": "-1040,985,960,80",
+      "WidgetOffscreen": false,
+      "Visuals": [
+        {
+          "Name": "Attention Hub - Telegram visual",
+          "Bounds": "-936,1005,40,40",
+          "Offscreen": false
+        },
+        {
+          "Name": "Attention Hub - Teams visual",
+          "Bounds": "-992,1005,40,40",
+          "Offscreen": false
+        }
+      ],
+      "Taskbars": [
+        {
+          "ClassName": "Shell_SecondaryTrayWnd",
+          "Bounds": "-1920,0,48,1080",
+          "Offscreen": false
+        },
+        {
+          "ClassName": "Shell_TrayWnd",
+          "Bounds": "0,0,48,1440",
+          "Offscreen": false
+        }
+      ],
+      "ExplorerProcessIds": [
+        43780
+      ]
+    }
+  ]
+}
