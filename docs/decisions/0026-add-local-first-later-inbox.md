@@ -22,10 +22,11 @@ misleading.
 
 - Add a fixed 48-pixel **Later Inbox** utility button after enabled app sources
   and before the fixed-last Advanced button.
-- Open one on-demand 420 by 520 logical-pixel Later window, with a 360 by 420
+- Open one on-demand 400 by 480 logical-pixel Later window, with a 360 by 420
   minimum. Reuse and focus the existing window instead of creating duplicates.
-- Capture one required title plus optional project/context, HTTP(S) URL, and
-  passive follow-up time. Do not add descriptions, attachments, priorities,
+- Capture one required title plus optional multiline plain-text notes/context,
+  HTTP(S) URL, and passive follow-up time. Bound notes to 4,000 characters and
+  preserve line breaks. Do not add rich-text markup, attachments, priorities,
   recurrence, tags, or collaboration.
 - Store user-authored items in a Rust-owned schema-v1 JSON document under the
   per-user application-data directory. Keep one previous-valid local backup,

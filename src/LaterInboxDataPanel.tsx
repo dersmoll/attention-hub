@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   LATER_INBOX_CHANGED_EVENT,
+  LATER_INBOX_FOCUS_EVENT,
   sortCompletedLaterInboxItems,
   sortOpenLaterInboxItems,
   type LaterInboxSnapshot,
@@ -14,6 +15,7 @@ export function LaterInboxDataPanel() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
   const openCount = useMemo(
     () => sortOpenLaterInboxItems(snapshot?.items ?? [], new Date()).length,
     [snapshot?.items],
@@ -52,6 +54,26 @@ export function LaterInboxDataPanel() {
       stopListening?.();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen(LATER_INBOX_FOCUS_EVENT, () => {
+      if (!disposed) {
+        requestAnimationFrame(() => openButtonRef.current?.focus());
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
 
   const mutate = async (command: string) => {
     setPending(true);
@@ -92,8 +114,12 @@ export function LaterInboxDataPanel() {
         <div className="actions">
           <button
             onClick={() =>
-              void openLaterInboxWindow((message) => setError(message))
+              void openLaterInboxWindow(
+                (message) => setError(message),
+                "advanced",
+              )
             }
+            ref={openButtonRef}
             type="button"
           >
             Open Later Inbox

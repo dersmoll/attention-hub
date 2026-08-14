@@ -18,7 +18,7 @@ const SCHEMA_VERSION: u32 = 1;
 const MAX_ITEMS: usize = 1_000;
 const MAX_FILE_BYTES: u64 = 1_048_576;
 const MAX_TITLE_CHARS: usize = 160;
-const MAX_CONTEXT_CHARS: usize = 80;
+const MAX_CONTEXT_CHARS: usize = 4_000;
 const MAX_URL_CHARS: usize = 2_048;
 static ITEM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -282,16 +282,7 @@ where
     let path = storage_path(app)?;
     let mut loaded = load_store(&path)?;
     action(&mut loaded.store)?;
-    write_store(&path, &loaded.store)?;
-    if !preserve_backup {
-        let backup = backup_path(&path);
-        if backup.exists() {
-            fs::remove_file(backup).map_err(|_| {
-                "Later Inbox updated the primary file but could not remove the prior local backup."
-                    .to_owned()
-            })?;
-        }
-    }
+    write_store(&path, &loaded.store, preserve_backup)?;
     loaded.recovered_from_backup = false;
     Ok(snapshot(path, loaded))
 }
@@ -428,7 +419,11 @@ fn valid_loaded_store(store: &LaterInboxStore) -> bool {
     })
 }
 
-fn write_store(path: &Path, store: &LaterInboxStore) -> Result<(), String> {
+fn write_store(
+    path: &Path,
+    store: &LaterInboxStore,
+    preserve_previous: bool,
+) -> Result<(), String> {
     let directory = path
         .parent()
         .ok_or_else(|| "Later Inbox storage path is invalid.".to_owned())?;
@@ -447,16 +442,60 @@ fn write_store(path: &Path, store: &LaterInboxStore) -> Result<(), String> {
     file.write_all(&bytes)
         .and_then(|_| file.sync_all())
         .map_err(|_| "Later Inbox could not finish its pending local write.".to_owned())?;
+    drop(file);
 
-    if path.exists() && read_store(path).is_ok() {
+    if preserve_previous && path.exists() && read_store(path).is_ok() {
         fs::copy(path, backup_path(path))
             .map_err(|_| "Later Inbox could not update its local backup.".to_owned())?;
+    } else if !preserve_previous {
+        let backup = backup_path(path);
+        if backup.exists() {
+            fs::remove_file(backup).map_err(|_| {
+                "Later Inbox could not remove the prior local backup before destructive cleanup."
+                    .to_owned()
+            })?;
+        }
     }
+    replace_file(&pending, path)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file(pending: &Path, path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        core::PCWSTR,
+        Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        },
+    };
+
+    let pending_wide = pending
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let path_wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    unsafe {
+        MoveFileExW(
+            PCWSTR(pending_wide.as_ptr()),
+            PCWSTR(path_wide.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|_| "Later Inbox could not atomically commit its pending local write.".to_owned())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file(pending: &Path, path: &Path) -> Result<(), String> {
     if path.exists() {
         fs::remove_file(path)
             .map_err(|_| "Later Inbox could not replace its local data file.".to_owned())?;
     }
-    fs::rename(&pending, path)
+    fs::rename(pending, path)
         .map_err(|_| "Later Inbox could not commit its pending local write.".to_owned())
 }
 
@@ -469,7 +508,7 @@ fn normalize_input(input: LaterInboxInput) -> Result<LaterInboxInput, String> {
 
     let context = normalize_optional(input.context);
     if let Some(value) = &context {
-        validate_length(value, MAX_CONTEXT_CHARS, "Project or context")?;
+        validate_length(value, MAX_CONTEXT_CHARS, "Notes or context")?;
     }
 
     let url = normalize_optional(input.url)
@@ -616,9 +655,9 @@ mod tests {
             updated_at: timestamp_now(),
             completed_at: None,
         });
-        write_store(&path, &store).unwrap();
+        write_store(&path, &store, true).unwrap();
         store.items[0].title = "Second".into();
-        write_store(&path, &store).unwrap();
+        write_store(&path, &store, true).unwrap();
         let backup = read_store(&backup_path(&path)).unwrap();
         assert_eq!(backup.items[0].title, "First");
         let _ = fs::remove_dir_all(path.parent().unwrap());
@@ -628,7 +667,7 @@ mod tests {
     fn recovers_from_backup_but_refuses_future_schema() {
         let path = test_path("recovery");
         let store = LaterInboxStore::empty();
-        write_store(&path, &store).unwrap();
+        write_store(&path, &store, true).unwrap();
         fs::copy(&path, backup_path(&path)).unwrap();
         fs::write(&path, b"not json").unwrap();
         let recovered = load_store(&path).unwrap();
@@ -638,6 +677,49 @@ mod tests {
         assert!(load_store(&path)
             .unwrap_err()
             .contains("newer schema version 99"));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn accepts_multiline_context_up_to_the_bounded_limit() {
+        let mut bounded = input("Task");
+        bounded.context = Some(format!("{}\n{}", "a".repeat(2_000), "b".repeat(1_999)));
+        assert_eq!(
+            normalize_input(bounded)
+                .unwrap()
+                .context
+                .expect("context")
+                .chars()
+                .count(),
+            MAX_CONTEXT_CHARS
+        );
+
+        let mut oversized = input("Task");
+        oversized.context = Some("x".repeat(MAX_CONTEXT_CHARS + 1));
+        assert!(normalize_input(oversized).is_err());
+    }
+
+    #[test]
+    fn destructive_write_does_not_retain_deleted_content_in_backup() {
+        let path = test_path("destructive");
+        let mut store = LaterInboxStore::empty();
+        store.items.push(LaterInboxItem {
+            id: "sensitive".into(),
+            title: "Delete me".into(),
+            context: Some("private context".into()),
+            url: None,
+            follow_up_at: None,
+            created_at: timestamp_now(),
+            updated_at: timestamp_now(),
+            completed_at: None,
+        });
+        write_store(&path, &store, true).unwrap();
+        store.items.clear();
+        write_store(&path, &store, false).unwrap();
+
+        assert!(read_store(&path).unwrap().items.is_empty());
+        assert!(!backup_path(&path).exists());
+        assert!(!temporary_path(&path).exists());
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }

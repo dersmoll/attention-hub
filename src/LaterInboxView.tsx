@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   LATER_INBOX_CHANGED_EVENT,
   LATER_INBOX_FOCUS_EVENT,
+  LATER_INBOX_OPEN_EVENT,
   fromLocalDateTimeInput,
   isLaterInboxItemDue,
   sortCompletedLaterInboxItems,
@@ -13,6 +14,8 @@ import {
   toLocalDateTimeInput,
   type LaterInboxInput,
   type LaterInboxItem,
+  type LaterInboxOpenPayload,
+  type LaterInboxReturnWindow,
   type LaterInboxSnapshot,
 } from "./later-inbox-model";
 
@@ -42,6 +45,12 @@ export function LaterInboxView() {
   const [discardRequested, setDiscardRequested] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const titleRef = useRef<HTMLInputElement>(null);
+  const currentWindow = useMemo(getCurrentWindow, []);
+  const returnFocusWindow = useRef<LaterInboxReturnWindow>(
+    new URLSearchParams(window.location.search).get("laterReturn") === "advanced"
+      ? "advanced"
+      : "main",
+  );
 
   const dirty = Object.values(form).some(Boolean);
   const openItems = useMemo(
@@ -68,15 +77,46 @@ export function LaterInboxView() {
   }, []);
 
   const closeWindow = useCallback(async () => {
-    const main = await WebviewWindow.getByLabel("main");
-    await getCurrentWindow().hide();
-    await main?.setFocus();
-    await emitTo("main", LATER_INBOX_FOCUS_EVENT);
-  }, []);
+    const requestedLabel = returnFocusWindow.current;
+    const requestedWindow = await WebviewWindow.getByLabel(requestedLabel);
+    const focusLabel = requestedWindow ? requestedLabel : "main";
+    const focusWindow =
+      requestedWindow ?? (await WebviewWindow.getByLabel("main"));
+    await currentWindow.hide();
+    await focusWindow?.setFocus();
+    await emitTo(focusLabel, LATER_INBOX_FOCUS_EVENT);
+  }, [currentWindow]);
 
   useEffect(() => {
     titleRef.current?.focus();
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen<LaterInboxOpenPayload>(
+      LATER_INBOX_OPEN_EVENT,
+      ({ payload }) => {
+        if (disposed) {
+          return;
+        }
+        returnFocusWindow.current = payload.returnFocusWindow;
+        setNow(new Date());
+        void refresh();
+        requestAnimationFrame(() => titleRef.current?.focus());
+      },
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -120,6 +160,38 @@ export function LaterInboxView() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeWindow, dirty]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void currentWindow
+      .onCloseRequested((event) => {
+        event.preventDefault();
+        if (dirty) {
+          setDiscardRequested(true);
+          setAnnouncement(
+            "Draft kept. Choose Discard draft and close if you want to leave.",
+          );
+        } else {
+          void closeWindow();
+        }
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          stopListening = unlisten;
+        }
+      });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, [closeWindow, currentWindow, dirty]);
+
+  useEffect(() => {
+    document.title = `Attention Hub - Later Inbox (${openItems.length} open${dueCount ? `, ${dueCount} due` : ""})`;
+  }, [dueCount, openItems.length]);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -170,6 +242,7 @@ export function LaterInboxView() {
     });
     setDetailsOpen(true);
     setDiscardRequested(false);
+    setAnnouncement(`Editing ${item.title}.`);
     requestAnimationFrame(() => titleRef.current?.focus());
   };
 
@@ -260,6 +333,7 @@ export function LaterInboxView() {
         </label>
         <div className="later-title-row">
           <input
+            aria-describedby="later-capture-help"
             aria-invalid={error ? true : undefined}
             autoComplete="off"
             id="later-title"
@@ -276,25 +350,35 @@ export function LaterInboxView() {
           </button>
         </div>
 
+        <label htmlFor="later-context">Notes / context</label>
+        <textarea
+          aria-describedby="later-context-help"
+          id="later-context"
+          maxLength={4000}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              context: event.target.value,
+            }))
+          }
+          placeholder="Paste the relevant chat message, task details, or project context"
+          rows={3}
+          value={form.context}
+        />
+        <small id="later-context-help">
+          Plain text, up to 4,000 characters. Line breaks are preserved.
+        </small>
+        <small className="sr-only" id="later-capture-help">
+          Enter a short title. Press Control plus Enter anywhere in this form to
+          save.
+        </small>
+
         <details
           onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
           open={detailsOpen}
         >
           <summary>More details</summary>
           <div className="later-details">
-            <label htmlFor="later-context">Project or context</label>
-            <input
-              autoComplete="off"
-              id="later-context"
-              maxLength={80}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  context: event.target.value,
-                }))
-              }
-              value={form.context}
-            />
             <label htmlFor="later-url">Task URL</label>
             <input
               autoCapitalize="none"
@@ -330,7 +414,12 @@ export function LaterInboxView() {
         </details>
 
         {editingId && (
-          <button className="later-cancel-edit" onClick={resetForm} type="button">
+          <button
+            className="later-cancel-edit"
+            disabled={pending}
+            onClick={resetForm}
+            type="button"
+          >
             Cancel edit
           </button>
         )}
@@ -345,25 +434,36 @@ export function LaterInboxView() {
                 resetForm();
                 void closeWindow();
               }}
+              disabled={pending}
               type="button"
             >
               Discard draft and close
             </button>
-            <button onClick={() => setDiscardRequested(false)} type="button">
+            <button
+              disabled={pending}
+              onClick={() => setDiscardRequested(false)}
+              type="button"
+            >
               Keep editing
             </button>
           </div>
         </div>
       )}
 
-      {error && <p className="error" role="alert">Later Inbox: {error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          Later Inbox: {error}
+        </p>
+      )}
       {snapshot?.recoveredFromBackup && (
         <p className="later-recovery" role="status">
           Showing the previous valid local backup. Saving an item will repair
           the primary file.
         </p>
       )}
-      <p className="sr-only" aria-live="polite">{announcement}</p>
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
 
       <section aria-labelledby="later-open-heading" className="later-review">
         <h2 id="later-open-heading">Open items</h2>
@@ -394,7 +494,13 @@ export function LaterInboxView() {
                         Open link <span className="sr-only">in default browser</span>
                       </button>
                     )}
-                    <button onClick={() => editItem(item)} type="button">Edit</button>
+                    <button
+                      disabled={pending}
+                      onClick={() => editItem(item)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
                     <button
                       disabled={pending}
                       onClick={() => void completeItem(item)}

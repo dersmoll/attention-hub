@@ -1,5 +1,12 @@
 export const LATER_INBOX_CHANGED_EVENT = "later-inbox-changed";
 export const LATER_INBOX_FOCUS_EVENT = "later-inbox-focus-control";
+export const LATER_INBOX_OPEN_EVENT = "later-inbox-opened";
+
+export type LaterInboxReturnWindow = "main" | "advanced";
+
+export interface LaterInboxOpenPayload {
+  returnFocusWindow: LaterInboxReturnWindow;
+}
 
 export interface LaterInboxItem {
   id: string;

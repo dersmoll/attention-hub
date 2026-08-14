@@ -17,8 +17,9 @@ source-attention meaning.
 
 1. Activate the fixed Later button between enabled sources and Advanced.
 2. Type a required title and press Enter for title-only capture.
-3. Optionally disclose project/context, an HTTP(S) task URL, and a follow-up
-   date/time. `Ctrl+Enter` saves from any field.
+3. Optionally paste up to 4,000 characters of multiline plain-text notes or
+   context, and disclose an HTTP(S) task URL and follow-up date/time.
+   `Ctrl+Enter` saves from any field.
 4. Review due items first and remaining open items oldest first.
 5. Explicitly open a validated saved link, edit the item, or complete it.
 6. Restore completed items in the Later window, or clean completed/all data in
@@ -37,7 +38,7 @@ source-attention meaning.
       **All clear**.
 - [x] The 48-pixel Later target exposes exact open/due counts accessibly; due is
       represented with text/symbol/structure as well as color.
-- [x] The 420 by 520 Later window supports labeled native controls, logical tab
+- [x] The 400 by 480 Later window supports labeled native controls, logical tab
       order, Enter and `Ctrl+Enter`, focus return, live announcements, and no
       silent Escape discard.
 - [x] Advanced exposes data location and bounded destructive controls with a
@@ -70,8 +71,8 @@ saved Published ICS calendar remain unchanged. DWM pixels remain visual-only.
 
 ## Explicit non-goals
 
-Windows reminders, global shortcuts, attachments, long notes, tags,
-priorities, recurrence, collaboration, sync, imports, external-tool
-integrations, Graph, OCR, generalized providers, new calendar work, product
+Windows reminders, global shortcuts, image/file attachments, rich-text or
+Markdown editing, tags, priorities, recurrence, collaboration, sync, imports,
+external-tool integrations, Graph, OCR, generalized providers, new calendar work, product
 tray, autostart, updater, signing, installer changes, release packaging, and an
 in-app export picker are outside Milestone 9.

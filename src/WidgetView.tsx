@@ -908,7 +908,7 @@ export function WidgetView() {
   const telegramStatus = `${sourceAvailability(telegram, attentionStale, attentionRefreshFailed)}${typeof telegramCounter?.count === "number" && telegramCounter.count > 0 ? `; application counter ${telegramCounter.count}` : telegramCounter?.needsAttention === true ? "; new activity detected" : ""}`;
   const teamsStatus = `${sourceAvailability(teams, attentionStale, attentionRefreshFailed)}${teamsActivity?.needsAttention === true ? "; new activity detected" : ""}`;
   const outlookStatus = outlookUsingLastKnown
-    ? `current attention state is not exposed; last observed aggregate Inbox unread ${lastObservedOutlookInbox.count}`
+    ? `current attention state is not exposed; last observed aggregate Inbox unread ${lastObservedOutlookInbox.count}; open Outlook to refresh`
     : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
   const calendarSelection =
     workCalendar?.status === "observed" ? workCalendar.selection : null;

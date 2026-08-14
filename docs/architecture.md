@@ -73,8 +73,9 @@ before Advanced. It adds one 48-pixel target plus the existing 8-pixel gap, so
 the responsive widget becomes 744–1208 by 80 logical pixels. Source buttons
 remain first and keep their existing zero-through-five slot indices; the native
 DWM geometry contract therefore does not treat Later as a source. Later opens
-one on-demand 420×520 WebView with a 360×420 minimum and focuses an existing
-instance instead of duplicating it.
+one on-demand 400×480 WebView with a 360×420 minimum and focuses an existing
+instance instead of duplicating it. The opener identity is passed explicitly so
+closing returns focus to either the widget or Advanced control that launched it.
 
 DWM thumbnails registered on the Tauri parent render behind its WebView child,
 so live taskbar visuals cannot be React components. React owns local fallback
@@ -470,13 +471,16 @@ Widget count / Later window / Advanced data controls
 ```
 
 The schema-v1 document contains at most 1,000 items and 1 MiB. An item contains
-an opaque ID, required bounded title, optional bounded project/context,
-optional validated HTTP(S) URL without embedded credentials, optional UTC
+an opaque ID, required bounded title, optional multiline plain-text
+notes/context bounded to 4,000 characters, optional validated HTTP(S) URL
+without embedded credentials, optional UTC
 follow-up timestamp, and created/updated/completed timestamps. Every loaded
 record is revalidated. A missing file is an empty inbox, a corrupt primary can
 fall back to the previous valid backup, and an unknown future schema is reported
 without being overwritten. Explicit destructive cleanup removes a backup that
-contains deleted content.
+contains deleted content before atomically replacing the primary file. Ordinary
+mutations use a write-through Windows replacement and retain one previous-valid
+backup.
 
 Complete snapshots are authoritative. The payload-free `later-inbox-changed`
 event only invalidates other WebViews. Later counts are user-owned queue state,

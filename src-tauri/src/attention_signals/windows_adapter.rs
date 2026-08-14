@@ -24,7 +24,7 @@ use windows::{
                 CUIAutomation, IUIAutomation, IUIAutomationElement, TreeScope_Children,
                 TreeScope_Descendants,
             },
-            WindowsAndMessaging::FindWindowW,
+            WindowsAndMessaging::{FindWindowW, IsIconic},
         },
     },
 };
@@ -250,19 +250,36 @@ fn capture_outlook(
     }
 
     if outlook_roots.is_empty() {
+        let process_running = any_process_running(&[OUTLOOK_EXECUTABLE])?;
         return Ok(AttentionSourceObservation {
             source_key: "outlook".into(),
             display_name: "Microsoft Outlook".into(),
-            state: AttentionSourceState::NotRunning,
+            state: if process_running {
+                AttentionSourceState::NotExposed
+            } else {
+                AttentionSourceState::NotRunning
+            },
             signals: Vec::new(),
-            diagnostics: vec![
-                "New Outlook is not running with an accessible top-level window.".into(),
-            ],
+            diagnostics: vec![if process_running {
+                "New Outlook is running without an accessible top-level window. Open Outlook to refresh its Inbox state."
+                    .into()
+            } else {
+                "New Outlook is not running with an accessible top-level window.".into()
+            }],
         });
     }
 
     let mut inbox_labels = HashSet::new();
+    let mut minimized_root_seen = false;
     for outlook_root in outlook_roots {
+        let minimized = unsafe { outlook_root.CurrentNativeWindowHandle() }
+            .ok()
+            .filter(|handle| !handle.is_invalid())
+            .is_some_and(|handle| unsafe { IsIconic(handle).as_bool() });
+        if minimized {
+            minimized_root_seen = true;
+            continue;
+        }
         let descendants = unsafe { outlook_root.FindAll(TreeScope_Descendants, &condition)? };
         let length = unsafe { descendants.Length()? };
 
@@ -288,10 +305,12 @@ fn capture_outlook(
             display_name: "Microsoft Outlook".into(),
             state: AttentionSourceState::NotExposed,
             signals: Vec::new(),
-            diagnostics: vec![
-                "New Outlook is running, but no English Inbox accessibility label was found."
-                    .into(),
-            ],
+            diagnostics: vec![if minimized_root_seen {
+                "New Outlook is minimized; its Inbox accessibility state is not treated as current. Open Outlook to refresh."
+                    .into()
+            } else {
+                "New Outlook is running, but no English Inbox accessibility label was found.".into()
+            }],
         });
     }
 

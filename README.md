@@ -39,8 +39,9 @@ Notification Center/source diagnostics. Advanced remains fixed last in the app
 row; enabled native visual surfaces follow reordered slots.
 
 The fixed Later button sits after enabled source apps and before Advanced. It
-opens one on-demand 420×520 local capture/review window with a required title
-and optional project/context, HTTP(S) URL, and passive follow-up time. Items use
+opens one on-demand 400×480 local capture/review window with a required title,
+optional multiline plain-text notes/context, HTTP(S) URL, and passive follow-up
+time. Items use
 a Rust-owned schema-v1 JSON file and one previous-valid local backup under this
 Windows user's application-data directory. They never enter source attention
 coverage or **All clear**. Follow-up affects sorting and due styling only; it is
@@ -61,10 +62,12 @@ current source surfaces do not expose a trustworthy unread contract.
 Selecting an app button activates an existing source window; it does not launch
 the app or interact with its contents.
 
-If minimizing New Outlook temporarily removes that accessibility label, the
-widget may retain the last count observed during this process. That fallback is
-amber and dashed, is announced as last-observed, and clears when Outlook stops;
-it is not presented as a fresh count.
+If New Outlook is minimized or temporarily removes that accessibility label,
+the widget may retain the last count observed during this process. Attention
+Hub does not infer a current zero from a minimized accessibility tree. The
+fallback is amber and dashed, is announced as last-observed with an instruction
+to open Outlook to refresh, and clears when Outlook stops; it is not presented
+as a fresh count.
 
 The work-calendar source is one explicitly selected Microsoft 365 Published ICS
 calendar whose bearer link is stored only in Windows Credential Manager. The

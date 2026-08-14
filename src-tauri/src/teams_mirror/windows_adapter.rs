@@ -888,6 +888,7 @@ mod windows_probe {
         let mut candidates = Vec::new();
         for window in enumerate_top_level_windows()? {
             let visible = unsafe { IsWindowVisible(window) }.as_bool();
+            let iconic = unsafe { IsIconic(window) }.as_bool();
             let ex_style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) } as u32;
             if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
                 continue;
@@ -925,6 +926,7 @@ mod windows_probe {
             if !source_window_candidate_is_usable(
                 source,
                 visible,
+                iconic,
                 title_length,
                 width,
                 height,
@@ -946,6 +948,7 @@ mod windows_probe {
     fn source_window_candidate_is_usable(
         source: AttentionAppSource,
         visible: bool,
+        iconic: bool,
         title_length: i32,
         width: i32,
         height: i32,
@@ -957,7 +960,17 @@ mod windows_probe {
             AttentionAppSource::WhatsApp => class_name == "WinUIDesktopWin32WindowClass",
             _ => return visible,
         };
-        if !messenger_class_matches || width < MINIMUM_WINDOW_CLIENT_WIDTH || height < 200 {
+        if !messenger_class_matches {
+            return false;
+        }
+        // Windows reports a genuine minimized top-level window using its icon
+        // bounds (commonly 160×28), not its restored client dimensions. The
+        // executable, unowned/non-tool window, known class, and non-empty title
+        // checks still keep this path bounded to the messenger's main window.
+        if iconic {
+            return title_length > 0;
+        }
+        if width < MINIMUM_WINDOW_CLIENT_WIDTH || height < 200 {
             return false;
         }
         if visible {
@@ -2212,6 +2225,7 @@ mod windows_probe {
             assert!(source_window_candidate_is_usable(
                 AttentionAppSource::Viber,
                 false,
+                false,
                 13,
                 1179,
                 1066,
@@ -2219,6 +2233,7 @@ mod windows_probe {
             ));
             assert!(source_window_candidate_is_usable(
                 AttentionAppSource::WhatsApp,
+                false,
                 false,
                 8,
                 1116,
@@ -2228,6 +2243,7 @@ mod windows_probe {
             assert!(!source_window_candidate_is_usable(
                 AttentionAppSource::Viber,
                 false,
+                false,
                 22,
                 1884,
                 1059,
@@ -2235,6 +2251,7 @@ mod windows_probe {
             ));
             assert!(!source_window_candidate_is_usable(
                 AttentionAppSource::Outlook,
+                false,
                 false,
                 8,
                 1116,
@@ -2244,6 +2261,7 @@ mod windows_probe {
             assert!(source_window_candidate_is_usable(
                 AttentionAppSource::Slack,
                 false,
+                false,
                 12,
                 1200,
                 800,
@@ -2252,13 +2270,15 @@ mod windows_probe {
             assert!(!source_window_candidate_is_usable(
                 AttentionAppSource::Slack,
                 false,
+                false,
                 0,
                 1884,
                 1059,
                 "Chrome_WidgetWin_0",
             ));
-            assert!(!source_window_candidate_is_usable(
+            assert!(source_window_candidate_is_usable(
                 AttentionAppSource::Slack,
+                true,
                 true,
                 48,
                 160,
@@ -2266,8 +2286,36 @@ mod windows_probe {
                 "Chrome_WidgetWin_1",
             ));
             assert!(source_window_candidate_is_usable(
+                AttentionAppSource::Viber,
+                true,
+                true,
+                13,
+                160,
+                28,
+                "Qt6103QWindowIcon",
+            ));
+            assert!(source_window_candidate_is_usable(
+                AttentionAppSource::WhatsApp,
+                true,
+                true,
+                8,
+                160,
+                28,
+                "WinUIDesktopWin32WindowClass",
+            ));
+            assert!(!source_window_candidate_is_usable(
+                AttentionAppSource::Slack,
+                true,
+                true,
+                0,
+                160,
+                28,
+                "Chrome_WidgetWin_1",
+            ));
+            assert!(source_window_candidate_is_usable(
                 AttentionAppSource::Outlook,
                 true,
+                false,
                 0,
                 800,
                 600,
