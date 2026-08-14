@@ -67,6 +67,34 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
   upgrade, Outlook minimized fallback/recovery, Advanced isolation, complete
   normal process-tree exit, and the resource threshold gate
 
+## Day 2 — 2026-08-14
+
+- Approximate active-use duration: read-only installed-state checkpoint only;
+  no installed Attention Hub process was running
+- Version and process/window availability: installed registration and executable
+  for `0.4.0-beta.1` were present on Windows build 26220; installed process,
+  widget window, and owned visual windows were unavailable
+- Start/restart/suspend/Explorer/display transitions exercised: none; the
+  checkpoint did not launch or alter the installed application or system state
+- Source availability periods by `observed`, `notRunning`, `notExposed`, or
+  `error`: no classification captured because the installed observer was not
+  running; all six fixed source processes were independently available, but
+  process presence was not promoted to attention semantics
+- Outlook fresh/last-observed/cleared transitions: not exercised
+- Mirror hide/recovery behavior: visual surfaces were hidden/unavailable with
+  the installed process stopped; no recovery transition was exercised
+- Preference or saved-calendar persistence result: preference storage present
+  `true`; saved calendar credential configured `true`; no values were read
+- False positive, false negative, or misleading all-clear: not assessable
+  without a running installed observer
+- Highest-value unrepresentable attention need: not assessed
+- UI/accessibility friction: not assessed
+- Resource sample file or summary: no new sample; retained reference
+  `2026-08-13-installed-beta-resource-30m.csv`
+- Issue IDs opened or reproduced: none
+- No-issue cases explicitly observed: installed registration/executable
+  availability and persistence-container presence only
+
 ## Five-day exit summary
 
 - Total observed use:
