@@ -894,10 +894,12 @@ export function WidgetView() {
     teamsActivity?.count,
     teamsActivity?.needsAttention,
   );
-  const outlookBadge = formatAttentionBadge(
-    displayedOutlookInbox?.count,
-    displayedOutlookInbox?.needsAttention,
-  );
+  const outlookBadge = outlookUsingLastKnown
+    ? "…"
+    : formatAttentionBadge(
+        displayedOutlookInbox?.count,
+        displayedOutlookInbox?.needsAttention,
+      );
   const attentionCapturedAt = attentionSnapshot
     ? Date.parse(attentionSnapshot.capturedAt)
     : Number.NaN;

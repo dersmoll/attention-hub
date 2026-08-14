@@ -14,11 +14,14 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-const SCHEMA_VERSION: u32 = 1;
+const LEGACY_SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const MAX_ITEMS: usize = 1_000;
 const MAX_FILE_BYTES: u64 = 1_048_576;
 const MAX_TITLE_CHARS: usize = 160;
-const MAX_CONTEXT_CHARS: usize = 4_000;
+const MAX_NOTE_CHARS: usize = 4_000;
+const MAX_NOTE_SEGMENTS: usize = 256;
+const MAX_NOTE_LINKS: usize = 25;
 const MAX_URL_CHARS: usize = 2_048;
 static ITEM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -39,7 +42,7 @@ impl LaterInboxState {
 pub struct LaterInboxItem {
     pub id: String,
     pub title: String,
-    pub context: Option<String>,
+    pub notes: Vec<LaterInboxNoteSegment>,
     pub url: Option<String>,
     pub follow_up_at: Option<String>,
     pub created_at: String,
@@ -51,9 +54,17 @@ pub struct LaterInboxItem {
 #[serde(rename_all = "camelCase")]
 pub struct LaterInboxInput {
     pub title: String,
-    pub context: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<LaterInboxNoteSegment>,
     pub url: Option<String>,
     pub follow_up_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaterInboxNoteSegment {
+    pub text: String,
+    pub href: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -71,6 +82,26 @@ pub struct LaterInboxSnapshot {
 struct LaterInboxStore {
     schema_version: u32,
     items: Vec<LaterInboxItem>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyLaterInboxItem {
+    id: String,
+    title: String,
+    context: Option<String>,
+    url: Option<String>,
+    follow_up_at: Option<String>,
+    created_at: String,
+    updated_at: String,
+    completed_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyLaterInboxStore {
+    schema_version: u32,
+    items: Vec<LegacyLaterInboxItem>,
 }
 
 impl LaterInboxStore {
@@ -122,7 +153,7 @@ pub fn create_item(
         store.items.push(LaterInboxItem {
             id: next_item_id(),
             title: input.title,
-            context: input.context,
+            notes: input.notes,
             url: input.url,
             follow_up_at: input.follow_up_at,
             created_at: now.clone(),
@@ -147,7 +178,7 @@ pub fn update_item(
             .find(|item| item.id == item_id)
             .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
         item.title = input.title;
-        item.context = input.context;
+        item.notes = input.notes;
         item.url = input.url;
         item.follow_up_at = input.follow_up_at;
         item.updated_at = timestamp_now();
@@ -222,6 +253,37 @@ pub fn item_url(app: &AppHandle, state: &LaterInboxState, item_id: &str) -> Resu
         .and_then(|item| item.url.clone())
         .ok_or_else(|| "This Later Inbox item has no saved link.".to_owned())?;
     normalize_url(&url)
+}
+
+pub fn item_note_url(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    item_id: &str,
+    requested_url: &str,
+) -> Result<String, String> {
+    let requested_url = normalize_url(requested_url)?;
+    let _guard = state
+        .gate
+        .lock()
+        .map_err(|_| "Later Inbox storage is temporarily unavailable.".to_owned())?;
+    let path = storage_path(app)?;
+    let loaded = load_store(&path)?;
+    let item = loaded
+        .store
+        .items
+        .iter()
+        .find(|item| item.id == item_id)
+        .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
+    item_contains_note_url(item, &requested_url)
+        .then_some(requested_url)
+        .ok_or_else(|| "This link is not present in the saved Later Inbox note.".to_owned())
+}
+
+fn item_contains_note_url(item: &LaterInboxItem, requested_url: &str) -> bool {
+    item.notes
+        .iter()
+        .filter_map(|segment| segment.href.as_deref())
+        .any(|href| normalize_url(href).is_ok_and(|href| href == requested_url))
 }
 
 #[cfg(target_os = "windows")]
@@ -376,15 +438,74 @@ fn read_store(path: &Path) -> Result<LaterInboxStore, StoreReadError> {
     if version > u64::from(SCHEMA_VERSION) {
         return Err(StoreReadError::FutureVersion(version));
     }
-    if version != u64::from(SCHEMA_VERSION) {
+    let store = if version == u64::from(LEGACY_SCHEMA_VERSION) {
+        let legacy: LegacyLaterInboxStore =
+            serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?;
+        migrate_legacy_store(legacy).ok_or(StoreReadError::Invalid)?
+    } else if version == u64::from(SCHEMA_VERSION) {
+        serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?
+    } else {
         return Err(StoreReadError::Invalid);
-    }
-    let store: LaterInboxStore =
-        serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?;
+    };
     if !valid_loaded_store(&store) {
         return Err(StoreReadError::Invalid);
     }
     Ok(store)
+}
+
+fn migrate_legacy_store(legacy: LegacyLaterInboxStore) -> Option<LaterInboxStore> {
+    if legacy.schema_version != LEGACY_SCHEMA_VERSION || legacy.items.len() > MAX_ITEMS {
+        return None;
+    }
+    let mut ids = HashSet::new();
+    let mut items = Vec::with_capacity(legacy.items.len());
+    for item in legacy.items {
+        if item.id.is_empty()
+            || item.id.chars().count() > 128
+            || !ids.insert(item.id.clone())
+            || item.title.trim().is_empty()
+            || item.title.chars().count() > MAX_TITLE_CHARS
+            || item
+                .context
+                .as_ref()
+                .is_some_and(|value| value.chars().count() > MAX_NOTE_CHARS)
+            || item
+                .url
+                .as_ref()
+                .is_some_and(|value| normalize_url(value).is_err())
+            || item
+                .follow_up_at
+                .as_ref()
+                .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_err())
+            || DateTime::parse_from_rfc3339(&item.created_at).is_err()
+            || DateTime::parse_from_rfc3339(&item.updated_at).is_err()
+            || item
+                .completed_at
+                .as_ref()
+                .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_err())
+        {
+            return None;
+        }
+        let notes = item
+            .context
+            .filter(|context| !context.trim().is_empty())
+            .map(|text| vec![LaterInboxNoteSegment { text, href: None }])
+            .unwrap_or_default();
+        items.push(LaterInboxItem {
+            id: item.id,
+            title: item.title,
+            notes,
+            url: item.url,
+            follow_up_at: item.follow_up_at,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+            completed_at: item.completed_at,
+        });
+    }
+    Some(LaterInboxStore {
+        schema_version: SCHEMA_VERSION,
+        items,
+    })
 }
 
 fn valid_loaded_store(store: &LaterInboxStore) -> bool {
@@ -398,10 +519,7 @@ fn valid_loaded_store(store: &LaterInboxStore) -> bool {
             && ids.insert(item.id.as_str())
             && !item.title.trim().is_empty()
             && item.title.chars().count() <= MAX_TITLE_CHARS
-            && item
-                .context
-                .as_ref()
-                .is_none_or(|value| value.chars().count() <= MAX_CONTEXT_CHARS)
+            && valid_note_segments(&item.notes)
             && item
                 .url
                 .as_ref()
@@ -417,6 +535,27 @@ fn valid_loaded_store(store: &LaterInboxStore) -> bool {
                 .as_ref()
                 .is_none_or(|value| DateTime::parse_from_rfc3339(value).is_ok())
     })
+}
+
+fn valid_note_segments(notes: &[LaterInboxNoteSegment]) -> bool {
+    if notes.len() > MAX_NOTE_SEGMENTS {
+        return false;
+    }
+    let mut characters = 0_usize;
+    let mut links = 0_usize;
+    for segment in notes {
+        if segment.text.is_empty() {
+            return false;
+        }
+        characters = characters.saturating_add(segment.text.chars().count());
+        if let Some(href) = &segment.href {
+            links = links.saturating_add(1);
+            if normalize_url(href).is_err() {
+                return false;
+            }
+        }
+    }
+    characters <= MAX_NOTE_CHARS && links <= MAX_NOTE_LINKS
 }
 
 fn write_store(
@@ -506,10 +645,7 @@ fn normalize_input(input: LaterInboxInput) -> Result<LaterInboxInput, String> {
     }
     validate_length(&title, MAX_TITLE_CHARS, "Title")?;
 
-    let context = normalize_optional(input.context);
-    if let Some(value) = &context {
-        validate_length(value, MAX_CONTEXT_CHARS, "Notes or context")?;
-    }
+    let notes = normalize_notes(input.notes)?;
 
     let url = normalize_optional(input.url)
         .map(|value| normalize_url(&value))
@@ -520,10 +656,68 @@ fn normalize_input(input: LaterInboxInput) -> Result<LaterInboxInput, String> {
 
     Ok(LaterInboxInput {
         title,
-        context,
+        notes,
         url,
         follow_up_at,
     })
+}
+
+fn normalize_notes(
+    notes: Vec<LaterInboxNoteSegment>,
+) -> Result<Vec<LaterInboxNoteSegment>, String> {
+    if notes.len() > MAX_NOTE_SEGMENTS {
+        return Err(format!(
+            "Notes must contain {MAX_NOTE_SEGMENTS} text segments or fewer."
+        ));
+    }
+    let mut normalized: Vec<LaterInboxNoteSegment> = Vec::with_capacity(notes.len());
+    for segment in notes {
+        if segment.text.is_empty() {
+            continue;
+        }
+        let href = segment
+            .href
+            .map(|value| normalize_url(&value))
+            .transpose()?;
+        if let Some(previous) = normalized.last_mut() {
+            if previous.href == href {
+                previous.text.push_str(&segment.text);
+                continue;
+            }
+        }
+        normalized.push(LaterInboxNoteSegment {
+            text: segment.text,
+            href,
+        });
+    }
+    if normalized
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<String>()
+        .trim()
+        .is_empty()
+    {
+        normalized.clear();
+    }
+    let characters = normalized
+        .iter()
+        .map(|segment| segment.text.chars().count())
+        .sum::<usize>();
+    if characters > MAX_NOTE_CHARS {
+        return Err(format!(
+            "Notes or context must be {MAX_NOTE_CHARS} characters or fewer."
+        ));
+    }
+    let links = normalized
+        .iter()
+        .filter(|segment| segment.href.is_some())
+        .count();
+    if links > MAX_NOTE_LINKS {
+        return Err(format!(
+            "Notes may contain {MAX_NOTE_LINKS} linked text segments or fewer."
+        ));
+    }
+    Ok(normalized)
 }
 
 fn normalize_optional(value: Option<String>) -> Option<String> {
@@ -596,7 +790,7 @@ mod tests {
     fn input(title: &str) -> LaterInboxInput {
         LaterInboxInput {
             title: title.to_owned(),
-            context: None,
+            notes: Vec::new(),
             url: None,
             follow_up_at: None,
         }
@@ -616,13 +810,27 @@ mod tests {
     fn validates_and_normalizes_user_fields() {
         let normalized = normalize_input(LaterInboxInput {
             title: "  Review proposal  ".into(),
-            context: Some("  M9  ".into()),
+            notes: vec![
+                LaterInboxNoteSegment {
+                    text: "Review ".into(),
+                    href: None,
+                },
+                LaterInboxNoteSegment {
+                    text: "brief".into(),
+                    href: Some("https://example.com/brief".into()),
+                },
+            ],
             url: Some("https://example.com/task".into()),
             follow_up_at: Some("2026-08-14T15:30:00+03:00".into()),
         })
         .unwrap();
         assert_eq!(normalized.title, "Review proposal");
-        assert_eq!(normalized.context.as_deref(), Some("M9"));
+        assert_eq!(normalized.notes.len(), 2);
+        assert_eq!(normalized.notes[1].text, "brief");
+        assert_eq!(
+            normalized.notes[1].href.as_deref(),
+            Some("https://example.com/brief")
+        );
         assert_eq!(normalized.url.as_deref(), Some("https://example.com/task"));
         assert_eq!(
             normalized.follow_up_at.as_deref(),
@@ -639,6 +847,12 @@ mod tests {
         let mut credential_input = input("Task");
         credential_input.url = Some("https://person:secret@example.com/task".into());
         assert!(normalize_input(credential_input).is_err());
+        let mut unsafe_note = input("Task");
+        unsafe_note.notes.push(LaterInboxNoteSegment {
+            text: "secret".into(),
+            href: Some("file:///C:/secret.txt".into()),
+        });
+        assert!(normalize_input(unsafe_note).is_err());
     }
 
     #[test]
@@ -648,7 +862,7 @@ mod tests {
         store.items.push(LaterInboxItem {
             id: "one".into(),
             title: "First".into(),
-            context: None,
+            notes: Vec::new(),
             url: None,
             follow_up_at: None,
             created_at: timestamp_now(),
@@ -681,21 +895,56 @@ mod tests {
     }
 
     #[test]
-    fn accepts_multiline_context_up_to_the_bounded_limit() {
+    fn migrates_schema_v1_context_to_plain_note_segment() {
+        let path = test_path("v1-migration");
+        fs::write(
+            &path,
+            br#"{
+              "schemaVersion": 1,
+              "items": [{
+                "id": "legacy",
+                "title": "Legacy task",
+                "context": "Line one\nLine two",
+                "url": null,
+                "followUpAt": null,
+                "createdAt": "2026-08-14T08:00:00Z",
+                "updatedAt": "2026-08-14T08:00:00Z",
+                "completedAt": null
+              }]
+            }"#,
+        )
+        .unwrap();
+
+        let migrated = read_store(&path).unwrap();
+        assert_eq!(migrated.schema_version, SCHEMA_VERSION);
+        assert_eq!(migrated.items[0].notes.len(), 1);
+        assert_eq!(migrated.items[0].notes[0].text, "Line one\nLine two");
+        assert_eq!(migrated.items[0].notes[0].href, None);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn accepts_multiline_notes_up_to_the_bounded_limit() {
         let mut bounded = input("Task");
-        bounded.context = Some(format!("{}\n{}", "a".repeat(2_000), "b".repeat(1_999)));
+        bounded.notes = vec![LaterInboxNoteSegment {
+            text: format!("{}\n{}", "a".repeat(2_000), "b".repeat(1_999)),
+            href: None,
+        }];
         assert_eq!(
             normalize_input(bounded)
                 .unwrap()
-                .context
-                .expect("context")
-                .chars()
-                .count(),
-            MAX_CONTEXT_CHARS
+                .notes
+                .iter()
+                .map(|segment| segment.text.chars().count())
+                .sum::<usize>(),
+            MAX_NOTE_CHARS
         );
 
         let mut oversized = input("Task");
-        oversized.context = Some("x".repeat(MAX_CONTEXT_CHARS + 1));
+        oversized.notes = vec![LaterInboxNoteSegment {
+            text: "x".repeat(MAX_NOTE_CHARS + 1),
+            href: None,
+        }];
         assert!(normalize_input(oversized).is_err());
     }
 
@@ -706,7 +955,10 @@ mod tests {
         store.items.push(LaterInboxItem {
             id: "sensitive".into(),
             title: "Delete me".into(),
-            context: Some("private context".into()),
+            notes: vec![LaterInboxNoteSegment {
+                text: "private context".into(),
+                href: None,
+            }],
             url: None,
             follow_up_at: None,
             created_at: timestamp_now(),
@@ -721,5 +973,25 @@ mod tests {
         assert!(!backup_path(&path).exists());
         assert!(!temporary_path(&path).exists());
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn note_link_activation_is_bounded_to_the_saved_item() {
+        let item = LaterInboxItem {
+            id: "linked".into(),
+            title: "Linked task".into(),
+            notes: vec![LaterInboxNoteSegment {
+                text: "brief".into(),
+                href: Some("https://example.com/brief".into()),
+            }],
+            url: None,
+            follow_up_at: None,
+            created_at: timestamp_now(),
+            updated_at: timestamp_now(),
+            completed_at: None,
+        };
+
+        assert!(item_contains_note_url(&item, "https://example.com/brief"));
+        assert!(!item_contains_note_url(&item, "https://example.com/other"));
     }
 }

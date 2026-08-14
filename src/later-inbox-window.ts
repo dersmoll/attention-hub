@@ -2,6 +2,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { emitTo } from "@tauri-apps/api/event";
 import {
   LATER_INBOX_OPEN_EVENT,
+  LATER_INBOX_WINDOW_GEOMETRY,
   type LaterInboxReturnWindow,
 } from "./later-inbox-model";
 
@@ -20,10 +21,7 @@ export async function openLaterInboxWindow(
   const later = new WebviewWindow("later", {
     url: `/?laterReturn=${returnFocusWindow}`,
     title: "Attention Hub - Later Inbox",
-    width: 400,
-    height: 480,
-    minWidth: 360,
-    minHeight: 420,
+    ...LATER_INBOX_WINDOW_GEOMETRY,
     center: true,
   });
   later.once("tauri://error", ({ payload }) => {

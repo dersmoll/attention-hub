@@ -14,14 +14,23 @@ import {
   toLocalDateTimeInput,
   type LaterInboxInput,
   type LaterInboxItem,
+  type LaterInboxNoteSegment,
   type LaterInboxOpenPayload,
   type LaterInboxReturnWindow,
   type LaterInboxSnapshot,
 } from "./later-inbox-model";
+import {
+  MAX_LATER_NOTE_CHARACTERS,
+  insertRichNoteAtSelection,
+  noteCharacterCount,
+  readRichNoteEditor,
+  richNoteSegmentsFromClipboard,
+  setRichNoteEditor,
+} from "./later-inbox-rich-notes";
 
 const emptyForm = {
   title: "",
-  context: "",
+  notes: [] as LaterInboxNoteSegment[],
   url: "",
   followUp: "",
 };
@@ -45,6 +54,7 @@ export function LaterInboxView() {
   const [discardRequested, setDiscardRequested] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const titleRef = useRef<HTMLInputElement>(null);
+  const notesRef = useRef<HTMLDivElement>(null);
   const currentWindow = useMemo(getCurrentWindow, []);
   const returnFocusWindow = useRef<LaterInboxReturnWindow>(
     new URLSearchParams(window.location.search).get("laterReturn") === "advanced"
@@ -52,7 +62,10 @@ export function LaterInboxView() {
       : "main",
   );
 
-  const dirty = Object.values(form).some(Boolean);
+  const notesCharacters = noteCharacterCount(form.notes);
+  const notesOverLimit = notesCharacters > MAX_LATER_NOTE_CHARACTERS;
+  const dirty =
+    Boolean(form.title || form.url || form.followUp) || form.notes.length > 0;
   const openItems = useMemo(
     () => sortOpenLaterInboxItems(snapshot?.items ?? [], now),
     [now, snapshot?.items],
@@ -195,6 +208,9 @@ export function LaterInboxView() {
 
   const resetForm = () => {
     setForm(emptyForm);
+    if (notesRef.current) {
+      setRichNoteEditor(notesRef.current, []);
+    }
     setEditingId(null);
     setDetailsOpen(false);
     setDiscardRequested(false);
@@ -209,7 +225,7 @@ export function LaterInboxView() {
     setError(null);
     const input: LaterInboxInput = {
       title: form.title,
-      context: form.context || null,
+      notes: form.notes,
       url: form.url || null,
       followUpAt: fromLocalDateTimeInput(form.followUp),
     };
@@ -236,14 +252,19 @@ export function LaterInboxView() {
     setEditingId(item.id);
     setForm({
       title: item.title,
-      context: item.context ?? "",
+      notes: item.notes,
       url: item.url ?? "",
       followUp: toLocalDateTimeInput(item.followUpAt),
     });
     setDetailsOpen(true);
     setDiscardRequested(false);
     setAnnouncement(`Editing ${item.title}.`);
-    requestAnimationFrame(() => titleRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (notesRef.current) {
+        setRichNoteEditor(notesRef.current, item.notes);
+      }
+      titleRef.current?.focus();
+    });
   };
 
   const completeItem = async (item: LaterInboxItem) => {
@@ -290,11 +311,19 @@ export function LaterInboxView() {
     }
   };
 
+  const openNoteUrl = async (item: LaterInboxItem, url: string) => {
+    try {
+      await invoke("open_later_inbox_note_url", { itemId: item.id, url });
+      setAnnouncement(`Linked text from ${item.title} opened in the default browser.`);
+    } catch (nextError) {
+      setError(String(nextError));
+    }
+  };
+
   return (
     <main className="later-shell">
       <header className="later-header">
-        <div>
-          <p className="eyebrow">Personal local queue</p>
+        <div className="later-header__title">
           <h1>Later Inbox</h1>
           <p>
             {openItems.length} open{dueCount ? ` · ${dueCount} due` : ""}
@@ -345,28 +374,63 @@ export function LaterInboxView() {
             ref={titleRef}
             value={form.title}
           />
-          <button disabled={pending || !form.title.trim()} type="submit">
+          <button
+            disabled={pending || !form.title.trim() || notesOverLimit}
+            type="submit"
+          >
             {pending ? "Saving…" : editingId ? "Update" : "Save"}
           </button>
         </div>
 
-        <label htmlFor="later-context">Notes / context</label>
-        <textarea
+        <label id="later-notes-label">Notes / context</label>
+        <div
           aria-describedby="later-context-help"
+          aria-invalid={notesOverLimit || undefined}
+          aria-labelledby="later-notes-label"
+          aria-multiline="true"
+          className="later-rich-notes"
+          contentEditable={!pending}
+          data-placeholder="Paste instructions here; linked words are preserved"
           id="later-context"
-          maxLength={4000}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              context: event.target.value,
-            }))
-          }
-          placeholder="Paste the relevant chat message, task details, or project context"
-          rows={3}
-          value={form.context}
+          onClick={(event) => {
+            if ((event.target as HTMLElement).closest("a")) {
+              event.preventDefault();
+            }
+          }}
+          onInput={(event) => {
+            const notes = readRichNoteEditor(event.currentTarget);
+            if (notes.length === 0) {
+              event.currentTarget.replaceChildren();
+            }
+            setForm((current) => ({ ...current, notes }));
+          }}
+          onDrop={(event) => event.preventDefault()}
+          onPaste={(event) => {
+            event.preventDefault();
+            insertRichNoteAtSelection(
+              event.currentTarget,
+              richNoteSegmentsFromClipboard(event.clipboardData),
+            );
+            const notes = readRichNoteEditor(event.currentTarget);
+            setForm((current) => ({ ...current, notes }));
+          }}
+          ref={notesRef}
+          role="textbox"
+          spellCheck
+          suppressContentEditableWarning
         />
         <small id="later-context-help">
-          Plain text, up to 4,000 characters. Line breaks are preserved.
+          {notesOverLimit ? (
+            <strong role="alert">
+              Reduce notes by {notesCharacters - MAX_LATER_NOTE_CHARACTERS}
+              characters.
+            </strong>
+          ) : (
+            <>
+              Linked words and line breaks are preserved · {notesCharacters}/
+              {MAX_LATER_NOTE_CHARACTERS}
+            </>
+          )}
         </small>
         <small className="sr-only" id="later-capture-help">
           Enter a short title. Press Control plus Enter anywhere in this form to
@@ -481,7 +545,25 @@ export function LaterInboxView() {
                     <strong>{item.title}</strong>
                     {due && <span>Due</span>}
                   </div>
-                  {item.context && <p>{item.context}</p>}
+                  {item.notes.length > 0 && (
+                    <div className="later-item-notes">
+                      {item.notes.map((segment, index) =>
+                        segment.href ? (
+                          <button
+                            className="later-note-link"
+                            key={`${index}-${segment.href}`}
+                            onClick={() => void openNoteUrl(item, segment.href ?? "")}
+                            role="link"
+                            type="button"
+                          >
+                            {segment.text}
+                          </button>
+                        ) : (
+                          <span key={index}>{segment.text}</span>
+                        ),
+                      )}
+                    </div>
+                  )}
                   <small>
                     Captured {formatTimestamp(item.createdAt)}
                     {item.followUpAt

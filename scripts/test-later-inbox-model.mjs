@@ -15,7 +15,7 @@ const model = await import(
 );
 
 const base = {
-  context: null,
+  notes: [],
   url: null,
   updatedAt: "2026-08-14T08:00:00Z",
   completedAt: null,
@@ -69,5 +69,36 @@ const isoValue = model.fromLocalDateTimeInput(localValue);
 assert.equal(typeof isoValue, "string");
 assert.equal(model.toLocalDateTimeInput(isoValue), localValue);
 assert.equal(model.fromLocalDateTimeInput(""), null);
+assert.deepEqual(model.LATER_INBOX_WINDOW_GEOMETRY, {
+  width: 360,
+  height: 420,
+  minWidth: 340,
+  minHeight: 360,
+});
+
+const richNotesUrl = new URL("../src/later-inbox-rich-notes.ts", import.meta.url);
+const richNotesText = await readFile(richNotesUrl, "utf8");
+const compiledRichNotes = ts.transpileModule(richNotesText, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  fileName: richNotesUrl.pathname,
+  reportDiagnostics: true,
+});
+assert.equal(compiledRichNotes.diagnostics?.length ?? 0, 0);
+const richNotes = await import(
+  `data:text/javascript;base64,${Buffer.from(compiledRichNotes.outputText).toString("base64")}`
+);
+const linkified = richNotes.linkifyPlainText(
+  "Review https://example.com/brief and reply.",
+);
+assert.deepEqual(linkified, [
+  { text: "Review ", href: null },
+  { text: "https://example.com/brief", href: "https://example.com/brief" },
+  { text: " and reply.", href: null },
+]);
+assert.equal(richNotes.noteCharacterCount(linkified), 43);
+assert.deepEqual(
+  richNotes.linkifyPlainText("Do not link file:///C:/secret.txt"),
+  [{ text: "Do not link file:///C:/secret.txt", href: null }],
+);
 
 console.log("later inbox model tests passed");

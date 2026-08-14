@@ -98,8 +98,9 @@ export function LaterInboxDataPanel() {
       </p>
       <div className="later-data-card">
         <p>
-          Stored as schema-v1 JSON for this Windows user, with one previous
-          valid local backup. No cloud sync or Windows reminder is created.
+          Stored as schema-v2 JSON for this Windows user, with automatic v1
+          migration and one previous valid local backup. No cloud sync or
+          Windows reminder is created.
         </p>
         {snapshot?.storagePath && (
           <p>

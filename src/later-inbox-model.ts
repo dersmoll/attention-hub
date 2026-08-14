@@ -1,6 +1,12 @@
 export const LATER_INBOX_CHANGED_EVENT = "later-inbox-changed";
 export const LATER_INBOX_FOCUS_EVENT = "later-inbox-focus-control";
 export const LATER_INBOX_OPEN_EVENT = "later-inbox-opened";
+export const LATER_INBOX_WINDOW_GEOMETRY = {
+  width: 360,
+  height: 420,
+  minWidth: 340,
+  minHeight: 360,
+} as const;
 
 export type LaterInboxReturnWindow = "main" | "advanced";
 
@@ -8,10 +14,15 @@ export interface LaterInboxOpenPayload {
   returnFocusWindow: LaterInboxReturnWindow;
 }
 
+export interface LaterInboxNoteSegment {
+  text: string;
+  href: string | null;
+}
+
 export interface LaterInboxItem {
   id: string;
   title: string;
-  context: string | null;
+  notes: LaterInboxNoteSegment[];
   url: string | null;
   followUpAt: string | null;
   createdAt: string;
@@ -20,7 +31,7 @@ export interface LaterInboxItem {
 }
 
 export interface LaterInboxSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   capturedAt: string;
   storagePath: string;
   recoveredFromBackup: boolean;
@@ -29,7 +40,7 @@ export interface LaterInboxSnapshot {
 
 export interface LaterInboxInput {
   title: string;
-  context: string | null;
+  notes: LaterInboxNoteSegment[];
   url: string | null;
   followUpAt: string | null;
 }

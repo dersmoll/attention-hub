@@ -39,10 +39,11 @@ Notification Center/source diagnostics. Advanced remains fixed last in the app
 row; enabled native visual surfaces follow reordered slots.
 
 The fixed Later button sits after enabled source apps and before Advanced. It
-opens one on-demand 400×480 local capture/review window with a required title,
-optional multiline plain-text notes/context, HTTP(S) URL, and passive follow-up
-time. Items use
-a Rust-owned schema-v1 JSON file and one previous-valid local backup under this
+opens one on-demand 360×420 local capture/review window with a required title,
+optional link-aware multiline notes/context, HTTP(S) URL, and passive follow-up
+time. Pasted linked words and line breaks are retained without storing arbitrary
+HTML. Items use a Rust-owned schema-v2 JSON file, automatic schema-v1 migration,
+and one previous-valid local backup under this
 Windows user's application-data directory. They never enter source attention
 coverage or **All clear**. Follow-up affects sorting and due styling only; it is
 not a Windows reminder and has no background-delivery guarantee. Advanced
@@ -65,9 +66,9 @@ the app or interact with its contents.
 If New Outlook is minimized or temporarily removes that accessibility label,
 the widget may retain the last count observed during this process. Attention
 Hub does not infer a current zero from a minimized accessibility tree. The
-fallback is amber and dashed, is announced as last-observed with an instruction
-to open Outlook to refresh, and clears when Outlook stops; it is not presented
-as a fresh count.
+fallback is amber and dashed, replaces the numeric badge with a nonnumeric
+ellipsis, is announced as last-observed with an instruction to open Outlook to
+refresh, and clears when Outlook stops; it is not presented as a fresh count.
 
 The work-calendar source is one explicitly selected Microsoft 365 Published ICS
 calendar whose bearer link is stored only in Windows Credential Manager. The
@@ -103,6 +104,7 @@ The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
 - [Milestone 7 fixed-source monitoring controls](docs/milestones/milestone-7-fixed-source-controls.md)
 - [Milestone 8 messenger and clock refinement](docs/milestones/milestone-8-messenger-clock-refinement.md)
 - [Milestone 9 local-first Later Inbox](docs/milestones/milestone-9-later-inbox.md)
+- [Milestone 9.2 link-aware compact Later Inbox](docs/milestones/milestone-9-2-link-aware-compact-inbox.md)
 - [Attention Hub 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md)
 - [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)

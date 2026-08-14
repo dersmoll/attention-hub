@@ -73,7 +73,7 @@ before Advanced. It adds one 48-pixel target plus the existing 8-pixel gap, so
 the responsive widget becomes 744–1208 by 80 logical pixels. Source buttons
 remain first and keep their existing zero-through-five slot indices; the native
 DWM geometry contract therefore does not treat Later as a source. Later opens
-one on-demand 400×480 WebView with a 360×420 minimum and focuses an existing
+one on-demand 360×420 WebView with a 340×360 minimum and focuses an existing
 instance instead of duplicating it. The opener identity is passed explicitly so
 closing returns focus to either the widget or Advanced control that launched it.
 
@@ -470,10 +470,12 @@ Widget count / Later window / Advanced data controls
  per-user later-inbox.json + one previous-valid backup
 ```
 
-The schema-v1 document contains at most 1,000 items and 1 MiB. An item contains
-an opaque ID, required bounded title, optional multiline plain-text
-notes/context bounded to 4,000 characters, optional validated HTTP(S) URL
-without embedded credentials, optional UTC
+The schema-v2 document contains at most 1,000 items and 1 MiB. Schema-v1
+`context` strings migrate in memory to one plain segment and are written as v2
+on the next mutation. An item contains an opaque ID, required bounded title,
+optional structured notes/context bounded to 4,000 visible characters, 256
+segments, and 25 linked segments, optional validated HTTP(S) URL without
+embedded credentials, optional UTC
 follow-up timestamp, and created/updated/completed timestamps. Every loaded
 record is revalidated. A missing file is an empty inbox, a corrupt primary can
 fall back to the previous valid backup, and an unknown future schema is reported
@@ -481,6 +483,11 @@ without being overwritten. Explicit destructive cleanup removes a backup that
 contains deleted content before atomically replacing the primary file. Ordinary
 mutations use a write-through Windows replacement and retain one previous-valid
 backup.
+
+Notes store text plus optional validated HTTP(S) link marks, never arbitrary
+HTML. Paste parsing discards images, media, embeds, formatting, scripts, and
+unsupported URLs. A clicked inline link is opened only after Rust confirms that
+the normalized URL is present in the saved item.
 
 Complete snapshots are authoritative. The payload-free `later-inbox-changed`
 event only invalidates other WebViews. Later counts are user-owned queue state,

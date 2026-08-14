@@ -391,6 +391,17 @@ fn open_later_inbox_item_url(
     later_inbox::open_external_url(&url)
 }
 
+#[tauri::command]
+fn open_later_inbox_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    item_id: String,
+    url: String,
+) -> Result<(), String> {
+    let url = later_inbox::item_note_url(&app, state.inner(), &item_id, &url)?;
+    later_inbox::open_external_url(&url)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -428,6 +439,7 @@ pub fn run() {
             delete_completed_later_inbox_items,
             delete_all_later_inbox_items,
             open_later_inbox_item_url,
+            open_later_inbox_note_url,
             quit_application
         ])
         .run(tauri::generate_context!())
