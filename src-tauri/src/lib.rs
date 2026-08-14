@@ -1,4 +1,5 @@
 mod attention_signals;
+mod later_inbox;
 mod notifications;
 mod published_ics;
 pub mod teams_mirror;
@@ -6,6 +7,7 @@ mod uia_gate;
 mod work_calendar;
 
 use attention_signals::AttentionSignalSnapshot;
+use later_inbox::{LaterInboxInput, LaterInboxSnapshot, LaterInboxState};
 use notifications::{
     ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
 };
@@ -302,10 +304,98 @@ fn quit_application(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+fn emit_later_inbox_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("later-inbox-changed", ());
+}
+
+#[tauri::command]
+fn get_later_inbox_snapshot(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+) -> Result<LaterInboxSnapshot, String> {
+    later_inbox::get_snapshot(&app, state.inner())
+}
+
+#[tauri::command]
+fn create_later_inbox_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    input: LaterInboxInput,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::create_item(&app, state.inner(), input)?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn update_later_inbox_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    item_id: String,
+    input: LaterInboxInput,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::update_item(&app, state.inner(), &item_id, input)?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn complete_later_inbox_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    item_id: String,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::complete_item(&app, state.inner(), &item_id)?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn restore_later_inbox_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    item_id: String,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::restore_item(&app, state.inner(), &item_id)?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn delete_completed_later_inbox_items(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::delete_completed(&app, state.inner())?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn delete_all_later_inbox_items(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::delete_all(&app, state.inner())?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn open_later_inbox_item_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    item_id: String,
+) -> Result<(), String> {
+    let url = later_inbox::item_url(&app, state.inner(), &item_id)?;
+    later_inbox::open_external_url(&url)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(NotificationListenerState::new())
+        .manage(LaterInboxState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
@@ -330,6 +420,14 @@ pub fn run() {
             set_fixed_taskbar_mirror_layout,
             set_taskbar_mirror_layout,
             activate_attention_source,
+            get_later_inbox_snapshot,
+            create_later_inbox_item,
+            update_later_inbox_item,
+            complete_later_inbox_item,
+            restore_later_inbox_item,
+            delete_completed_later_inbox_items,
+            delete_all_later_inbox_items,
+            open_later_inbox_item_url,
             quit_application
         ])
         .run(tauri::generate_context!())

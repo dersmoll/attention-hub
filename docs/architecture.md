@@ -3,7 +3,7 @@
 ## Status
 
 This document describes the implemented Windows observation architecture
-through the Milestone 8 fixed-messenger and clock refinement. Notification
+through the Milestone 9 local-first Later Inbox. Notification
 access, sparse identity, the source-owned attention-signal path, five fixed live
 taskbar crops, the responsive movable widget shell, and one Published ICS
 active-or-next selection have been validated to their recorded milestone
@@ -61,11 +61,20 @@ fixed app keys in their user-selected order, the selected subset of those fixed
 sources, and the independent five-source live-visual preferences; it does
 not persist attention data or source labels. Missing source-control fields
 migrate once to the six-source catalog and five visuals enabled. Tauri events synchronize
-that record between the widget and Advanced WebViews.
+that record between the widget and Advanced WebViews. User-authored Later Inbox
+content is intentionally not part of this presentation-preference record.
 
 The Advanced WebView is created only when the ellipsis is activated and is
 destroyed when closed. This keeps Graph, calendar, Notification Center, and raw
 diagnostic initialization out of the ordinary widget runtime.
+
+The fixed Later utility button is placed after all enabled source buttons and
+before Advanced. It adds one 48-pixel target plus the existing 8-pixel gap, so
+the responsive widget becomes 744–1208 by 80 logical pixels. Source buttons
+remain first and keep their existing zero-through-five slot indices; the native
+DWM geometry contract therefore does not treat Later as a source. Later opens
+one on-demand 420×520 WebView with a 360×420 minimum and focuses an existing
+instance instead of duplicating it.
 
 DWM thumbnails registered on the Tauri parent render behind its WebView child,
 so live taskbar visuals cannot be React components. React owns local fallback
@@ -442,11 +451,56 @@ process memory; it never crosses IPC, persists, or writes to a provider. Event
 timestamps render with a forced 24-hour clock, and reduced-motion preferences
 disable animation without removing the alert color.
 
+## Later Inbox local data
+
+ADR 0026 adds a separate application-owned boundary for user-authored personal
+queue content:
+
+```text
+Widget count / Later window / Advanced data controls
+                    |
+                    v
+      narrow typed Tauri commands + invalidation event
+                    |
+                    v
+       Rust validation + serialized write gate
+                    |
+                    v
+ per-user later-inbox.json + one previous-valid backup
+```
+
+The schema-v1 document contains at most 1,000 items and 1 MiB. An item contains
+an opaque ID, required bounded title, optional bounded project/context,
+optional validated HTTP(S) URL without embedded credentials, optional UTC
+follow-up timestamp, and created/updated/completed timestamps. Every loaded
+record is revalidated. A missing file is an empty inbox, a corrupt primary can
+fall back to the previous valid backup, and an unknown future schema is reported
+without being overwritten. Explicit destructive cleanup removes a backup that
+contains deleted content.
+
+Complete snapshots are authoritative. The payload-free `later-inbox-changed`
+event only invalidates other WebViews. Later counts are user-owned queue state,
+not source observations or `AttentionSignal` values, and never affect coverage
+or **All clear**.
+
+Follow-up is passive presentation data. It changes due sorting and labels while
+Attention Hub is running but creates no toast, sound, background task, tray
+lifecycle, or delivery promise. A real reminder requires a separate Windows
+notification and activation lifecycle decision.
+
+Saved URLs open only after explicit user activation by item ID. Rust rereads and
+revalidates the stored HTTP(S) address before invoking the Windows default URL
+handler. The WebViews receive no generic shell, opener, or filesystem grant.
+
 ## Tauri IPC and security
 
 Commands are used for request/response operations because they return typed serialized data and errors. A Tauri event is used only as a low-volume invalidation signal. The frontend must unsubscribe during React cleanup.
 
-Only commands required by the debug UI should be registered. No filesystem, shell, opener, network, or remote-content capability is required for this milestone. The application remains local and does not transmit notification content.
+Only bounded application commands are registered. WebViews receive no generic
+filesystem, shell, opener, or remote-content capability. Calendar networking
+remains confined to the approved Rust provider; Later Inbox remains local and
+opens a validated saved HTTP(S) URL only after explicit user action through its
+narrow native command.
 
 The bundled application uses a restrictive Content Security Policy that permits local assets and Tauri IPC only. Development-server exceptions, if needed, must remain development-only.
 

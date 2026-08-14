@@ -9,7 +9,7 @@ export const WIDGET_LEFT_PADDING = 24;
 
 export function widgetLeftWidth(visibleSourceCount: number) {
   const boundedCount = Math.min(6, Math.max(0, Math.trunc(visibleSourceCount)));
-  const appCount = boundedCount + 1;
+  const appCount = boundedCount + 2;
   return (
     WIDGET_LEFT_PADDING +
     appCount * WIDGET_ICON_SIZE +

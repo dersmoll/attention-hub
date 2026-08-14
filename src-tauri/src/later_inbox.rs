@@ -1,0 +1,643 @@
+use std::{
+    collections::HashSet,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use chrono::{DateTime, SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
+
+const SCHEMA_VERSION: u32 = 1;
+const MAX_ITEMS: usize = 1_000;
+const MAX_FILE_BYTES: u64 = 1_048_576;
+const MAX_TITLE_CHARS: usize = 160;
+const MAX_CONTEXT_CHARS: usize = 80;
+const MAX_URL_CHARS: usize = 2_048;
+static ITEM_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub struct LaterInboxState {
+    gate: Mutex<()>,
+}
+
+impl LaterInboxState {
+    pub fn new() -> Self {
+        Self {
+            gate: Mutex::new(()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaterInboxItem {
+    pub id: String,
+    pub title: String,
+    pub context: Option<String>,
+    pub url: Option<String>,
+    pub follow_up_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaterInboxInput {
+    pub title: String,
+    pub context: Option<String>,
+    pub url: Option<String>,
+    pub follow_up_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaterInboxSnapshot {
+    pub schema_version: u32,
+    pub captured_at: String,
+    pub storage_path: String,
+    pub recovered_from_backup: bool,
+    pub items: Vec<LaterInboxItem>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LaterInboxStore {
+    schema_version: u32,
+    items: Vec<LaterInboxItem>,
+}
+
+impl LaterInboxStore {
+    fn empty() -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            items: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum StoreReadError {
+    FutureVersion(u64),
+    Invalid,
+    Unavailable,
+}
+
+#[derive(Debug)]
+struct LoadedStore {
+    store: LaterInboxStore,
+    recovered_from_backup: bool,
+}
+
+pub fn get_snapshot(
+    app: &AppHandle,
+    state: &LaterInboxState,
+) -> Result<LaterInboxSnapshot, String> {
+    let _guard = state
+        .gate
+        .lock()
+        .map_err(|_| "Later Inbox storage is temporarily unavailable.".to_owned())?;
+    let path = storage_path(app)?;
+    let loaded = load_store(&path)?;
+    Ok(snapshot(path, loaded))
+}
+
+pub fn create_item(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    input: LaterInboxInput,
+) -> Result<LaterInboxSnapshot, String> {
+    mutate(app, state, |store| {
+        if store.items.len() >= MAX_ITEMS {
+            return Err("Later Inbox has reached its 1,000-item safety limit.".to_owned());
+        }
+        let input = normalize_input(input)?;
+        let now = timestamp_now();
+        store.items.push(LaterInboxItem {
+            id: next_item_id(),
+            title: input.title,
+            context: input.context,
+            url: input.url,
+            follow_up_at: input.follow_up_at,
+            created_at: now.clone(),
+            updated_at: now,
+            completed_at: None,
+        });
+        Ok(())
+    })
+}
+
+pub fn update_item(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    item_id: &str,
+    input: LaterInboxInput,
+) -> Result<LaterInboxSnapshot, String> {
+    mutate(app, state, |store| {
+        let input = normalize_input(input)?;
+        let item = store
+            .items
+            .iter_mut()
+            .find(|item| item.id == item_id)
+            .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
+        item.title = input.title;
+        item.context = input.context;
+        item.url = input.url;
+        item.follow_up_at = input.follow_up_at;
+        item.updated_at = timestamp_now();
+        Ok(())
+    })
+}
+
+pub fn complete_item(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    item_id: &str,
+) -> Result<LaterInboxSnapshot, String> {
+    mutate(app, state, |store| {
+        let item = store
+            .items
+            .iter_mut()
+            .find(|item| item.id == item_id)
+            .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
+        let now = timestamp_now();
+        item.completed_at = Some(now.clone());
+        item.updated_at = now;
+        Ok(())
+    })
+}
+
+pub fn restore_item(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    item_id: &str,
+) -> Result<LaterInboxSnapshot, String> {
+    mutate(app, state, |store| {
+        let item = store
+            .items
+            .iter_mut()
+            .find(|item| item.id == item_id)
+            .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
+        item.completed_at = None;
+        item.updated_at = timestamp_now();
+        Ok(())
+    })
+}
+
+pub fn delete_completed(
+    app: &AppHandle,
+    state: &LaterInboxState,
+) -> Result<LaterInboxSnapshot, String> {
+    mutate_with_backup(app, state, false, |store| {
+        store.items.retain(|item| item.completed_at.is_none());
+        Ok(())
+    })
+}
+
+pub fn delete_all(app: &AppHandle, state: &LaterInboxState) -> Result<LaterInboxSnapshot, String> {
+    mutate_with_backup(app, state, false, |store| {
+        store.items.clear();
+        Ok(())
+    })
+}
+
+pub fn item_url(app: &AppHandle, state: &LaterInboxState, item_id: &str) -> Result<String, String> {
+    let _guard = state
+        .gate
+        .lock()
+        .map_err(|_| "Later Inbox storage is temporarily unavailable.".to_owned())?;
+    let path = storage_path(app)?;
+    let loaded = load_store(&path)?;
+    let url = loaded
+        .store
+        .items
+        .iter()
+        .find(|item| item.id == item_id)
+        .and_then(|item| item.url.clone())
+        .ok_or_else(|| "This Later Inbox item has no saved link.".to_owned())?;
+    normalize_url(&url)
+}
+
+#[cfg(target_os = "windows")]
+pub fn open_external_url(url: &str) -> Result<(), String> {
+    use windows::{
+        core::PCWSTR,
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+    };
+
+    let action = "open\0".encode_utf16().collect::<Vec<_>>();
+    let target = format!("{url}\0").encode_utf16().collect::<Vec<_>>();
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(action.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err("Windows could not open the saved Later Inbox link.".to_owned())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn open_external_url(_url: &str) -> Result<(), String> {
+    Err("Opening Later Inbox links is supported only on Windows.".to_owned())
+}
+
+fn mutate<F>(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    action: F,
+) -> Result<LaterInboxSnapshot, String>
+where
+    F: FnOnce(&mut LaterInboxStore) -> Result<(), String>,
+{
+    mutate_with_backup(app, state, true, action)
+}
+
+fn mutate_with_backup<F>(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    preserve_backup: bool,
+    action: F,
+) -> Result<LaterInboxSnapshot, String>
+where
+    F: FnOnce(&mut LaterInboxStore) -> Result<(), String>,
+{
+    let _guard = state
+        .gate
+        .lock()
+        .map_err(|_| "Later Inbox storage is temporarily unavailable.".to_owned())?;
+    let path = storage_path(app)?;
+    let mut loaded = load_store(&path)?;
+    action(&mut loaded.store)?;
+    write_store(&path, &loaded.store)?;
+    if !preserve_backup {
+        let backup = backup_path(&path);
+        if backup.exists() {
+            fs::remove_file(backup).map_err(|_| {
+                "Later Inbox updated the primary file but could not remove the prior local backup."
+                    .to_owned()
+            })?;
+        }
+    }
+    loaded.recovered_from_backup = false;
+    Ok(snapshot(path, loaded))
+}
+
+fn snapshot(path: PathBuf, loaded: LoadedStore) -> LaterInboxSnapshot {
+    LaterInboxSnapshot {
+        schema_version: SCHEMA_VERSION,
+        captured_at: timestamp_now(),
+        storage_path: path.to_string_lossy().into_owned(),
+        recovered_from_backup: loaded.recovered_from_backup,
+        items: loaded.store.items,
+    }
+}
+
+fn storage_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|directory| directory.join("later-inbox.json"))
+        .map_err(|_| "Attention Hub could not resolve its local data directory.".to_owned())
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    path.with_file_name("later-inbox.backup.json")
+}
+
+fn temporary_path(path: &Path) -> PathBuf {
+    path.with_file_name("later-inbox.pending.json")
+}
+
+fn load_store(path: &Path) -> Result<LoadedStore, String> {
+    if !path.exists() {
+        let pending = temporary_path(path);
+        if pending.exists() {
+            if let Ok(store) = read_store(&pending) {
+                return Ok(LoadedStore {
+                    store,
+                    recovered_from_backup: true,
+                });
+            }
+        }
+        let backup = backup_path(path);
+        if backup.exists() {
+            return read_store(&backup)
+                .map(|store| LoadedStore {
+                    store,
+                    recovered_from_backup: true,
+                })
+                .map_err(store_error_message);
+        }
+        return Ok(LoadedStore {
+            store: LaterInboxStore::empty(),
+            recovered_from_backup: false,
+        });
+    }
+
+    match read_store(path) {
+        Ok(store) => Ok(LoadedStore {
+            store,
+            recovered_from_backup: false,
+        }),
+        Err(StoreReadError::FutureVersion(version)) => Err(format!(
+            "Later Inbox uses newer schema version {version}; this build will not overwrite it."
+        )),
+        Err(StoreReadError::Invalid | StoreReadError::Unavailable) => {
+            let backup = backup_path(path);
+            read_store(&backup)
+                .map(|store| LoadedStore {
+                    store,
+                    recovered_from_backup: true,
+                })
+                .map_err(|_| {
+                    "Later Inbox data could not be read, and no valid local backup is available."
+                        .to_owned()
+                })
+        }
+    }
+}
+
+fn read_store(path: &Path) -> Result<LaterInboxStore, StoreReadError> {
+    let metadata = fs::metadata(path).map_err(|_| StoreReadError::Unavailable)?;
+    if metadata.len() > MAX_FILE_BYTES {
+        return Err(StoreReadError::Invalid);
+    }
+    let bytes = fs::read(path).map_err(|_| StoreReadError::Unavailable)?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| StoreReadError::Invalid)?;
+    let version = value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(StoreReadError::Invalid)?;
+    if version > u64::from(SCHEMA_VERSION) {
+        return Err(StoreReadError::FutureVersion(version));
+    }
+    if version != u64::from(SCHEMA_VERSION) {
+        return Err(StoreReadError::Invalid);
+    }
+    let store: LaterInboxStore =
+        serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?;
+    if !valid_loaded_store(&store) {
+        return Err(StoreReadError::Invalid);
+    }
+    Ok(store)
+}
+
+fn valid_loaded_store(store: &LaterInboxStore) -> bool {
+    if store.schema_version != SCHEMA_VERSION || store.items.len() > MAX_ITEMS {
+        return false;
+    }
+    let mut ids = HashSet::new();
+    store.items.iter().all(|item| {
+        !item.id.is_empty()
+            && item.id.chars().count() <= 128
+            && ids.insert(item.id.as_str())
+            && !item.title.trim().is_empty()
+            && item.title.chars().count() <= MAX_TITLE_CHARS
+            && item
+                .context
+                .as_ref()
+                .is_none_or(|value| value.chars().count() <= MAX_CONTEXT_CHARS)
+            && item
+                .url
+                .as_ref()
+                .is_none_or(|value| normalize_url(value).is_ok())
+            && item
+                .follow_up_at
+                .as_ref()
+                .is_none_or(|value| DateTime::parse_from_rfc3339(value).is_ok())
+            && DateTime::parse_from_rfc3339(&item.created_at).is_ok()
+            && DateTime::parse_from_rfc3339(&item.updated_at).is_ok()
+            && item
+                .completed_at
+                .as_ref()
+                .is_none_or(|value| DateTime::parse_from_rfc3339(value).is_ok())
+    })
+}
+
+fn write_store(path: &Path, store: &LaterInboxStore) -> Result<(), String> {
+    let directory = path
+        .parent()
+        .ok_or_else(|| "Later Inbox storage path is invalid.".to_owned())?;
+    fs::create_dir_all(directory)
+        .map_err(|_| "Later Inbox could not create its local data directory.".to_owned())?;
+
+    let bytes = serde_json::to_vec_pretty(store)
+        .map_err(|_| "Later Inbox data could not be serialized.".to_owned())?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("Later Inbox has reached its 1 MiB safety limit.".to_owned());
+    }
+
+    let pending = temporary_path(path);
+    let mut file = fs::File::create(&pending)
+        .map_err(|_| "Later Inbox could not create a pending local write.".to_owned())?;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| "Later Inbox could not finish its pending local write.".to_owned())?;
+
+    if path.exists() && read_store(path).is_ok() {
+        fs::copy(path, backup_path(path))
+            .map_err(|_| "Later Inbox could not update its local backup.".to_owned())?;
+    }
+    if path.exists() {
+        fs::remove_file(path)
+            .map_err(|_| "Later Inbox could not replace its local data file.".to_owned())?;
+    }
+    fs::rename(&pending, path)
+        .map_err(|_| "Later Inbox could not commit its pending local write.".to_owned())
+}
+
+fn normalize_input(input: LaterInboxInput) -> Result<LaterInboxInput, String> {
+    let title = input.title.trim().to_owned();
+    if title.is_empty() {
+        return Err("Title is required.".to_owned());
+    }
+    validate_length(&title, MAX_TITLE_CHARS, "Title")?;
+
+    let context = normalize_optional(input.context);
+    if let Some(value) = &context {
+        validate_length(value, MAX_CONTEXT_CHARS, "Project or context")?;
+    }
+
+    let url = normalize_optional(input.url)
+        .map(|value| normalize_url(&value))
+        .transpose()?;
+    let follow_up_at = normalize_optional(input.follow_up_at)
+        .map(|value| normalize_follow_up(&value))
+        .transpose()?;
+
+    Ok(LaterInboxInput {
+        title,
+        context,
+        url,
+        follow_up_at,
+    })
+}
+
+fn normalize_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn validate_length(value: &str, limit: usize, label: &str) -> Result<(), String> {
+    if value.chars().count() > limit {
+        Err(format!("{label} must be {limit} characters or fewer."))
+    } else {
+        Ok(())
+    }
+}
+
+fn normalize_url(value: &str) -> Result<String, String> {
+    validate_length(value, MAX_URL_CHARS, "URL")?;
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|_| "URL must be a complete HTTP or HTTPS address.".to_owned())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(
+            "URL must use HTTP or HTTPS and must not contain embedded credentials.".to_owned(),
+        );
+    }
+    Ok(parsed.to_string())
+}
+
+fn normalize_follow_up(value: &str) -> Result<String, String> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|value| {
+            value
+                .with_timezone(&Utc)
+                .to_rfc3339_opts(SecondsFormat::Secs, true)
+        })
+        .map_err(|_| "Follow-up time must include a valid date, time, and timezone.".to_owned())
+}
+
+fn timestamp_now() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn next_item_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let counter = ITEM_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{nanos:x}-{counter:x}")
+}
+
+fn store_error_message(error: StoreReadError) -> String {
+    match error {
+        StoreReadError::FutureVersion(version) => format!(
+            "Later Inbox uses newer schema version {version}; this build will not overwrite it."
+        ),
+        StoreReadError::Invalid | StoreReadError::Unavailable => {
+            "Later Inbox local backup could not be read.".to_owned()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(title: &str) -> LaterInboxInput {
+        LaterInboxInput {
+            title: title.to_owned(),
+            context: None,
+            url: None,
+            follow_up_at: None,
+        }
+    }
+
+    fn test_path(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "attention-hub-later-inbox-{name}-{}-{}.json",
+            std::process::id(),
+            ITEM_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        directory.join("later-inbox.json")
+    }
+
+    #[test]
+    fn validates_and_normalizes_user_fields() {
+        let normalized = normalize_input(LaterInboxInput {
+            title: "  Review proposal  ".into(),
+            context: Some("  M9  ".into()),
+            url: Some("https://example.com/task".into()),
+            follow_up_at: Some("2026-08-14T15:30:00+03:00".into()),
+        })
+        .unwrap();
+        assert_eq!(normalized.title, "Review proposal");
+        assert_eq!(normalized.context.as_deref(), Some("M9"));
+        assert_eq!(normalized.url.as_deref(), Some("https://example.com/task"));
+        assert_eq!(
+            normalized.follow_up_at.as_deref(),
+            Some("2026-08-14T12:30:00Z")
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_urls_and_empty_titles() {
+        assert!(normalize_input(input("   ")).is_err());
+        let mut unsafe_input = input("Task");
+        unsafe_input.url = Some("file:///C:/secret.txt".into());
+        assert!(normalize_input(unsafe_input).is_err());
+        let mut credential_input = input("Task");
+        credential_input.url = Some("https://person:secret@example.com/task".into());
+        assert!(normalize_input(credential_input).is_err());
+    }
+
+    #[test]
+    fn preserves_previous_valid_file_as_backup() {
+        let path = test_path("backup");
+        let mut store = LaterInboxStore::empty();
+        store.items.push(LaterInboxItem {
+            id: "one".into(),
+            title: "First".into(),
+            context: None,
+            url: None,
+            follow_up_at: None,
+            created_at: timestamp_now(),
+            updated_at: timestamp_now(),
+            completed_at: None,
+        });
+        write_store(&path, &store).unwrap();
+        store.items[0].title = "Second".into();
+        write_store(&path, &store).unwrap();
+        let backup = read_store(&backup_path(&path)).unwrap();
+        assert_eq!(backup.items[0].title, "First");
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn recovers_from_backup_but_refuses_future_schema() {
+        let path = test_path("recovery");
+        let store = LaterInboxStore::empty();
+        write_store(&path, &store).unwrap();
+        fs::copy(&path, backup_path(&path)).unwrap();
+        fs::write(&path, b"not json").unwrap();
+        let recovered = load_store(&path).unwrap();
+        assert!(recovered.recovered_from_backup);
+
+        fs::write(&path, br#"{"schemaVersion":99,"items":[]}"#).unwrap();
+        assert!(load_store(&path)
+            .unwrap_err()
+            .contains("newer schema version 99"));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+}

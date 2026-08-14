@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
+import { LaterInboxDataPanel } from "./LaterInboxDataPanel";
+import { LaterInboxView } from "./LaterInboxView";
 import { WidgetView } from "./WidgetView";
 import {
   ATTENTION_POLL_INTERVAL_MS,
@@ -700,6 +702,8 @@ function AdvancedView() {
         </div>
       </section>
 
+      <LaterInboxDataPanel />
+
       <section aria-live="polite">
         <p className="eyebrow">Work calendar</p>
         <h2>Connect one published work calendar</h2>
@@ -1116,7 +1120,13 @@ function App() {
     };
   }, [windowLabel]);
 
-  return windowLabel === "advanced" ? <AdvancedView /> : <WidgetView />;
+  if (windowLabel === "advanced") {
+    return <AdvancedView />;
+  }
+  if (windowLabel === "later") {
+    return <LaterInboxView />;
+  }
+  return <WidgetView />;
 }
 
 export default App;

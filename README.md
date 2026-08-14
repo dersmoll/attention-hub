@@ -1,8 +1,8 @@
 # Attention Hub
 
 Attention Hub is a local-first Windows desktop widget that keeps communication
-attention, two clocks, and work-calendar context visible without replacing or
-controlling the source applications.
+attention, two clocks, work-calendar context, and a personal Later Inbox visible
+without replacing or controlling the source applications.
 
 ## Current product slice
 
@@ -16,11 +16,14 @@ The primary window is a compact, frameless three-zone widget:
 - right: the active or next timed work-calendar event, with a thin active-event
   progress line and all-day entries used only as fallback context.
 
-The next-release shell is an 816–1152 by 80 logical-pixel window whose left
-panel follows the enabled app count. The clock and calendar panels are 296 and
-432 pixels; all panels are 72 pixels high with 8-pixel gaps. App and
-Advanced targets are 48 pixels square, pin and close have dedicated 40-pixel
-targets inside the calendar panel, and the two clocks share one horizontal row.
+The next-release shell is a 744–1208 by 80 logical-pixel window whose left
+panel follows the enabled app count. The clock panel is 296 pixels; the
+calendar panel is 304, 336, or 432 pixels by density mode. All panels are 72
+pixels high with 8-pixel gaps. App and
+Later/Advanced targets are 48 pixels square, pin and close have dedicated
+40-pixel targets inside the calendar panel, and the two clocks share one
+horizontal row. The six-source Auto single-event composition is 1112 pixels
+wide.
 
 The widget can move, toggle always-on-top, and restores its physical position,
 pin state, secondary timezone, panel color and opacity, and left-panel app
@@ -34,6 +37,15 @@ work-calendar configuration,
 the structured fixed-source attention panel and retained
 Notification Center/source diagnostics. Advanced remains fixed last in the app
 row; enabled native visual surfaces follow reordered slots.
+
+The fixed Later button sits after enabled source apps and before Advanced. It
+opens one on-demand 420×520 local capture/review window with a required title
+and optional project/context, HTTP(S) URL, and passive follow-up time. Items use
+a Rust-owned schema-v1 JSON file and one previous-valid local backup under this
+Windows user's application-data directory. They never enter source attention
+coverage or **All clear**. Follow-up affects sorting and due styling only; it is
+not a Windows reminder and has no background-delivery guarantee. Advanced
+exposes bounded Later data and deletion controls.
 
 The live Teams, Telegram, Slack, Viber, and WhatsApp tiles are inset
 DWM-composed crops
@@ -87,6 +99,7 @@ The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
 - [Milestone 6 beta hardening and daily-use evidence](docs/milestones/milestone-6-beta-hardening.md)
 - [Milestone 7 fixed-source monitoring controls](docs/milestones/milestone-7-fixed-source-controls.md)
 - [Milestone 8 messenger and clock refinement](docs/milestones/milestone-8-messenger-clock-refinement.md)
+- [Milestone 9 local-first Later Inbox](docs/milestones/milestone-9-later-inbox.md)
 - [Attention Hub 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md)
 - [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)

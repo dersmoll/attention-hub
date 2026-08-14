@@ -48,6 +48,13 @@ import {
   widgetPanelStyle,
   writeWidgetPreferences,
 } from "./widget-preferences";
+import {
+  LATER_INBOX_CHANGED_EVENT,
+  LATER_INBOX_FOCUS_EVENT,
+  isLaterInboxItemDue,
+  type LaterInboxSnapshot,
+} from "./later-inbox-model";
+import { openLaterInboxWindow } from "./later-inbox-window";
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
@@ -406,6 +413,7 @@ export function WidgetView() {
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
+  const [laterInbox, setLaterInbox] = useState<LaterInboxSnapshot | null>(null);
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
     string | null
   >(null);
@@ -414,6 +422,7 @@ export function WidgetView() {
   const [miamiTime, setMiamiTime] = useState(() => formatTime(new Date(), MIAMI_TIME_ZONE));
   const attentionInFlight = useRef(false);
   const workCalendarInFlight = useRef(false);
+  const laterButtonRef = useRef<HTMLButtonElement>(null);
   const widgetWindow = useMemo(getCurrentWindow, []);
   const pinned = preferences.pinned;
   const secondaryTimeZone = preferences.secondaryTimeZone;
@@ -436,6 +445,12 @@ export function WidgetView() {
     acknowledgedActiveEvent === resizeActiveEventKey &&
     workCalendar?.status === "observed" &&
     workCalendar.nextSelection !== null;
+  const laterOpenItems = laterInbox?.items.filter(
+    (item) => item.completedAt === null,
+  ) ?? [];
+  const laterDueCount = laterOpenItems.filter((item) =>
+    isLaterInboxItemDue(item, now),
+  ).length;
 
   const refreshAttention = useCallback(async () => {
     if (attentionInFlight.current) {
@@ -563,6 +578,59 @@ export function WidgetView() {
       stopListening?.();
     };
   }, [refreshWorkCalendar]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    const refresh = async () => {
+      try {
+        const snapshot = await invoke<LaterInboxSnapshot>(
+          "get_later_inbox_snapshot",
+        );
+        if (!disposed) {
+          setLaterInbox(snapshot);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setWidgetError(`Later Inbox refresh failed: ${String(error)}`);
+        }
+      }
+    };
+    void listen(LATER_INBOX_CHANGED_EVENT, () => void refresh()).then(
+      (unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          stopListening = unlisten;
+        }
+      },
+    );
+    void refresh();
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen(LATER_INBOX_FOCUS_EVENT, () => {
+      if (!disposed) {
+        requestAnimationFrame(() => laterButtonRef.current?.focus());
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -767,6 +835,14 @@ export function WidgetView() {
       });
     } catch (error) {
       setWidgetError(`Advanced view failed: ${String(error)}`);
+    }
+  };
+
+  const openLaterInbox = async () => {
+    try {
+      await openLaterInboxWindow((message) => setWidgetError(message));
+    } catch (error) {
+      setWidgetError(`Later Inbox window failed: ${String(error)}`);
     }
   };
 
@@ -1007,6 +1083,26 @@ export function WidgetView() {
       >
         <div className="widget-apps" data-tauri-drag-region>
           {visibleSources.map(renderAppSlot)}
+          <button
+            aria-label={`Open Later Inbox, ${laterOpenItems.length} open item${laterOpenItems.length === 1 ? "" : "s"}${laterDueCount ? `, ${laterDueCount} due` : ""}`}
+            className="widget-later"
+            data-due={laterDueCount > 0 || undefined}
+            onClick={() => void openLaterInbox()}
+            ref={laterButtonRef}
+            title="Open Later Inbox"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M4 4.5h16v15H4z" />
+              <path d="M4 14h4l1.6 2h4.8l1.6-2h4" />
+            </svg>
+            {laterOpenItems.length > 0 && (
+              <span className="widget-later__badge">
+                {laterDueCount > 0 ? "!" : ""}
+                {laterOpenItems.length > 99 ? "99+" : laterOpenItems.length}
+              </span>
+            )}
+          </button>
           <button
             aria-label="Open Advanced view"
             className="widget-more"
