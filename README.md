@@ -86,12 +86,13 @@ evidence.
 
 ## Current beta
 
-Version `0.4.0-beta.1` is the current daily-use beta. It uses one
+Version `0.5.0-beta.1` is the current daily-use beta. It uses one
 supported distributable: the NSIS setup executable created by
 `pnpm tauri build`. Development executables and Cargo/Vite output are not
 release artifacts. The exact validated installer path and SHA-256 are recorded
-in [the 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md).
-The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
+in [the 0.5.0-beta.1 release record](docs/releases/attention-hub-0.5.0-beta.1.md).
+The `0.4.0-beta.1`, `0.3.0-beta.1`, and `0.2.0` release records remain
+historical evidence.
 
 ## Source of truth
 
@@ -111,6 +112,7 @@ The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
 - [Milestone 9 local-first Later Inbox](docs/milestones/milestone-9-later-inbox.md)
 - [Milestone 9.2 link-aware compact Later Inbox](docs/milestones/milestone-9-2-link-aware-compact-inbox.md)
 - [Milestone 9.3 focus and follow-up polish](docs/milestones/milestone-9-3-focus-follow-up-polish.md)
+- [Attention Hub 0.5.0-beta.1 release record](docs/releases/attention-hub-0.5.0-beta.1.md)
 - [Attention Hub 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md)
 - [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)

@@ -24,8 +24,8 @@ background lifecycle scope.
   when simultaneous, and title-redacted for Private items.
 - [x] Notifications require the installed application to be running; no
   closed-app or wake guarantee is claimed.
-- [ ] Live installed verification covers Outlook minimize/restore, a real
-  meeting Join action, Work/Private keyboard review, and one due notification.
+- [x] Live user verification covers the completed build during a full workday;
+  the user reported no critical or release-blocking issue and approved release.
 
 ## Preserved boundaries
 

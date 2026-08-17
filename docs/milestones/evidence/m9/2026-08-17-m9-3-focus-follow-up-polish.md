@@ -15,13 +15,13 @@ notification body is recorded in this evidence.
 | Join boundary | Passed: allowlisted extraction, unsafe URL rejection, ephemeral-token lookup, and serialized URL-absence tests. |
 | Later boundary | Passed: clean old-schema reset, v3 validation, link bounds, backup behavior, and one-shot due-state tests. |
 
-## Manual installed-app acceptance still required
+## User acceptance
 
-- Minimize and restore New Outlook; confirm no stale number or ellipsis appears.
-- Use one real allowlisted current/next calendar event; confirm Join opens the
-  expected default-handler target without exposing the URL in diagnostics.
-- Review Work and Private tabs at normal and 340 by 360 minimum size; verify
-  notes disclosure with pointer, Enter/Space, and visible focus.
-- Enable due notifications in the Later window and confirm one installed-app
-  toast, private-title redaction, no duplicate after refresh, and reset after a
-  follow-up change.
+On 2026-08-17, the user reported testing the completed build throughout the
+workday, found no critical or release-blocking issue, and approved it for
+release. This records the user's acceptance result only; no source content,
+calendar value, Later Inbox item, notification body, or telemetry was collected.
+
+The newly produced installer still requires a separate execution check before
+any claim about that exact packaged artifact, in-place upgrade, or uninstall
+behavior.

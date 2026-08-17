@@ -95,6 +95,35 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
 - No-issue cases explicitly observed: installed registration/executable
   availability and persistence-container presence only
 
+## Day 3 — 2026-08-17
+
+- Approximate active-use duration: read-only installed-state checkpoint only;
+  no installed Attention Hub process was running
+- Version and process/window availability: installed registration and executable
+  for `0.4.0-beta.1` were present on Windows build 26220; installed process,
+  widget window, and owned visual windows were unavailable
+- Start/restart/suspend/Explorer/display transitions exercised: none; the
+  checkpoint did not launch or alter the installed application or system state
+- Source availability periods by `observed`, `notRunning`, `notExposed`, or
+  `error`: no classification captured because the installed observer was not
+  running; Teams, Telegram, Outlook, Viber, and WhatsApp processes were
+  independently available while Slack was not, but process presence was not
+  promoted to attention semantics
+- Outlook fresh/last-observed/cleared transitions: not exercised
+- Mirror hide/recovery behavior: zero visible widget or mirror windows and zero
+  hidden owned windows; no recovery transition was exercised
+- Preference or saved-calendar persistence result: preference storage present
+  `true`; saved calendar credential configured `true`; no values were read
+- False positive, false negative, or misleading all-clear: not assessable
+  without a running installed observer
+- Highest-value unrepresentable attention need: not assessed
+- UI/accessibility friction: not assessed
+- Resource sample file or summary: no new sample; retained reference
+  `2026-08-13-installed-beta-resource-30m.csv`
+- Issue IDs opened or reproduced: none
+- No-issue cases explicitly observed: installed registration/executable
+  availability and persistence-container presence only
+
 ## Five-day exit summary
 
 - Total observed use:
