@@ -1,7 +1,7 @@
 # Attention Hub 0.5.0-beta.1 Later Inbox beta
 
 - Date: 2026-08-17 Europe/Kyiv
-- Status: built, validated, and accepted for beta release
+- Status: built, validated, installed on the current machine, and accepted
 - Canonical format: NSIS setup executable
 - Source branch: `codex/m9-later-inbox`
 - Release tag: `v0.5.0-beta.1`
@@ -55,13 +55,16 @@ build-tree installer, and the NSIS directory contained exactly one bundle.
   changed by this workaround.
 - The user reported full-workday testing of the completed source build with no
   critical or release-blocking issue and approved release.
+- On 2026-08-18, the user ran the exact canonical installer and reported that
+  installation/update, launch, retained calendar/preferences, the bounded M9.3
+  smoke checks, and close/reopen all passed.
 
 ## Distribution note
 
-The installer is not code-signed and can trigger Windows SmartScreen. This
-exact packaged installer has not been executed during the release pass, so its
-installation, in-place upgrade from `0.4.0-beta.1`, uninstall retention, and
-clean-machine behavior remain unclaimed.
+The installer is not code-signed and can trigger Windows SmartScreen. The exact
+canonical installer passed the user-run current-machine checklist, including
+installation/update and reopen. Independent clean-machine and uninstall
+behavior remain unclaimed.
 
 This beta does not add autostart, tray support, an updater, telemetry, OCR,
 Graph access, cloud sync, a generalized provider system, attachments, or

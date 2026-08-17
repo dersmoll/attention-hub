@@ -22,6 +22,7 @@ workday, found no critical or release-blocking issue, and approved it for
 release. This records the user's acceptance result only; no source content,
 calendar value, Later Inbox item, notification body, or telemetry was collected.
 
-The newly produced installer still requires a separate execution check before
-any claim about that exact packaged artifact, in-place upgrade, or uninstall
-behavior.
+On 2026-08-18, the user ran the exact `0.5.0-beta.1` canonical installer and
+reported that the requested installation/update, launch, persistence, M9.3
+smoke, and close/reopen checklist passed. Independent clean-machine and
+uninstall behavior remain unclaimed.
