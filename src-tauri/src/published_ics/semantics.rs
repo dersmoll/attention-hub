@@ -33,6 +33,8 @@ pub struct EventSelection {
     pub all_day: bool,
     pub classification: EventClassification,
     pub meeting_link_present: Option<bool>,
+    #[serde(skip_serializing)]
+    pub meeting_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,6 +87,7 @@ struct RawEvent {
     status: Option<String>,
     sequence: u32,
     meeting_link_present: bool,
+    meeting_url: Option<String>,
     source_order: u32,
 }
 
@@ -104,6 +107,7 @@ struct NormalizedEvent {
     cancelled: bool,
     sequence: u32,
     meeting_link_present: bool,
+    meeting_url: Option<String>,
     source_order: u32,
 }
 
@@ -116,6 +120,7 @@ struct Candidate {
     subject: String,
     private: bool,
     meeting_link_present: bool,
+    meeting_url: Option<String>,
     source_order: u32,
 }
 
@@ -295,6 +300,9 @@ fn selection_from_candidate(candidate: Candidate, now: DateTime<Utc>) -> EventSe
         all_day: candidate.all_day,
         classification,
         meeting_link_present: (!candidate.private).then_some(candidate.meeting_link_present),
+        meeting_url: (!candidate.private)
+            .then_some(candidate.meeting_url)
+            .flatten(),
     }
 }
 
@@ -426,7 +434,12 @@ fn process_logical_line(state: &mut ParseState, line: &str) -> Result<(), Semant
         })?;
     }
 
-    if is_meeting_link_signal(name, value) {
+    if let Some(url) = extract_meeting_url(value) {
+        event.meeting_link_present = true;
+        if event.meeting_url.is_none() {
+            event.meeting_url = Some(url);
+        }
+    } else if is_meeting_link_signal(name, value) {
         event.meeting_link_present = true;
     }
     Ok(())
@@ -531,6 +544,7 @@ fn normalize_event(
             .is_some_and(|value| value.eq_ignore_ascii_case("CANCELLED")),
         sequence: raw.sequence,
         meeting_link_present: raw.meeting_link_present,
+        meeting_url: raw.meeting_url,
         source_order: raw.source_order,
     })
 }
@@ -591,6 +605,9 @@ fn expand_series(
             }
             override_event.private |= master.private;
             override_event.meeting_link_present |= master.meeting_link_present;
+            if override_event.meeting_url.is_none() {
+                override_event.meeting_url.clone_from(&master.meeting_url);
+            }
         }
         if !master.cancelled {
             if let Some(rule) = &master.rrule {
@@ -701,6 +718,7 @@ fn push_candidate(
             .unwrap_or_else(|| "Untitled event".to_owned()),
         private: event.private,
         meeting_link_present: event.meeting_link_present,
+        meeting_url: event.meeting_url.clone(),
         source_order: event.source_order,
     });
 }
@@ -957,6 +975,55 @@ fn is_meeting_link_signal(name: &str, value: &str) -> bool {
     .any(|marker| lower_value.contains(marker))
 }
 
+fn extract_meeting_url(value: &str) -> Option<String> {
+    let decoded = unescape_text(value);
+    let lower = decoded.to_ascii_lowercase();
+    for (start, _) in lower.match_indices("https://") {
+        let candidate = decoded[start..]
+            .split(|character: char| {
+                character.is_whitespace()
+                    || matches!(character, '"' | '\'' | '<' | '>' | ')' | ']' | '}')
+            })
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches([',', '.', ';', ':']);
+        let Ok(parsed) = reqwest::Url::parse(candidate) else {
+            continue;
+        };
+        if meeting_url_allowed(&parsed) {
+            return Some(parsed.to_string());
+        }
+    }
+    None
+}
+
+fn meeting_url_allowed(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return false;
+    }
+    let Some(host) = url.host_str().map(|value| value.to_ascii_lowercase()) else {
+        return false;
+    };
+    let path = url.path().to_ascii_lowercase();
+    match host.as_str() {
+        "teams.microsoft.com" | "teams.live.com" | "teams.cloud.microsoft" => {
+            path.starts_with("/l/meetup-join/") || path.starts_with("/meet/")
+        }
+        "meet.google.com" => path.len() > 1,
+        "zoom.us" => path.starts_with("/j/") || path.starts_with("/my/"),
+        "webex.com" => path.starts_with("/meet/") || path.starts_with("/join/"),
+        _ if host.ends_with(".zoom.us") => path.starts_with("/j/") || path.starts_with("/my/"),
+        _ if host.ends_with(".webex.com") => {
+            path.starts_with("/meet/") || path.starts_with("/join/")
+        }
+        _ => false,
+    }
+}
+
 fn parse_parameters<'a>(parts: impl Iterator<Item = &'a str>) -> Vec<(String, String)> {
     parts
         .filter_map(|part| {
@@ -1124,11 +1191,28 @@ mod tests {
     }
 
     #[test]
-    fn detects_meeting_presence_without_returning_url() {
+    fn retains_allowlisted_meeting_url_only_outside_serialized_selection() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:meeting\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Meeting\r\nDESCRIPTION:Join at https://teams.microsoft.com/l/meetup-join/opaque\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.selection.meeting_link_present, Some(true));
+        assert_eq!(
+            result.selection.meeting_url.as_deref(),
+            Some("https://teams.microsoft.com/l/meetup-join/opaque")
+        );
         let json = serde_json::to_string(&result.selection).unwrap();
         assert!(!json.contains("meetup-join"));
         assert!(!json.contains("opaque"));
+    }
+
+    #[test]
+    fn rejects_non_allowlisted_and_credentialed_join_urls() {
+        assert!(extract_meeting_url("https://example.com/j/123").is_none());
+        assert!(extract_meeting_url(
+            "https://person:secret@teams.microsoft.com/l/meetup-join/opaque"
+        )
+        .is_none());
+        assert_eq!(
+            extract_meeting_url("Join https://acme.zoom.us/j/123456789?pwd=opaque"),
+            Some("https://acme.zoom.us/j/123456789?pwd=opaque".to_owned())
+        );
     }
 }

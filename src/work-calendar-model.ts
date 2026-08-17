@@ -12,6 +12,7 @@ export interface WorkCalendarSelection {
   allDay: boolean;
   classification: "active" | "upcoming";
   meetingLinkPresent: boolean | null;
+  joinToken: string | null;
 }
 
 export interface WorkCalendarSnapshot {

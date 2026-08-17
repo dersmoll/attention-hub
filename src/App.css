@@ -608,6 +608,41 @@ body[data-window="later"] #root {
   padding: 0.35rem 0.55rem;
 }
 
+.later-scope-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.later-scope-tabs button {
+  min-height: 1.75rem;
+  padding: 0.2rem 0.45rem;
+  border-color: #9aa5b5;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.later-scope-tabs button[aria-pressed="true"] {
+  border-color: #1459a6;
+  color: #fff;
+  background: #1459a6;
+}
+
+.later-notification-toggle {
+  display: flex;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.later-notification-toggle input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
 .later-capture {
   display: grid;
   gap: 0.3rem;
@@ -809,6 +844,15 @@ body[data-window="later"] #root {
 
 .later-item-notes {
   min-width: 0;
+  margin-top: 0.25rem;
+}
+
+.later-item-notes-disclosure summary {
+  min-height: 1.5rem;
+  color: #37465c;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .later-list small {
@@ -857,9 +901,15 @@ body[data-window="later"] #root {
   .later-discard,
   .later-recovery,
   .later-item-heading span,
-  .later-rich-notes {
+  .later-rich-notes,
+  .later-scope-tabs button {
     border-color: CanvasText;
     forced-color-adjust: auto;
+  }
+
+  .later-scope-tabs button[aria-pressed="true"] {
+    color: HighlightText;
+    background: Highlight;
   }
 
   .later-list > li[data-due] {
@@ -1166,11 +1216,6 @@ body[data-window="main"] #root {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-}
-
-.widget-app-badge[data-last-known] {
-  border-style: dashed;
-  background: #9a4b08;
 }
 
 .widget-more {
@@ -1486,6 +1531,19 @@ body[data-window="main"] #root {
   background: #991b1b;
 }
 
+.widget-calendar__join {
+  min-width: 34px;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-color: var(--widget-panel-border, #64748b);
+  border-radius: 999px;
+  color: var(--widget-panel-foreground, #111827);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .widget-calendar strong {
   overflow: hidden;
   font-size: 15px;
@@ -1499,7 +1557,7 @@ body[data-window="main"] #root {
   display: block;
   overflow: hidden;
   color: var(--widget-panel-muted, #475569);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1534,6 +1592,23 @@ body[data-window="main"] #root {
 }
 
 .widget-calendar__next > span {
+  color: var(--widget-panel-muted, #475569);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.widget-calendar__next-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.widget-calendar__next-header > span {
   color: var(--widget-panel-muted, #475569);
   font-size: 10px;
   font-weight: 700;

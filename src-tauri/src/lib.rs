@@ -82,6 +82,15 @@ async fn remove_work_calendar_source(
 }
 
 #[tauri::command]
+fn open_work_calendar_join_url(
+    state: tauri::State<'_, WorkCalendarState>,
+    join_token: String,
+) -> Result<(), String> {
+    let url = work_calendar::join_url(state.inner(), &join_token)?;
+    later_inbox::open_external_url(&url)
+}
+
+#[tauri::command]
 async fn get_notification_access_status(app: tauri::AppHandle) -> NotificationAccessReport {
     let report = notifications::get_access_status(app).await;
     eprintln!("notification access status: {report:?}");
@@ -382,6 +391,14 @@ fn delete_all_later_inbox_items(
 }
 
 #[tauri::command]
+fn notify_due_later_inbox_items(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+) -> Result<LaterInboxSnapshot, String> {
+    later_inbox::notify_due(&app, state.inner())
+}
+
+#[tauri::command]
 fn open_later_inbox_item_url(
     app: tauri::AppHandle,
     state: tauri::State<'_, LaterInboxState>,
@@ -405,6 +422,7 @@ fn open_later_inbox_note_url(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(NotificationListenerState::new())
         .manage(LaterInboxState::new())
         .manage(TaskbarMirrorState::new())
@@ -415,6 +433,7 @@ pub fn run() {
             save_work_calendar_source,
             get_work_calendar_snapshot,
             remove_work_calendar_source,
+            open_work_calendar_join_url,
             get_notification_access_status,
             request_notification_access,
             get_notification_snapshot,
@@ -438,6 +457,7 @@ pub fn run() {
             restore_later_inbox_item,
             delete_completed_later_inbox_items,
             delete_all_later_inbox_items,
+            notify_due_later_inbox_items,
             open_later_inbox_item_url,
             open_later_inbox_note_url,
             quit_application

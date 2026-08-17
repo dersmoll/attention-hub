@@ -21,17 +21,19 @@ export interface LaterInboxNoteSegment {
 
 export interface LaterInboxItem {
   id: string;
+  scope: LaterInboxScope;
   title: string;
   notes: LaterInboxNoteSegment[];
   url: string | null;
   followUpAt: string | null;
+  notifiedFollowUpAt: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
 }
 
 export interface LaterInboxSnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   capturedAt: string;
   storagePath: string;
   recoveredFromBackup: boolean;
@@ -39,11 +41,14 @@ export interface LaterInboxSnapshot {
 }
 
 export interface LaterInboxInput {
+  scope: LaterInboxScope;
   title: string;
   notes: LaterInboxNoteSegment[];
   url: string | null;
   followUpAt: string | null;
 }
+
+export type LaterInboxScope = "work" | "private";
 
 export function isLaterInboxItemDue(item: LaterInboxItem, now: Date) {
   if (item.completedAt !== null || item.followUpAt === null) {

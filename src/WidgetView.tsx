@@ -18,7 +18,6 @@ import {
 import {
   ATTENTION_POLL_INTERVAL_MS,
   ATTENTION_STALE_AFTER_MS,
-  type AttentionSignal,
   findSignal,
   type AttentionSourceObservation,
   type AttentionSignalSnapshot,
@@ -54,10 +53,16 @@ import {
   isLaterInboxItemDue,
   type LaterInboxSnapshot,
 } from "./later-inbox-model";
+import {
+  LATER_INBOX_PREFERENCES_CHANGED_EVENT,
+  readLaterInboxPreferences,
+  type LaterInboxPreferences,
+} from "./later-inbox-preferences";
 import { openLaterInboxWindow } from "./later-inbox-window";
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
+const LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const MIAMI_TIME_ZONE = "America/New_York";
 const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "teams",
@@ -303,7 +308,6 @@ function AppSlot({
   sourceKey,
   label,
   badge,
-  badgeLastKnown = false,
   statusText,
   health,
   status,
@@ -313,7 +317,6 @@ function AppSlot({
   sourceKey: AttentionAppKey;
   label: string;
   badge: string | null;
-  badgeLastKnown?: boolean;
   statusText: string;
   health: "observed" | "retrying" | "stale" | "unavailable";
   status?: TaskbarMirrorStatus | null;
@@ -336,10 +339,7 @@ function AppSlot({
       <span className="widget-app-surface" aria-hidden="true">
         <AppGlyph sourceKey={sourceKey} />
         {badge && !status?.visible && (
-          <strong
-            className="widget-app-badge"
-            data-last-known={badgeLastKnown || undefined}
-          >
+          <strong className="widget-app-badge">
             {badge}
           </strong>
         )}
@@ -403,8 +403,6 @@ export function WidgetView() {
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionRefreshFailed, setAttentionRefreshFailed] = useState(false);
-  const [lastObservedOutlookInbox, setLastObservedOutlookInbox] =
-    useState<AttentionSignal | null>(null);
   const [mirrorStatuses, setMirrorStatuses] = useState<
     Partial<Record<LiveVisualAppKey, TaskbarMirrorStatus>>
   >({});
@@ -414,6 +412,8 @@ export function WidgetView() {
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
   const [laterInbox, setLaterInbox] = useState<LaterInboxSnapshot | null>(null);
+  const [laterInboxPreferences, setLaterInboxPreferences] =
+    useState<LaterInboxPreferences>(readLaterInboxPreferences);
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
     string | null
   >(null);
@@ -462,14 +462,6 @@ export function WidgetView() {
         "get_attention_signal_snapshot",
         { sourceKeys: preferences.monitoredSources },
       );
-      const outlook = snapshot.sources.find(
-        ({ sourceKey }) => sourceKey === "outlook",
-      );
-      if (outlook?.state === "observed") {
-        setLastObservedOutlookInbox(findSignal(outlook, "inboxUnread"));
-      } else if (outlook?.state === "notRunning") {
-        setLastObservedOutlookInbox(null);
-      }
       setAttentionSnapshot(snapshot);
       setAttentionRefreshFailed(false);
     } catch (error) {
@@ -614,6 +606,59 @@ export function WidgetView() {
 
   useEffect(() => {
     let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopListening: (() => void) | undefined;
+
+    const checkDueNotifications = async () => {
+      if (laterInboxPreferences.dueNotificationsEnabled) {
+        try {
+          const snapshot = await invoke<LaterInboxSnapshot>(
+            "notify_due_later_inbox_items",
+          );
+          if (!disposed) {
+            setLaterInbox(snapshot);
+          }
+        } catch (error) {
+          if (!disposed) {
+            setWidgetError(`Later Inbox notification failed: ${String(error)}`);
+          }
+        }
+      }
+      if (!disposed) {
+        timer = setTimeout(
+          () => void checkDueNotifications(),
+          LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS,
+        );
+      }
+    };
+
+    void listen<LaterInboxPreferences>(
+      LATER_INBOX_PREFERENCES_CHANGED_EVENT,
+      ({ payload }) => {
+        if (!disposed) {
+          setLaterInboxPreferences(payload);
+        }
+      },
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    void checkDueNotifications();
+
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      stopListening?.();
+    };
+  }, [laterInboxPreferences.dueNotificationsEnabled]);
+
+  useEffect(() => {
+    let disposed = false;
     let stopListening: (() => void) | undefined;
     void listen(LATER_INBOX_FOCUS_EVENT, () => {
       if (!disposed) {
@@ -653,12 +698,6 @@ export function WidgetView() {
       stopListening?.();
     };
   }, []);
-
-  useEffect(() => {
-    if (!preferences.monitoredSources.includes("outlook")) {
-      setLastObservedOutlookInbox(null);
-    }
-  }, [preferences.monitoredSources]);
 
   useEffect(() => {
     void (async () => {
@@ -856,6 +895,14 @@ export function WidgetView() {
     }
   };
 
+  const openCalendarJoin = async (joinToken: string) => {
+    try {
+      await invoke("open_work_calendar_join_url", { joinToken });
+    } catch (error) {
+      setWidgetError(`Could not open the meeting link: ${String(error)}`);
+    }
+  };
+
   const telegram = attentionSnapshot?.sources.find(
     ({ sourceKey }) => sourceKey === "telegram",
   );
@@ -879,13 +926,6 @@ export function WidgetView() {
     : null;
   const teamsActivity = teams ? findSignal(teams, "activityStatus") : null;
   const outlookInbox = outlook ? findSignal(outlook, "inboxUnread") : null;
-  const outlookUsingLastKnown =
-    outlook?.state === "notExposed" &&
-    outlookInbox === null &&
-    lastObservedOutlookInbox !== null;
-  const displayedOutlookInbox = outlookUsingLastKnown
-    ? lastObservedOutlookInbox
-    : outlookInbox;
   const telegramBadge = formatAttentionBadge(
     telegramCounter?.count,
     telegramCounter?.needsAttention,
@@ -894,12 +934,13 @@ export function WidgetView() {
     teamsActivity?.count,
     teamsActivity?.needsAttention,
   );
-  const outlookBadge = outlookUsingLastKnown
-    ? "…"
-    : formatAttentionBadge(
-        displayedOutlookInbox?.count,
-        displayedOutlookInbox?.needsAttention,
-      );
+  const outlookBadge =
+    outlook?.state === "observed"
+      ? formatAttentionBadge(
+          outlookInbox?.count,
+          outlookInbox?.needsAttention,
+        )
+      : null;
   const attentionCapturedAt = attentionSnapshot
     ? Date.parse(attentionSnapshot.capturedAt)
     : Number.NaN;
@@ -909,8 +950,8 @@ export function WidgetView() {
       now.getTime() - attentionCapturedAt > ATTENTION_STALE_AFTER_MS);
   const telegramStatus = `${sourceAvailability(telegram, attentionStale, attentionRefreshFailed)}${typeof telegramCounter?.count === "number" && telegramCounter.count > 0 ? `; application counter ${telegramCounter.count}` : telegramCounter?.needsAttention === true ? "; new activity detected" : ""}`;
   const teamsStatus = `${sourceAvailability(teams, attentionStale, attentionRefreshFailed)}${teamsActivity?.needsAttention === true ? "; new activity detected" : ""}`;
-  const outlookStatus = outlookUsingLastKnown
-    ? `current attention state is not exposed; last observed aggregate Inbox unread ${lastObservedOutlookInbox.count}; open Outlook to refresh`
+  const outlookStatus = outlook?.state === "notExposed"
+    ? "unread count is unavailable while Outlook is minimized; open Outlook to refresh"
     : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
   const calendarSelection =
     workCalendar?.status === "observed" ? workCalendar.selection : null;
@@ -1042,11 +1083,10 @@ export function WidgetView() {
           sourceKey={sourceKey}
           label="Microsoft Outlook"
           badge={outlookBadge}
-          badgeLastKnown={outlookUsingLastKnown}
           statusText={outlookStatus}
           health={sourceHealth(
             outlook,
-            attentionStale || outlookUsingLastKnown,
+            attentionStale,
             attentionRefreshFailed,
           )}
           disabled={outlook?.state === "notRunning"}
@@ -1226,6 +1266,19 @@ export function WidgetView() {
                   I&apos;m in
                 </button>
               )}
+              {calendarSelection?.joinToken && (
+                <button
+                  aria-label={`Join ${calendarSelection.subject}`}
+                  className="widget-calendar__join"
+                  onClick={() =>
+                    void openCalendarJoin(calendarSelection.joinToken ?? "")
+                  }
+                  title="Open meeting link"
+                  type="button"
+                >
+                  Join
+                </button>
+              )}
             </div>
             <strong>{calendarTitle}</strong>
             <small>{calendarDetail}</small>
@@ -1249,7 +1302,24 @@ export function WidgetView() {
               className="widget-calendar__next"
               data-tauri-drag-region
             >
-              <span>Up next</span>
+              <div className="widget-calendar__next-header">
+                <span>Up next</span>
+                {calendarNextSelection.joinToken && (
+                  <button
+                    aria-label={`Join ${calendarNextSelection.subject}`}
+                    className="widget-calendar__join"
+                    onClick={() =>
+                      void openCalendarJoin(
+                        calendarNextSelection.joinToken ?? "",
+                      )
+                    }
+                    title="Open meeting link"
+                    type="button"
+                  >
+                    Join
+                  </button>
+                )}
+              </div>
               <strong>{calendarNextSelection.subject}</strong>
               <small>
                 {formatCalendarDetail(calendarNextSelection, now)}

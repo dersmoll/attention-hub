@@ -13,9 +13,9 @@ use std::{
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_notification::NotificationExt;
 
-const LEGACY_SCHEMA_VERSION: u32 = 1;
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const MAX_ITEMS: usize = 1_000;
 const MAX_FILE_BYTES: u64 = 1_048_576;
 const MAX_TITLE_CHARS: usize = 160;
@@ -41,10 +41,12 @@ impl LaterInboxState {
 #[serde(rename_all = "camelCase")]
 pub struct LaterInboxItem {
     pub id: String,
+    pub scope: LaterInboxScope,
     pub title: String,
     pub notes: Vec<LaterInboxNoteSegment>,
     pub url: Option<String>,
     pub follow_up_at: Option<String>,
+    pub notified_follow_up_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub completed_at: Option<String>,
@@ -53,11 +55,19 @@ pub struct LaterInboxItem {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaterInboxInput {
+    pub scope: LaterInboxScope,
     pub title: String,
     #[serde(default)]
     pub notes: Vec<LaterInboxNoteSegment>,
     pub url: Option<String>,
     pub follow_up_at: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LaterInboxScope {
+    Work,
+    Private,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,26 +94,6 @@ struct LaterInboxStore {
     items: Vec<LaterInboxItem>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyLaterInboxItem {
-    id: String,
-    title: String,
-    context: Option<String>,
-    url: Option<String>,
-    follow_up_at: Option<String>,
-    created_at: String,
-    updated_at: String,
-    completed_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyLaterInboxStore {
-    schema_version: u32,
-    items: Vec<LegacyLaterInboxItem>,
-}
-
 impl LaterInboxStore {
     fn empty() -> Self {
         Self {
@@ -115,6 +105,7 @@ impl LaterInboxStore {
 
 #[derive(Debug)]
 enum StoreReadError {
+    OldVersion,
     FutureVersion(u64),
     Invalid,
     Unavailable,
@@ -152,10 +143,12 @@ pub fn create_item(
         let now = timestamp_now();
         store.items.push(LaterInboxItem {
             id: next_item_id(),
+            scope: input.scope,
             title: input.title,
             notes: input.notes,
             url: input.url,
             follow_up_at: input.follow_up_at,
+            notified_follow_up_at: None,
             created_at: now.clone(),
             updated_at: now,
             completed_at: None,
@@ -177,10 +170,15 @@ pub fn update_item(
             .iter_mut()
             .find(|item| item.id == item_id)
             .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
+        let follow_up_changed = item.follow_up_at != input.follow_up_at;
+        item.scope = input.scope;
         item.title = input.title;
         item.notes = input.notes;
         item.url = input.url;
         item.follow_up_at = input.follow_up_at;
+        if follow_up_changed {
+            item.notified_follow_up_at = None;
+        }
         item.updated_at = timestamp_now();
         Ok(())
     })
@@ -236,6 +234,65 @@ pub fn delete_all(app: &AppHandle, state: &LaterInboxState) -> Result<LaterInbox
         store.items.clear();
         Ok(())
     })
+}
+
+pub fn notify_due(app: &AppHandle, state: &LaterInboxState) -> Result<LaterInboxSnapshot, String> {
+    let _guard = state
+        .gate
+        .lock()
+        .map_err(|_| "Later Inbox storage is temporarily unavailable.".to_owned())?;
+    let path = storage_path(app)?;
+    let mut loaded = load_store(&path)?;
+    let now = Utc::now();
+    let due_indices = loaded
+        .store
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| item_due_for_notification(item, now).then_some(index))
+        .collect::<Vec<_>>();
+
+    if due_indices.is_empty() {
+        return Ok(snapshot(path, loaded));
+    }
+
+    let body = if due_indices.len() == 1 {
+        let item = &loaded.store.items[due_indices[0]];
+        match item.scope {
+            LaterInboxScope::Work => format!("Follow up: {}", item.title),
+            LaterInboxScope::Private => "A private item is due.".to_owned(),
+        }
+    } else {
+        format!("{} items are due.", due_indices.len())
+    };
+
+    for index in due_indices {
+        let item = &mut loaded.store.items[index];
+        item.notified_follow_up_at.clone_from(&item.follow_up_at);
+    }
+    write_store(&path, &loaded.store, true)?;
+    loaded.recovered_from_backup = false;
+
+    app.notification()
+        .builder()
+        .title("Later Inbox")
+        .body(body)
+        .show()
+        .map_err(|_| "Windows could not show the Later Inbox notification.".to_owned())?;
+
+    Ok(snapshot(path, loaded))
+}
+
+fn item_due_for_notification(item: &LaterInboxItem, now: DateTime<Utc>) -> bool {
+    if item.completed_at.is_some() || item.follow_up_at.is_none() {
+        return false;
+    }
+    let follow_up = item
+        .follow_up_at
+        .as_deref()
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc));
+    follow_up.is_some_and(|value| value <= now) && item.notified_follow_up_at != item.follow_up_at
 }
 
 pub fn item_url(app: &AppHandle, state: &LaterInboxState, item_id: &str) -> Result<String, String> {
@@ -308,7 +365,7 @@ pub fn open_external_url(url: &str) -> Result<(), String> {
     if result.0 as isize > 32 {
         Ok(())
     } else {
-        Err("Windows could not open the saved Later Inbox link.".to_owned())
+        Err("Windows could not open the validated link.".to_owned())
     }
 }
 
@@ -387,12 +444,17 @@ fn load_store(path: &Path) -> Result<LoadedStore, String> {
         }
         let backup = backup_path(path);
         if backup.exists() {
-            return read_store(&backup)
-                .map(|store| LoadedStore {
+            return match read_store(&backup) {
+                Ok(store) => Ok(LoadedStore {
                     store,
                     recovered_from_backup: true,
-                })
-                .map_err(store_error_message);
+                }),
+                Err(StoreReadError::OldVersion) => Ok(LoadedStore {
+                    store: LaterInboxStore::empty(),
+                    recovered_from_backup: false,
+                }),
+                Err(error) => Err(store_error_message(error)),
+            };
         }
         return Ok(LoadedStore {
             store: LaterInboxStore::empty(),
@@ -408,17 +470,26 @@ fn load_store(path: &Path) -> Result<LoadedStore, String> {
         Err(StoreReadError::FutureVersion(version)) => Err(format!(
             "Later Inbox uses newer schema version {version}; this build will not overwrite it."
         )),
+        Err(StoreReadError::OldVersion) => Ok(LoadedStore {
+            store: LaterInboxStore::empty(),
+            recovered_from_backup: false,
+        }),
         Err(StoreReadError::Invalid | StoreReadError::Unavailable) => {
             let backup = backup_path(path);
-            read_store(&backup)
-                .map(|store| LoadedStore {
+            match read_store(&backup) {
+                Ok(store) => Ok(LoadedStore {
                     store,
                     recovered_from_backup: true,
-                })
-                .map_err(|_| {
+                }),
+                Err(StoreReadError::OldVersion) => Ok(LoadedStore {
+                    store: LaterInboxStore::empty(),
+                    recovered_from_backup: false,
+                }),
+                Err(_) => Err(
                     "Later Inbox data could not be read, and no valid local backup is available."
-                        .to_owned()
-                })
+                        .to_owned(),
+                ),
+            }
         }
     }
 }
@@ -438,74 +509,14 @@ fn read_store(path: &Path) -> Result<LaterInboxStore, StoreReadError> {
     if version > u64::from(SCHEMA_VERSION) {
         return Err(StoreReadError::FutureVersion(version));
     }
-    let store = if version == u64::from(LEGACY_SCHEMA_VERSION) {
-        let legacy: LegacyLaterInboxStore =
-            serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?;
-        migrate_legacy_store(legacy).ok_or(StoreReadError::Invalid)?
-    } else if version == u64::from(SCHEMA_VERSION) {
-        serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?
-    } else {
-        return Err(StoreReadError::Invalid);
-    };
+    if version < u64::from(SCHEMA_VERSION) {
+        return Err(StoreReadError::OldVersion);
+    }
+    let store = serde_json::from_value(value).map_err(|_| StoreReadError::Invalid)?;
     if !valid_loaded_store(&store) {
         return Err(StoreReadError::Invalid);
     }
     Ok(store)
-}
-
-fn migrate_legacy_store(legacy: LegacyLaterInboxStore) -> Option<LaterInboxStore> {
-    if legacy.schema_version != LEGACY_SCHEMA_VERSION || legacy.items.len() > MAX_ITEMS {
-        return None;
-    }
-    let mut ids = HashSet::new();
-    let mut items = Vec::with_capacity(legacy.items.len());
-    for item in legacy.items {
-        if item.id.is_empty()
-            || item.id.chars().count() > 128
-            || !ids.insert(item.id.clone())
-            || item.title.trim().is_empty()
-            || item.title.chars().count() > MAX_TITLE_CHARS
-            || item
-                .context
-                .as_ref()
-                .is_some_and(|value| value.chars().count() > MAX_NOTE_CHARS)
-            || item
-                .url
-                .as_ref()
-                .is_some_and(|value| normalize_url(value).is_err())
-            || item
-                .follow_up_at
-                .as_ref()
-                .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_err())
-            || DateTime::parse_from_rfc3339(&item.created_at).is_err()
-            || DateTime::parse_from_rfc3339(&item.updated_at).is_err()
-            || item
-                .completed_at
-                .as_ref()
-                .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_err())
-        {
-            return None;
-        }
-        let notes = item
-            .context
-            .filter(|context| !context.trim().is_empty())
-            .map(|text| vec![LaterInboxNoteSegment { text, href: None }])
-            .unwrap_or_default();
-        items.push(LaterInboxItem {
-            id: item.id,
-            title: item.title,
-            notes,
-            url: item.url,
-            follow_up_at: item.follow_up_at,
-            created_at: item.created_at,
-            updated_at: item.updated_at,
-            completed_at: item.completed_at,
-        });
-    }
-    Some(LaterInboxStore {
-        schema_version: SCHEMA_VERSION,
-        items,
-    })
 }
 
 fn valid_loaded_store(store: &LaterInboxStore) -> bool {
@@ -528,6 +539,10 @@ fn valid_loaded_store(store: &LaterInboxStore) -> bool {
                 .follow_up_at
                 .as_ref()
                 .is_none_or(|value| DateTime::parse_from_rfc3339(value).is_ok())
+            && item
+                .notified_follow_up_at
+                .as_ref()
+                .is_none_or(|value| item.follow_up_at.as_ref() == Some(value))
             && DateTime::parse_from_rfc3339(&item.created_at).is_ok()
             && DateTime::parse_from_rfc3339(&item.updated_at).is_ok()
             && item
@@ -583,10 +598,11 @@ fn write_store(
         .map_err(|_| "Later Inbox could not finish its pending local write.".to_owned())?;
     drop(file);
 
-    if preserve_previous && path.exists() && read_store(path).is_ok() {
+    let current_store_is_valid = path.exists() && read_store(path).is_ok();
+    if preserve_previous && current_store_is_valid {
         fs::copy(path, backup_path(path))
             .map_err(|_| "Later Inbox could not update its local backup.".to_owned())?;
-    } else if !preserve_previous {
+    } else if !preserve_previous || path.exists() {
         let backup = backup_path(path);
         if backup.exists() {
             fs::remove_file(backup).map_err(|_| {
@@ -655,6 +671,7 @@ fn normalize_input(input: LaterInboxInput) -> Result<LaterInboxInput, String> {
         .transpose()?;
 
     Ok(LaterInboxInput {
+        scope: input.scope,
         title,
         notes,
         url,
@@ -777,6 +794,9 @@ fn store_error_message(error: StoreReadError) -> String {
         StoreReadError::FutureVersion(version) => format!(
             "Later Inbox uses newer schema version {version}; this build will not overwrite it."
         ),
+        StoreReadError::OldVersion => {
+            "Older disposable Later Inbox test data was not loaded.".to_owned()
+        }
         StoreReadError::Invalid | StoreReadError::Unavailable => {
             "Later Inbox local backup could not be read.".to_owned()
         }
@@ -789,6 +809,7 @@ mod tests {
 
     fn input(title: &str) -> LaterInboxInput {
         LaterInboxInput {
+            scope: LaterInboxScope::Work,
             title: title.to_owned(),
             notes: Vec::new(),
             url: None,
@@ -809,6 +830,7 @@ mod tests {
     #[test]
     fn validates_and_normalizes_user_fields() {
         let normalized = normalize_input(LaterInboxInput {
+            scope: LaterInboxScope::Private,
             title: "  Review proposal  ".into(),
             notes: vec![
                 LaterInboxNoteSegment {
@@ -825,6 +847,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(normalized.title, "Review proposal");
+        assert_eq!(normalized.scope, LaterInboxScope::Private);
         assert_eq!(normalized.notes.len(), 2);
         assert_eq!(normalized.notes[1].text, "brief");
         assert_eq!(
@@ -861,10 +884,12 @@ mod tests {
         let mut store = LaterInboxStore::empty();
         store.items.push(LaterInboxItem {
             id: "one".into(),
+            scope: LaterInboxScope::Work,
             title: "First".into(),
             notes: Vec::new(),
             url: None,
             follow_up_at: None,
+            notified_follow_up_at: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
             completed_at: None,
@@ -895,16 +920,16 @@ mod tests {
     }
 
     #[test]
-    fn migrates_schema_v1_context_to_plain_note_segment() {
-        let path = test_path("v1-migration");
+    fn old_schema_starts_a_clean_store_without_migration() {
+        let path = test_path("old-schema-reset");
         fs::write(
             &path,
             br#"{
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "items": [{
-                "id": "legacy",
-                "title": "Legacy task",
-                "context": "Line one\nLine two",
+                "id": "test-only",
+                "title": "Disposable test task",
+                "notes": [],
                 "url": null,
                 "followUpAt": null,
                 "createdAt": "2026-08-14T08:00:00Z",
@@ -915,11 +940,8 @@ mod tests {
         )
         .unwrap();
 
-        let migrated = read_store(&path).unwrap();
-        assert_eq!(migrated.schema_version, SCHEMA_VERSION);
-        assert_eq!(migrated.items[0].notes.len(), 1);
-        assert_eq!(migrated.items[0].notes[0].text, "Line one\nLine two");
-        assert_eq!(migrated.items[0].notes[0].href, None);
+        assert!(matches!(read_store(&path), Err(StoreReadError::OldVersion)));
+        assert!(load_store(&path).unwrap().store.items.is_empty());
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -954,6 +976,7 @@ mod tests {
         let mut store = LaterInboxStore::empty();
         store.items.push(LaterInboxItem {
             id: "sensitive".into(),
+            scope: LaterInboxScope::Private,
             title: "Delete me".into(),
             notes: vec![LaterInboxNoteSegment {
                 text: "private context".into(),
@@ -961,6 +984,7 @@ mod tests {
             }],
             url: None,
             follow_up_at: None,
+            notified_follow_up_at: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
             completed_at: None,
@@ -979,6 +1003,7 @@ mod tests {
     fn note_link_activation_is_bounded_to_the_saved_item() {
         let item = LaterInboxItem {
             id: "linked".into(),
+            scope: LaterInboxScope::Work,
             title: "Linked task".into(),
             notes: vec![LaterInboxNoteSegment {
                 text: "brief".into(),
@@ -986,6 +1011,7 @@ mod tests {
             }],
             url: None,
             follow_up_at: None,
+            notified_follow_up_at: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
             completed_at: None,
@@ -993,5 +1019,29 @@ mod tests {
 
         assert!(item_contains_note_url(&item, "https://example.com/brief"));
         assert!(!item_contains_note_url(&item, "https://example.com/other"));
+    }
+
+    #[test]
+    fn due_notification_state_is_one_shot_per_follow_up_value() {
+        let follow_up = "2026-08-17T12:00:00Z".to_owned();
+        let mut item = LaterInboxItem {
+            id: "due".into(),
+            scope: LaterInboxScope::Work,
+            title: "Follow up".into(),
+            notes: Vec::new(),
+            url: None,
+            follow_up_at: Some(follow_up.clone()),
+            notified_follow_up_at: None,
+            created_at: "2026-08-17T10:00:00Z".into(),
+            updated_at: "2026-08-17T10:00:00Z".into(),
+            completed_at: None,
+        };
+        let now = DateTime::parse_from_rfc3339("2026-08-17T12:00:01Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert!(item_due_for_notification(&item, now));
+        item.notified_follow_up_at = Some(follow_up);
+        assert!(!item_due_for_notification(&item, now));
     }
 }

@@ -40,14 +40,17 @@ row; enabled native visual surfaces follow reordered slots.
 
 The fixed Later button sits after enabled source apps and before Advanced. It
 opens one on-demand 360×420 local capture/review window with a required title,
-optional link-aware multiline notes/context, HTTP(S) URL, and passive follow-up
-time. Pasted linked words and line breaks are retained without storing arbitrary
-HTML. Items use a Rust-owned schema-v2 JSON file, automatic schema-v1 migration,
-and one previous-valid local backup under this
-Windows user's application-data directory. They never enter source attention
-coverage or **All clear**. Follow-up affects sorting and due styling only; it is
-not a Windows reminder and has no background-delivery guarantee. Advanced
-exposes bounded Later data and deletion controls.
+optional link-aware multiline notes/context, HTTP(S) URL, and follow-up time.
+Work and Private tabs separate review without using separate storage;
+notes on open cards are collapsed by default. Pasted linked words and line
+breaks are retained without storing arbitrary HTML. Items use a Rust-owned
+schema-v3 JSON file and one previous-valid local backup under this Windows
+user's application-data directory. Earlier test-only schemas are reset rather
+than migrated. They never enter source attention coverage or **All clear**.
+An opt-in Windows notification can fire once when a follow-up becomes due while
+Attention Hub is installed, running, and awake; private reminders omit the item
+title. There is no closed-app delivery guarantee. Advanced exposes bounded
+Later data and deletion controls.
 
 The live Teams, Telegram, Slack, Viber, and WhatsApp tiles are inset
 DWM-composed crops
@@ -64,20 +67,22 @@ Selecting an app button activates an existing source window; it does not launch
 the app or interact with its contents.
 
 If New Outlook is minimized or temporarily removes that accessibility label,
-the widget may retain the last count observed during this process. Attention
-Hub does not infer a current zero from a minimized accessibility tree. The
-fallback is amber and dashed, replaces the numeric badge with a nonnumeric
-ellipsis, is announced as last-observed with an instruction to open Outlook to
-refresh, and clears when Outlook stops; it is not presented as a fresh count.
+the widget removes the numeric badge instead of presenting stale data or an
+ellipsis. Attention Hub does not infer a current zero from a minimized
+accessibility tree. Hover and accessible text explain that opening Outlook is
+required to refresh the unread count.
 
 The work-calendar source is one explicitly selected Microsoft 365 Published ICS
 calendar whose bearer link is stored only in Windows Credential Manager. The
 widget shows a bounded active-or-next selection, prioritizes timed events over
 all-day context, warns five minutes before a meeting, and supports an in-memory
-**I'm in** acknowledgement that reveals one upcoming companion. It never
-returns meeting URLs or controls Outlook. Earlier My Day, AppointmentStore, and
-Graph provider experiments are retired from the production command surface and
-remain documented as historical evidence.
+**I'm in** acknowledgement that reveals one upcoming companion. Allowlisted
+Teams, Zoom, Google Meet, and Webex links can be opened through a compact Join
+control. Rust retains the URL behind an ephemeral token; the URL never enters
+the WebView, logs, fixtures, or evidence. The provider never controls Outlook.
+Earlier My Day, AppointmentStore, and Graph provider experiments are retired
+from the production command surface and remain documented as historical
+evidence.
 
 ## Current beta
 
@@ -105,6 +110,7 @@ The `0.3.0-beta.1` and `0.2.0` release records remain historical evidence.
 - [Milestone 8 messenger and clock refinement](docs/milestones/milestone-8-messenger-clock-refinement.md)
 - [Milestone 9 local-first Later Inbox](docs/milestones/milestone-9-later-inbox.md)
 - [Milestone 9.2 link-aware compact Later Inbox](docs/milestones/milestone-9-2-link-aware-compact-inbox.md)
+- [Milestone 9.3 focus and follow-up polish](docs/milestones/milestone-9-3-focus-follow-up-polish.md)
 - [Attention Hub 0.4.0-beta.1 release record](docs/releases/attention-hub-0.4.0-beta.1.md)
 - [Attention Hub 0.3.0-beta.1 release record](docs/releases/attention-hub-0.3.0-beta.1.md)
 - [Attention Hub 0.2.0 release record](docs/releases/attention-hub-0.2.0.md)

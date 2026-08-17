@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -17,8 +17,14 @@ import {
   type LaterInboxNoteSegment,
   type LaterInboxOpenPayload,
   type LaterInboxReturnWindow,
+  type LaterInboxScope,
   type LaterInboxSnapshot,
 } from "./later-inbox-model";
+import {
+  LATER_INBOX_PREFERENCES_CHANGED_EVENT,
+  readLaterInboxPreferences,
+  writeLaterInboxPreferences,
+} from "./later-inbox-preferences";
 import {
   MAX_LATER_NOTE_CHARACTERS,
   insertRichNoteAtSelection,
@@ -28,12 +34,13 @@ import {
   setRichNoteEditor,
 } from "./later-inbox-rich-notes";
 
-const emptyForm = {
+const emptyForm = (scope: LaterInboxScope) => ({
+  scope,
   title: "",
   notes: [] as LaterInboxNoteSegment[],
   url: "",
   followUp: "",
-};
+});
 
 function formatTimestamp(value: string) {
   const date = new Date(value);
@@ -45,7 +52,9 @@ function formatTimestamp(value: string) {
 
 export function LaterInboxView() {
   const [snapshot, setSnapshot] = useState<LaterInboxSnapshot | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [activeScope, setActiveScope] = useState<LaterInboxScope>("work");
+  const [form, setForm] = useState(() => emptyForm("work"));
+  const [preferences, setPreferences] = useState(readLaterInboxPreferences);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -66,13 +75,21 @@ export function LaterInboxView() {
   const notesOverLimit = notesCharacters > MAX_LATER_NOTE_CHARACTERS;
   const dirty =
     Boolean(form.title || form.url || form.followUp) || form.notes.length > 0;
-  const openItems = useMemo(
+  const allOpenItems = useMemo(
     () => sortOpenLaterInboxItems(snapshot?.items ?? [], now),
     [now, snapshot?.items],
   );
-  const completedItems = useMemo(
+  const openItems = useMemo(
+    () => allOpenItems.filter((item) => item.scope === activeScope),
+    [activeScope, allOpenItems],
+  );
+  const allCompletedItems = useMemo(
     () => sortCompletedLaterInboxItems(snapshot?.items ?? []),
     [snapshot?.items],
+  );
+  const completedItems = useMemo(
+    () => allCompletedItems.filter((item) => item.scope === activeScope),
+    [activeScope, allCompletedItems],
   );
   const dueCount = openItems.filter((item) =>
     isLaterInboxItemDue(item, now),
@@ -203,11 +220,11 @@ export function LaterInboxView() {
   }, [closeWindow, currentWindow, dirty]);
 
   useEffect(() => {
-    document.title = `Attention Hub - Later Inbox (${openItems.length} open${dueCount ? `, ${dueCount} due` : ""})`;
-  }, [dueCount, openItems.length]);
+    document.title = `Attention Hub - Later Inbox (${allOpenItems.length} open${dueCount ? `, ${dueCount} due in ${activeScope}` : ""})`;
+  }, [activeScope, allOpenItems.length, dueCount]);
 
   const resetForm = () => {
-    setForm(emptyForm);
+    setForm(emptyForm(activeScope));
     if (notesRef.current) {
       setRichNoteEditor(notesRef.current, []);
     }
@@ -224,6 +241,7 @@ export function LaterInboxView() {
     setPending(true);
     setError(null);
     const input: LaterInboxInput = {
+      scope: form.scope,
       title: form.title,
       notes: form.notes,
       url: form.url || null,
@@ -251,11 +269,13 @@ export function LaterInboxView() {
   const editItem = (item: LaterInboxItem) => {
     setEditingId(item.id);
     setForm({
+      scope: item.scope,
       title: item.title,
       notes: item.notes,
       url: item.url ?? "",
       followUp: toLocalDateTimeInput(item.followUpAt),
     });
+    setActiveScope(item.scope);
     setDetailsOpen(true);
     setDiscardRequested(false);
     setAnnouncement(`Editing ${item.title}.`);
@@ -326,7 +346,7 @@ export function LaterInboxView() {
         <div className="later-header__title">
           <h1>Later Inbox</h1>
           <p>
-            {openItems.length} open{dueCount ? ` · ${dueCount} due` : ""}
+            {allOpenItems.length} open{dueCount ? ` · ${dueCount} due here` : ""}
           </p>
         </div>
         <button
@@ -344,6 +364,51 @@ export function LaterInboxView() {
         </button>
       </header>
 
+      <div
+        aria-label="Later Inbox space"
+        className="later-scope-tabs"
+        role="group"
+      >
+        {(["work", "private"] as const).map((scope) => {
+          const count = allOpenItems.filter(
+            (item) => item.scope === scope,
+          ).length;
+          return (
+            <button
+              aria-pressed={activeScope === scope}
+              key={scope}
+              onClick={() => {
+                setActiveScope(scope);
+                setForm((current) => ({ ...current, scope }));
+              }}
+              type="button"
+            >
+              {scope === "work" ? "Work" : "Private"} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      <label className="later-notification-toggle">
+        <input
+          checked={preferences.dueNotificationsEnabled}
+          onChange={(event) => {
+            const next = writeLaterInboxPreferences({
+              dueNotificationsEnabled: event.target.checked,
+            });
+            setPreferences(next);
+            void emit(LATER_INBOX_PREFERENCES_CHANGED_EVENT, next);
+            setAnnouncement(
+              next.dueNotificationsEnabled
+                ? "Due notifications enabled while Attention Hub is running."
+                : "Due notifications disabled.",
+            );
+          }}
+          type="checkbox"
+        />
+        Notify when due (while Hub is running)
+      </label>
+
       <form
         className="later-capture"
         onKeyDown={(event) => {
@@ -358,7 +423,9 @@ export function LaterInboxView() {
         }}
       >
         <label htmlFor="later-title">
-          {editingId ? "Edit item" : "What should I come back to?"}
+          {editingId
+            ? `Edit ${form.scope} item`
+            : `What ${activeScope} item should I come back to?`}
         </label>
         <div className="later-title-row">
           <input
@@ -546,23 +613,28 @@ export function LaterInboxView() {
                     {due && <span>Due</span>}
                   </div>
                   {item.notes.length > 0 && (
-                    <div className="later-item-notes">
-                      {item.notes.map((segment, index) =>
-                        segment.href ? (
-                          <button
-                            className="later-note-link"
-                            key={`${index}-${segment.href}`}
-                            onClick={() => void openNoteUrl(item, segment.href ?? "")}
-                            role="link"
-                            type="button"
-                          >
-                            {segment.text}
-                          </button>
-                        ) : (
-                          <span key={index}>{segment.text}</span>
-                        ),
-                      )}
-                    </div>
+                    <details className="later-item-notes-disclosure">
+                      <summary>Notes / context</summary>
+                      <div className="later-item-notes">
+                        {item.notes.map((segment, index) =>
+                          segment.href ? (
+                            <button
+                              className="later-note-link"
+                              key={`${index}-${segment.href}`}
+                              onClick={() =>
+                                void openNoteUrl(item, segment.href ?? "")
+                              }
+                              role="link"
+                              type="button"
+                            >
+                              {segment.text}
+                            </button>
+                          ) : (
+                            <span key={index}>{segment.text}</span>
+                          ),
+                        )}
+                      </div>
+                    </details>
                   )}
                   <small>
                     Captured {formatTimestamp(item.createdAt)}

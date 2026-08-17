@@ -122,11 +122,10 @@ No bitmap crosses into Attention Hub. DWM retains pixel composition, and the
 application cannot claim which numeric badge the user sees. The structured
 Telegram numeric signals, Outlook aggregate English Inbox unread signal, and
 qualitative Teams activity signal remain distinct queryable contracts. Missing
-or inaccessible Outlook labels are `notExposed`, never zero. After one observed
-Outlook result, the React widget can retain that count in process memory while a
-running/minimized Outlook becomes `notExposed`. The fallback is explicitly
-styled and announced as last-observed, updates when observation returns, and is
-cleared when Outlook is no longer running or Attention Hub restarts. Slack,
+or inaccessible Outlook labels are `notExposed`, never zero. A minimized
+Outlook removes the numeric badge rather than exposing a stale count or
+nonnumeric placeholder; hover and accessible text explain that Outlook must be
+opened to refresh. Slack,
 Viber, and WhatsApp expose app presence and optional visual-only taskbar
 surfaces, but do not contribute to semantic coverage or all-clear claims.
 
@@ -431,8 +430,12 @@ polls at most every two minutes and at event start/end boundaries. Any timeout,
 ambiguity, storage/read failure, busy result, or missing configuration replaces
 the prior state with no selection. Save and removal emit only a payload-free
 invalidation event. The widget renders subject and local time plus
-active/upcoming and meeting-link presence; it never receives a meeting URL and
-has no join action.
+active/upcoming and meeting-link presence. ADR 0029 permits only allowlisted
+Teams, Zoom, Google Meet, and Webex HTTPS URLs. Rust keeps those URLs in a
+process-memory cache and sends the WebView only an ephemeral token. Explicit
+Join activation returns the token to a narrow Rust command, which resolves and
+opens the current cached URL; raw meeting URLs remain absent from IPC, logs,
+fixtures, and evidence.
 
 ADR 0015 refines the single-selection policy after a live multi-day all-day
 entry masked the next scheduled appointment. Candidate expansion now preserves
@@ -470,13 +473,13 @@ Widget count / Later window / Advanced data controls
  per-user later-inbox.json + one previous-valid backup
 ```
 
-The schema-v2 document contains at most 1,000 items and 1 MiB. Schema-v1
-`context` strings migrate in memory to one plain segment and are written as v2
-on the next mutation. An item contains an opaque ID, required bounded title,
+The schema-v3 document contains at most 1,000 items and 1 MiB. Earlier records
+were test-only and are reset rather than migrated. An item contains an opaque
+ID, Work or Private scope, required bounded title,
 optional structured notes/context bounded to 4,000 visible characters, 256
 segments, and 25 linked segments, optional validated HTTP(S) URL without
-embedded credentials, optional UTC
-follow-up timestamp, and created/updated/completed timestamps. Every loaded
+embedded credentials, optional UTC follow-up timestamp, the exact follow-up
+value last notified, and created/updated/completed timestamps. Every loaded
 record is revalidated. A missing file is an empty inbox, a corrupt primary can
 fall back to the previous valid backup, and an unknown future schema is reported
 without being overwritten. Explicit destructive cleanup removes a backup that
@@ -494,10 +497,12 @@ event only invalidates other WebViews. Later counts are user-owned queue state,
 not source observations or `AttentionSignal` values, and never affect coverage
 or **All clear**.
 
-Follow-up is passive presentation data. It changes due sorting and labels while
-Attention Hub is running but creates no toast, sound, background task, tray
-lifecycle, or delivery promise. A real reminder requires a separate Windows
-notification and activation lifecycle decision.
+Follow-up changes due sorting and labels. When the user explicitly enables due
+notifications, the running installed application checks every 30 seconds and
+sends at most one native notification for each exact follow-up value. Private
+notifications omit the item title, simultaneous due items are aggregated, and
+changing the follow-up resets notification state. This adds no background task,
+autostart, tray lifecycle, scheduled closed-app delivery, or delivery promise.
 
 Saved URLs open only after explicit user activation by item ID. Rust rereads and
 revalidates the stored HTTP(S) address before invoking the Windows default URL

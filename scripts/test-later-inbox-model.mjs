@@ -15,8 +15,10 @@ const model = await import(
 );
 
 const base = {
+  scope: "work",
   notes: [],
   url: null,
+  notifiedFollowUpAt: null,
   updatedAt: "2026-08-14T08:00:00Z",
   completedAt: null,
 };

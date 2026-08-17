@@ -2,11 +2,15 @@
 mod credential_store_windows;
 
 use crate::published_ics::{
-    self, EventSelection, PublishedIcsProbeStatus, PublishedIcsSemanticProbe,
+    self, EventClassification, EventSelection, PublishedIcsProbeStatus, PublishedIcsSemanticProbe,
     PublishedIcsStopReason,
 };
 use serde::Serialize;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::Mutex as StdMutex,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::Mutex;
 
 const SOURCE_IDENTITY_STATE: &str = "userSavedSinglePublishedCalendarTitleCapable";
@@ -39,22 +43,86 @@ pub struct WorkCalendarSnapshot {
     pub storage_available: bool,
     pub source_identity_state: &'static str,
     pub captured_at_unix_ms: u64,
-    pub selection: Option<EventSelection>,
-    pub next_selection: Option<EventSelection>,
+    pub selection: Option<WorkCalendarSelection>,
+    pub next_selection: Option<WorkCalendarSelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub request_ms: u64,
     pub parse_ms: u64,
     pub diagnostics: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkCalendarSelection {
+    pub subject: String,
+    pub start: String,
+    pub end: String,
+    pub all_day: bool,
+    pub classification: EventClassification,
+    pub meeting_link_present: Option<bool>,
+    pub join_token: Option<String>,
+}
+
+#[derive(Default)]
+struct JoinTargetCache {
+    next_token: u64,
+    targets: HashMap<String, String>,
+}
+
 pub struct WorkCalendarState {
     request_gate: Mutex<()>,
+    join_targets: StdMutex<JoinTargetCache>,
 }
 
 impl WorkCalendarState {
     pub fn new() -> Self {
         Self {
             request_gate: Mutex::new(()),
+            join_targets: StdMutex::new(JoinTargetCache::default()),
+        }
+    }
+
+    fn clear_join_targets(&self) {
+        if let Ok(mut cache) = self.join_targets.lock() {
+            cache.targets.clear();
+        }
+    }
+
+    fn expose_selections(
+        &self,
+        selection: Option<EventSelection>,
+        next_selection: Option<EventSelection>,
+    ) -> (Option<WorkCalendarSelection>, Option<WorkCalendarSelection>) {
+        let Ok(mut cache) = self.join_targets.lock() else {
+            return (
+                selection.map(|value| WorkCalendarSelection::from_event(value, None)),
+                next_selection.map(|value| WorkCalendarSelection::from_event(value, None)),
+            );
+        };
+        cache.targets.clear();
+        let mut expose = |event: EventSelection| {
+            let token = event.meeting_url.as_ref().map(|url| {
+                cache.next_token = cache.next_token.wrapping_add(1);
+                let token = format!("join-{}", cache.next_token);
+                cache.targets.insert(token.clone(), url.clone());
+                token
+            });
+            WorkCalendarSelection::from_event(event, token)
+        };
+        (selection.map(&mut expose), next_selection.map(expose))
+    }
+}
+
+impl WorkCalendarSelection {
+    fn from_event(event: EventSelection, join_token: Option<String>) -> Self {
+        Self {
+            subject: event.subject,
+            start: event.start,
+            end: event.end,
+            all_day: event.all_day,
+            classification: event.classification,
+            meeting_link_present: event.meeting_link_present,
+            join_token,
         }
     }
 }
@@ -105,29 +173,32 @@ pub async fn save_source(
         || probe.selection.is_none()
     {
         zero_string(&mut published_url);
-        return snapshot_from_probe(probe, get_configuration().configured);
+        return snapshot_from_probe(state, probe, get_configuration().configured);
     }
 
     let write_result = credential_store::write(&published_url);
     zero_string(&mut published_url);
     match write_result {
-        Ok(()) => snapshot_from_probe(probe, true),
-        Err(_) => WorkCalendarSnapshot {
-            status: WorkCalendarStatus::Error,
-            configured: get_configuration().configured,
-            storage_available: false,
-            source_identity_state: SOURCE_IDENTITY_STATE,
-            captured_at_unix_ms: now_unix_ms(),
-            selection: None,
-            next_selection: None,
-            stop_reason: None,
-            request_ms: probe.request_ms,
-            parse_ms: probe.parse_ms,
-            diagnostics: vec![
-                "The verified calendar source could not be saved in Windows Credential Manager."
-                    .to_owned(),
-            ],
-        },
+        Ok(()) => snapshot_from_probe(state, probe, true),
+        Err(_) => {
+            state.clear_join_targets();
+            WorkCalendarSnapshot {
+                status: WorkCalendarStatus::Error,
+                configured: get_configuration().configured,
+                storage_available: false,
+                source_identity_state: SOURCE_IDENTITY_STATE,
+                captured_at_unix_ms: now_unix_ms(),
+                selection: None,
+                next_selection: None,
+                stop_reason: None,
+                request_ms: probe.request_ms,
+                parse_ms: probe.parse_ms,
+                diagnostics: vec![
+                    "The verified calendar source could not be saved in Windows Credential Manager."
+                        .to_owned(),
+                ],
+            }
+        }
     }
 }
 
@@ -136,6 +207,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
         Ok(guard) => guard,
         Err(_) => {
             let configuration = get_configuration();
+            state.clear_join_targets();
             return WorkCalendarSnapshot {
                 status: WorkCalendarStatus::Busy,
                 configured: configuration.configured,
@@ -158,6 +230,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
         Ok(Some(secret)) => secret,
         Ok(None) => {
             drop(guard);
+            state.clear_join_targets();
             return WorkCalendarSnapshot {
                 status: WorkCalendarStatus::NotConfigured,
                 configured: false,
@@ -174,6 +247,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
         }
         Err(_) => {
             drop(guard);
+            state.clear_join_targets();
             return WorkCalendarSnapshot {
                 status: WorkCalendarStatus::Error,
                 configured: false,
@@ -195,11 +269,12 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
 
     let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
     drop(guard);
-    snapshot_from_probe(probe, true)
+    snapshot_from_probe(state, probe, true)
 }
 
 pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfiguration {
     let _guard = state.request_gate.lock().await;
+    state.clear_join_targets();
     match credential_store::delete() {
         Ok(()) => WorkCalendarConfiguration {
             configured: false,
@@ -232,7 +307,24 @@ pub fn log_snapshot(action: &str, snapshot: &WorkCalendarSnapshot) {
     );
 }
 
+pub fn join_url(state: &WorkCalendarState, join_token: &str) -> Result<String, String> {
+    if join_token.len() > 64 || !join_token.starts_with("join-") {
+        return Err("The meeting link token is invalid or expired.".to_owned());
+    }
+    state
+        .join_targets
+        .lock()
+        .map_err(|_| "The work-calendar link cache is temporarily unavailable.".to_owned())?
+        .targets
+        .get(join_token)
+        .cloned()
+        .ok_or_else(|| {
+            "The meeting link is no longer current. Wait for calendar refresh.".to_owned()
+        })
+}
+
 fn snapshot_from_probe(
+    state: &WorkCalendarState,
     mut probe: PublishedIcsSemanticProbe,
     configured: bool,
 ) -> WorkCalendarSnapshot {
@@ -249,14 +341,16 @@ fn snapshot_from_probe(
         probe.selection = None;
         probe.next_selection = None;
     }
+    let (selection, next_selection) =
+        state.expose_selections(probe.selection, probe.next_selection);
     WorkCalendarSnapshot {
         status,
         configured,
         storage_available: true,
         source_identity_state: SOURCE_IDENTITY_STATE,
         captured_at_unix_ms: probe.captured_at_unix_ms,
-        selection: probe.selection,
-        next_selection: probe.next_selection,
+        selection,
+        next_selection,
         stop_reason: probe.stop_reason,
         request_ms: probe.request_ms,
         parse_ms: probe.parse_ms,
@@ -302,8 +396,9 @@ mod tests {
 
     #[test]
     fn unavailable_probe_never_exposes_a_selection() {
+        let state = WorkCalendarState::new();
         let probe = PublishedIcsSemanticProbe::command_deadline(true);
-        let snapshot = snapshot_from_probe(probe, true);
+        let snapshot = snapshot_from_probe(&state, probe, true);
 
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
@@ -313,6 +408,7 @@ mod tests {
 
     #[test]
     fn observed_status_requires_a_selection() {
+        let state = WorkCalendarState::new();
         let probe = PublishedIcsSemanticProbe {
             status: PublishedIcsProbeStatus::Observed,
             captured_at_unix_ms: 1,
@@ -335,9 +431,35 @@ mod tests {
             stop_reason: None,
             diagnostics: Vec::new(),
         };
-        let snapshot = snapshot_from_probe(probe, true);
+        let snapshot = snapshot_from_probe(&state, probe, true);
 
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
+    }
+
+    #[test]
+    fn exposes_only_an_ephemeral_token_for_an_allowlisted_join_url() {
+        let state = WorkCalendarState::new();
+        let event = EventSelection {
+            subject: "Joinable meeting".into(),
+            start: "2026-08-17T12:00:00Z".into(),
+            end: "2026-08-17T13:00:00Z".into(),
+            all_day: false,
+            classification: EventClassification::Upcoming,
+            meeting_link_present: Some(true),
+            meeting_url: Some("https://teams.microsoft.com/l/meetup-join/opaque-token".into()),
+        };
+
+        let (selection, _) = state.expose_selections(Some(event), None);
+        let selection = selection.unwrap();
+        let token = selection.join_token.as_deref().unwrap();
+        assert_eq!(
+            join_url(&state, token).unwrap(),
+            "https://teams.microsoft.com/l/meetup-join/opaque-token"
+        );
+        let serialized = serde_json::to_string(&selection).unwrap();
+        assert!(serialized.contains(token));
+        assert!(!serialized.contains("meetup-join"));
+        assert!(!serialized.contains("opaque-token"));
     }
 }

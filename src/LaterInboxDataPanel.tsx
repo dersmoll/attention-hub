@@ -98,9 +98,10 @@ export function LaterInboxDataPanel() {
       </p>
       <div className="later-data-card">
         <p>
-          Stored as schema-v2 JSON for this Windows user, with automatic v1
-          migration and one previous valid local backup. No cloud sync or
-          Windows reminder is created.
+          Stored as schema-v3 JSON for this Windows user, with Work/Private
+          organization and one previous valid local backup. Due notifications
+          are optional and run only while Attention Hub is running. No cloud
+          sync is used.
         </p>
         {snapshot?.storagePath && (
           <p>
