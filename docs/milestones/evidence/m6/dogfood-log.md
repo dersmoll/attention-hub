@@ -124,6 +124,36 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
 - No-issue cases explicitly observed: installed registration/executable
   availability and persistence-container presence only
 
+## Day 4 — 2026-08-18
+
+- Approximate active-use duration: read-only installed-state checkpoint while
+  Attention Hub was running; no lifecycle transition was initiated
+- Version and process/window availability: installed registration and running
+  executable reported `0.5.0-beta.1` on Windows build 26220; one Attention Hub
+  process owned two visible and seven hidden non-mirror top-level windows
+- Start/restart/suspend/Explorer/display transitions exercised: none; the
+  checkpoint did not launch, stop, or alter the application or system state
+- Source availability periods by `observed`, `notRunning`, `notExposed`, or
+  `error`: all six fixed source processes were available; Teams, Telegram,
+  Outlook, Viber, and WhatsApp were `observed`, while Slack was `notExposed`;
+  no counts, content, or raw accessibility labels were retained
+- Outlook fresh/last-observed/cleared transitions: one `observed` snapshot;
+  fallback and cleared transitions were not exercised
+- Mirror hide/recovery behavior: four mirror windows were visible and none were
+  hidden; no hide or recovery transition was exercised
+- Preference or saved-calendar persistence result: preference storage present
+  `true`; saved calendar credential configured `true`; no values were read
+- False positive, false negative, or misleading all-clear: not assessable from
+  the read-only checkpoint alone
+- Highest-value unrepresentable attention need: not assessed
+- UI/accessibility friction: not assessed
+- Resource sample file or summary: no new sample; retained reference
+  `2026-08-13-installed-beta-resource-30m.csv`
+- Issue IDs opened or reproduced: none
+- No-issue cases explicitly observed: installed registration/process presence,
+  generic fixed-source classifications, visible mirror availability, and
+  persistence-container presence
+
 ## Five-day exit summary
 
 - Total observed use:
