@@ -1,0 +1,30 @@
+{
+  "name": "attention-hub",
+  "private": true,
+  "version": "0.5.0-beta.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test:attention-model": "node scripts/test-attention-model.mjs",
+    "test:later-inbox": "node scripts/test-later-inbox-model.mjs",
+    "test:preferences": "node scripts/test-widget-preferences.mjs",
+    "test:time-zone": "node scripts/test-time-zone-converter.mjs",
+    "test:widget-layout": "node scripts/test-widget-layout.mjs",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}
