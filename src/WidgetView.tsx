@@ -597,6 +597,23 @@ export function WidgetView() {
   }, []);
 
   useEffect(() => {
+    if (!clockConversionSource) {
+      return;
+    }
+
+    const returnToLiveClocks = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      setClockConversionSource(null);
+    };
+
+    window.addEventListener("keydown", returnToLiveClocks);
+    return () => window.removeEventListener("keydown", returnToLiveClocks);
+  }, [clockConversionSource]);
+
+  useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
@@ -1171,10 +1188,22 @@ export function WidgetView() {
     calendarNextSelection,
     now,
   );
+  const primaryTimeZoneLabel = preferences.primaryTimeZone
+    ? preferences.primaryTimeZone
+    : `System (${systemTimeZone})`;
+  const secondaryTimeZoneLabel = secondaryTimeZone;
   const conversionSourceTimeZone =
     clockConversionSource === "local" ? primaryTimeZone : secondaryTimeZone;
   const conversionTargetTimeZone =
     clockConversionSource === "local" ? secondaryTimeZone : primaryTimeZone;
+  const conversionSourceTimeZoneLabel =
+    clockConversionSource === "local"
+      ? primaryTimeZoneLabel
+      : secondaryTimeZoneLabel;
+  const conversionTargetTimeZoneLabel =
+    clockConversionSource === "local"
+      ? secondaryTimeZoneLabel
+      : primaryTimeZoneLabel;
   const convertedClockTime = convertZonedTimeToInstant(
     conversionTime,
     now,
@@ -1183,10 +1212,10 @@ export function WidgetView() {
   const clockConversion = convertedClockTime
     ? formatZonedConversion(convertedClockTime, now, conversionTargetTimeZone)
     : "Unavailable at the DST transition";
-  const primaryTimeZoneLabel = preferences.primaryTimeZone
-    ? preferences.primaryTimeZone
-    : `System (${systemTimeZone})`;
-  const secondaryTimeZoneLabel = secondaryTimeZone;
+  const [clockConversionTime, ...clockConversionDayParts] = convertedClockTime
+    ? clockConversion.split(" ")
+    : ["Unavailable", "DST transition"];
+  const clockConversionDay = clockConversionDayParts.join(" ");
   const panelStyle = {
     ...widgetPanelStyle(preferences),
     "--widget-left-width": `${widgetLeftWidth(visibleSources.length, preferences.widthMode)}px`,
@@ -1295,24 +1324,31 @@ export function WidgetView() {
         {clockConversionSource ? (
           <div className="widget-clock-converter">
             <label htmlFor="clock-conversion-time">
-              {clockConversionSource === "local"
-                ? primaryTimeZoneLabel
-                : secondaryTimeZoneLabel}
+              {shortTimeZoneLabel(conversionSourceTimeZone)}
             </label>
             <input
+              aria-label={`Time in ${conversionSourceTimeZoneLabel}`}
               id="clock-conversion-time"
               onChange={(event) => setConversionTime(event.target.value)}
               step="60"
               type="time"
               value={conversionTime}
             />
-            <output aria-live="polite">
-              <span>
-                {clockConversionSource === "local"
-                  ? secondaryTimeZoneLabel
-                  : primaryTimeZoneLabel}
+            <output
+              aria-label={`${conversionTargetTimeZoneLabel} converted time ${clockConversion}`}
+              aria-live="polite"
+            >
+              <span title={conversionTargetTimeZoneLabel}>
+                {shortTimeZoneLabel(conversionTargetTimeZone)}
               </span>
-              <strong>{clockConversion}</strong>
+              <strong className="widget-clock-converter__result">
+                <span className="widget-clock-converter__time">
+                  {clockConversionTime}
+                </span>
+                <span className="widget-clock-converter__day">
+                  {clockConversionDay}
+                </span>
+              </strong>
             </output>
             <button
               aria-label="Return to live clocks"

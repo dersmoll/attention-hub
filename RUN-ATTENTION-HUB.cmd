@@ -9,7 +9,7 @@ set "ATTENTION_HUB_ROOT=%CD%"
 
 echo.
 echo Attention Hub Milestone 10 test launcher
-echo Update: 0.6.0-beta.2 release candidate - Recommended after reinstall
+echo Update: 0.6.0-beta.3 release candidate - converter polish
 echo Repository: %ATTENTION_HUB_ROOT%
 echo.
 echo Closing any previous Attention Hub run...
