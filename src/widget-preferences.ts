@@ -79,10 +79,10 @@ function normalizeOpacity(value: unknown) {
 }
 
 function normalizeWidthMode(value: unknown): WidgetWidthMode {
-  if (value === "recommended" || value === "compact") {
+  if (value === "recommended" || value === "compact" || value === "auto") {
     return "recommended";
   }
-  if (value === "larger" || value === "auto" || value === "wide") {
+  if (value === "larger" || value === "wide") {
     return "larger";
   }
   return DEFAULT_WIDGET_PREFERENCES.widthMode;

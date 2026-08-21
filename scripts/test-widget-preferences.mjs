@@ -117,7 +117,7 @@ assert.equal(
 );
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "auto" }).widthMode,
-  "larger",
+  "recommended",
 );
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "wide" }).widthMode,

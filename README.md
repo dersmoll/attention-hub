@@ -7,9 +7,9 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.1` is the current public beta.
+Version `0.6.0-beta.2` is the current public beta.
 
-[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.1)
+[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.2)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
 page publishes the exact installer checksum for verification.
@@ -50,8 +50,9 @@ page publishes the exact installer checksum for verification.
   208px two-zone clock. Its calendar is 272px wide for one event and expands to
   392px while current and next events are both visible. The **Larger** option
   uses an 80px window, 48px source buttons, a 240px clock, and a fixed 416px
-  calendar. Legacy Compact preferences migrate to Recommended; Auto and Wide
-  migrate to Larger. The Compact name is reserved for a future one-line mode.
+  calendar. Legacy Compact and old-default Auto preferences migrate to
+  Recommended; an explicitly selected legacy Wide preference migrates to
+  Larger. The Compact name is reserved for a future one-line mode.
   Native DWM mirrors remain synchronized with the selected geometry.
 - Organizes Advanced into a PowerToys-inspired two-column layout with a fixed
   navigation sidebar and focused General, Clocks, Apps, Calendar, Reminders,
@@ -77,7 +78,7 @@ page publishes the exact installer checksum for verification.
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
 The current artifact and validation record is in
-[the 0.6.0-beta.1 release notes](docs/releases/attention-hub-0.6.0-beta.1.md).
+[the 0.6.0-beta.2 release notes](docs/releases/attention-hub-0.6.0-beta.2.md).
 
 ## Development
 
