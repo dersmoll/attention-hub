@@ -154,15 +154,60 @@ identifiers, calendar URLs/event values, or source pixels. Use issue IDs from
   generic fixed-source classifications, visible mirror availability, and
   persistence-container presence
 
+## Day 5 — 2026-08-21
+
+- Approximate active-use duration: read-only installed-state checkpoint only;
+  no installed Attention Hub process was running
+- Version and process/window availability: installed registration and referenced
+  executable for `0.5.0-beta.1` were present on Windows build 26220; installed
+  process, owned windows, and mirror windows were unavailable
+- Start/restart/suspend/Explorer/display transitions exercised: none; the
+  checkpoint did not launch, stop, or alter the application or system state
+- Source availability periods by `observed`, `notRunning`, `notExposed`, or
+  `error`: all six fixed source processes were independently available;
+  read-only probes classified Teams, Telegram, and Viber as `observed`, and
+  Outlook, Slack, and WhatsApp as `notExposed`; process presence was not
+  promoted to attention semantics
+- Outlook fresh/last-observed/cleared transitions: not exercised
+- Mirror hide/recovery behavior: zero visible or hidden mirror windows with the
+  installed process stopped; no recovery transition was exercised
+- Preference or saved-calendar persistence result: preference storage present
+  `true`; saved calendar credential configured `true`; no values were read
+- False positive, false negative, or misleading all-clear: not assessable
+  without a running installed observer
+- Highest-value unrepresentable attention need: not assessed
+- UI/accessibility friction: not assessed
+- Resource sample file or summary: no new sample; retained reference
+  `2026-08-13-installed-beta-resource-30m.csv`
+- Issue IDs opened or reproduced: none
+- No-issue cases explicitly observed: installed registration/executable
+  availability, persistence-container presence, and generic source exposure only
+
 ## Five-day exit summary
 
-- Total observed use:
-- P0/P1/P2/P3 counts:
-- Most common implementation failure:
-- Most common semantic coverage gap:
-- Most common UI friction:
-- Any privacy or data-retention concern:
-- Resource trend conclusion:
-- Installer/upgrade/uninstall conclusion:
-- Unexecuted cases:
-- Recommended exit decision:
+- Total observed use: five distinct calendar-day entries comprising one bounded
+  installed lifecycle session with a separate 31.4-minute resource run, followed
+  by four read-only installed-state checkpoints
+- P0/P1/P2/P3 counts: 0 / 1 / 2 / 0; `M6-001` and `M6-002` are verified,
+  while `M6-003` remains new and non-reproduced
+- Most common implementation failure: none recurred; the two corrected defects
+  were independent, and the Explorer-recovery observation occurred once
+- Most common semantic coverage gap: no stable blind spot was established;
+  stopped-observer checkpoints and varying tray/minimized exposure prevented
+  continuous source classification on some days
+- Most common UI friction: none reported in the executed session; four entries
+  were non-interactive checkpoints and did not constitute UI acceptance tests
+- Any privacy or data-retention concern: none observed; records contain only
+  sanitized classifications, booleans, counts, timings, versions, and issue IDs
+- Resource trend conclusion: passed; the 31.4-minute installed run retained seven
+  processes, averaged 3.178 percent normalized CPU after warm-up, and showed no
+  every-sample working-set, private-byte, or handle growth
+- Installer/upgrade/uninstall conclusion: current-profile lifecycle and the
+  `0.3.0-beta.1` to `0.4.0-beta.1` upgrade passed; `0.5.0-beta.1` remained
+  registered with its executable and persistence containers present at exit
+- Unexecuted cases: clean-machine execution, mixed-DPI/disconnect testing, source
+  stop/reopen, Outlook stopped/cleared, taskbar reorder, source-window monitor
+  movement, and authoritative real-user activation
+- Recommended exit decision: close the five-day dogfood gate and retain
+  `M6-003` as a non-reproduced P2 observation; do not claim the listed manual
+  or environment-blocked gates passed, and do not reopen frozen scope
