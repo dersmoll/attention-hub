@@ -18,9 +18,10 @@ that still define the public beta.
 6. **Secret-safe calendar links.** The publication URL stays in Windows
    Credential Manager. Meeting URLs stay in Rust memory and cross IPC only as
    ephemeral tokens.
-7. **Compact three-zone widget.** Communication, clocks, and calendar retain
-   stable ownership and responsive widths; Advanced and Later Inbox open on
-   demand.
+7. **Four-zone widget with bounded size presets.** Communication, clocks,
+   calendar, and utility actions retain separate ownership. Recommended is the
+   dense default; Larger preserves a roomier fixed calendar. Advanced and Later
+   Inbox open on demand, and native mirrors follow the selected geometry.
 8. **Local Later Inbox.** Bounded structured text and links are stored in a
    versioned local file. Arbitrary rich HTML, attachments, synchronization, and
    closed-app reminders are outside the beta.

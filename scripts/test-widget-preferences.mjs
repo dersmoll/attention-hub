@@ -32,12 +32,13 @@ const legacy = preferences.normalizeWidgetPreferences({
 assert.deepEqual(legacy, {
   sourceCatalogVersion: 2,
   pinned: false,
+  primaryTimeZone: null,
   secondaryTimeZone: "Europe/Kyiv",
   x: 120,
   y: -46,
   panelColor: "#f8fafc",
   panelOpacity: 100,
-  widthMode: "auto",
+  widthMode: "recommended",
   appOrder: ["teams", "telegram", "outlook", "slack", "viber", "whatsapp"],
   monitoredSources: [
     "teams",
@@ -60,8 +61,18 @@ const malformed = preferences.normalizeWidgetPreferences({
   appOrder: ["teams", "teams", "outlook"],
 });
 assert.deepEqual(malformed, {
-  ...preferences.DEFAULT_WIDGET_PREFERENCES,
-  panelOpacity: 85,
+  sourceCatalogVersion: 2,
+  pinned: true,
+  primaryTimeZone: null,
+  secondaryTimeZone: preferences.DEFAULT_TIME_ZONE,
+  x: null,
+  y: null,
+  panelColor: "#f8fafc",
+  panelOpacity: 25,
+  widthMode: "recommended",
+  appOrder: preferences.DEFAULT_APP_ORDER,
+  monitoredSources: preferences.DEFAULT_APP_ORDER,
+  liveVisualSources: preferences.LIVE_VISUAL_APP_KEYS,
 });
 
 const sourceControls = preferences.normalizeWidgetPreferences({
@@ -87,11 +98,54 @@ assert.deepEqual(migratedFixedSources.appOrder, [
 ]);
 assert.deepEqual(
   migratedFixedSources.monitoredSources,
-  preferences.DEFAULT_APP_ORDER,
+  ["teams", "telegram", "outlook"],
 );
 assert.deepEqual(
   migratedFixedSources.liveVisualSources,
-  preferences.DEFAULT_LIVE_VISUAL_SOURCES,
+  ["teams", "telegram"],
+);
+
+const fresh = preferences.normalizeWidgetPreferences(null);
+assert.deepEqual(fresh.monitoredSources, ["teams", "outlook"]);
+assert.deepEqual(fresh.liveVisualSources, ["teams"]);
+assert.equal(fresh.primaryTimeZone, null);
+assert.equal(fresh.widthMode, "recommended");
+
+assert.equal(
+  preferences.normalizeWidgetPreferences({ widthMode: "compact" }).widthMode,
+  "recommended",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ widthMode: "auto" }).widthMode,
+  "larger",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ widthMode: "wide" }).widthMode,
+  "larger",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ widthMode: "larger" }).widthMode,
+  "larger",
+);
+
+const primaryTimeZoneOverride = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
+  primaryTimeZone: "Europe/Kyiv",
+});
+assert.equal(primaryTimeZoneOverride.primaryTimeZone, "Europe/Kyiv");
+const canonicalKyiv = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
+  primaryTimeZone: "Europe/Kiev",
+  secondaryTimeZone: "Europe/Kiev",
+});
+assert.equal(canonicalKyiv.primaryTimeZone, "Europe/Kyiv");
+assert.equal(canonicalKyiv.secondaryTimeZone, "Europe/Kyiv");
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    primaryTimeZone: "Invalid/Zone",
+  }).primaryTimeZone,
+  null,
 );
 
 const currentFixedSources = preferences.normalizeWidgetPreferences({
@@ -139,12 +193,13 @@ storedValues.set(
 assert.deepEqual(preferences.readWidgetPreferences(), {
   sourceCatalogVersion: 2,
   pinned: false,
+  primaryTimeZone: null,
   secondaryTimeZone: "UTC",
   x: 10,
   y: 20,
   panelColor: "#f8fafc",
   panelOpacity: 100,
-  widthMode: "auto",
+  widthMode: "recommended",
   appOrder: [
     "teams",
     "telegram",

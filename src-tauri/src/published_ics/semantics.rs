@@ -57,6 +57,7 @@ pub struct SemanticFailure {
 #[derive(Debug)]
 pub struct SemanticScan {
     pub selection: EventSelection,
+    pub overlapping_selections: Vec<EventSelection>,
     pub next_selection: Option<EventSelection>,
     pub eligible_candidate_count: u32,
     pub active_candidate_count: u32,
@@ -252,6 +253,24 @@ pub fn extract_current_or_next(
         )
     })?;
     let selected_is_active = selected.start <= now && selected.end > now;
+    let overlapping_selected = if !selected.all_day {
+        candidates
+            .iter()
+            .skip(1)
+            .filter(|candidate| {
+                !candidate.all_day
+                    && if selected_is_active {
+                        candidate.start <= now && candidate.end > now
+                    } else {
+                        candidate.start == selected.start
+                    }
+            })
+            .take(1)
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
     let next_selected = selected_is_active
         .then(|| {
             candidates
@@ -261,11 +280,16 @@ pub fn extract_current_or_next(
                 .cloned()
         })
         .flatten();
-    let private_title_redacted =
-        selected.private || next_selected.as_ref().is_some_and(|event| event.private);
+    let private_title_redacted = selected.private
+        || overlapping_selected.iter().any(|event| event.private)
+        || next_selected.as_ref().is_some_and(|event| event.private);
 
     Ok(SemanticScan {
         selection: selection_from_candidate(selected, now),
+        overlapping_selections: overlapping_selected
+            .into_iter()
+            .map(|candidate| selection_from_candidate(candidate, now))
+            .collect(),
         next_selection: next_selected.map(|candidate| selection_from_candidate(candidate, now)),
         eligible_candidate_count: u32::try_from(eligible_candidate_count).unwrap_or(u32::MAX),
         active_candidate_count: u32::try_from(active_candidate_count).unwrap_or(u32::MAX),
@@ -1145,6 +1169,40 @@ mod tests {
     }
 
     #[test]
+    fn exposes_two_upcoming_events_with_the_same_start_time() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:first-upcoming\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:First simultaneous meeting\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:second-upcoming\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Second simultaneous meeting\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:later\r\nDTSTART:20260811T150000Z\r\nDTEND:20260811T153000Z\r\nSUMMARY:Later meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+
+        assert_eq!(result.selection.subject, "First simultaneous meeting");
+        assert_eq!(
+            result.selection.classification,
+            EventClassification::Upcoming
+        );
+        assert_eq!(result.overlapping_selections.len(), 1);
+        assert_eq!(
+            result.overlapping_selections[0].subject,
+            "Second simultaneous meeting"
+        );
+        assert_eq!(
+            result.overlapping_selections[0].classification,
+            EventClassification::Upcoming
+        );
+        assert!(result.next_selection.is_none());
+    }
+
+    #[test]
+    fn redacts_a_private_overlapping_active_event() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:private-overlap\r\nDTSTART:20260811T110000Z\r\nDTEND:20260811T130000Z\r\nSUMMARY:Sensitive overlap\r\nCLASS:PRIVATE\r\nX-MICROSOFT-ONLINEMEETINGEXTERNALLINK:https://teams.microsoft.com/l/meetup-join/private-overlap\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:primary\r\nDTSTART:20260811T113000Z\r\nDTEND:20260811T123000Z\r\nSUMMARY:Primary meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+
+        assert_eq!(result.selection.subject, "Primary meeting");
+        assert_eq!(result.overlapping_selections.len(), 1);
+        let overlapping = &result.overlapping_selections[0];
+        assert_eq!(overlapping.subject, "Private event");
+        assert_eq!(overlapping.meeting_link_present, None);
+        assert!(overlapping.meeting_url.is_none());
+        assert!(result.private_title_redacted);
+    }
+
+    #[test]
     fn expands_recurring_events_and_applies_cancelled_override() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:series\r\nDTSTART:20260804T130000Z\r\nDTEND:20260804T140000Z\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:Weekly sync\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:series\r\nRECURRENCE-ID:20260811T130000Z\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.selection.start, "2026-08-18T13:00:00+00:00");
@@ -1168,6 +1226,12 @@ mod tests {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:FLE Standard Time\r\nBEGIN:VEVENT\r\nUID:first\r\nDTSTART;TZID=FLE Standard Time:20260811T140000\r\nDTEND;TZID=FLE Standard Time:20260811T153000\r\nSUMMARY:Earlier active\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:second\r\nDTSTART;TZID=FLE Standard Time:20260811T143000\r\nDTEND;TZID=FLE Standard Time:20260811T160000\r\nSUMMARY:Most recently started\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.active_candidate_count, 2);
         assert_eq!(result.selection.subject, "Most recently started");
+        assert_eq!(result.overlapping_selections.len(), 1);
+        assert_eq!(result.overlapping_selections[0].subject, "Earlier active");
+        assert_eq!(
+            result.overlapping_selections[0].classification,
+            EventClassification::Active
+        );
     }
 
     #[test]

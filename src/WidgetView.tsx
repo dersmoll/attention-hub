@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   LogicalSize,
@@ -25,19 +25,29 @@ import {
 } from "./attention-model";
 import {
   nextWorkCalendarRefreshDelay,
+  selectWorkCalendarDisplay,
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
 import {
   convertZonedTimeToInstant,
-  formatLocalConversion,
   formatZonedConversion,
 } from "./time-zone-converter";
 import {
-  WIDGET_CLOCK_WIDTH,
+  canonicalTimeZone,
+  getCommonTimeZones,
+  shortTimeZoneLabel,
+  timeZoneOptionLabel,
+  timeZoneOffsetLabel,
+} from "./time-zone-options";
+import {
+  WIDGET_UTILITY_WIDTH,
   widgetCalendarWidth,
+  widgetClockWidth,
+  widgetHeight,
   widgetLeftWidth,
   widgetWidth,
+  widgetZoneGap,
 } from "./widget-layout";
 import {
   type AttentionAppKey,
@@ -60,6 +70,12 @@ import {
   type LaterInboxPreferences,
 } from "./later-inbox-preferences";
 import { openLaterInboxWindow } from "./later-inbox-window";
+import {
+  ADVANCED_FOCUS_EVENT,
+  advancedWindowUrl,
+  type AdvancedFocusRequest,
+  type AdvancedFocusTarget,
+} from "./advanced-focus";
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
@@ -74,15 +90,6 @@ const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "whatsapp",
 ];
 const SEMANTIC_VISUAL_SOURCES: LiveVisualAppKey[] = ["teams", "telegram"];
-
-const TIME_ZONE_OPTIONS = [
-  { value: MIAMI_TIME_ZONE, label: "ET · Miami" },
-  { value: "America/Los_Angeles", label: "Los Angeles" },
-  { value: "Europe/London", label: "London" },
-  { value: "Europe/Kyiv", label: "Kyiv" },
-  { value: "UTC", label: "UTC" },
-  { value: "Asia/Tokyo", label: "Tokyo" },
-];
 
 function formatTime(now: Date, timeZone?: string) {
   return new Intl.DateTimeFormat([], {
@@ -161,6 +168,61 @@ function formatCalendarDetail(selection: WorkCalendarSelection, now: Date) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+function CalendarEventDetail({
+  selection,
+  now,
+}: {
+  selection: WorkCalendarSelection;
+  now: Date;
+}) {
+  const countdown = formatCalendarCountdown(selection, now);
+  const metadata = [
+    formatCalendarRange(selection, now),
+    selection.meetingLinkPresent === true ? "Online meeting" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <small className="widget-calendar__detail">
+      {countdown && (
+        <strong className="widget-calendar__countdown">{countdown}</strong>
+      )}
+      {countdown && metadata && (
+        <span aria-hidden="true" className="widget-calendar__separator">
+          ·
+        </span>
+      )}
+      <span className="widget-calendar__metadata">{metadata}</span>
+    </small>
+  );
+}
+
+function calendarEventProgress(
+  selection: WorkCalendarSelection | null,
+  now: Date,
+) {
+  if (
+    selection?.classification !== "active" ||
+    selection.allDay
+  ) {
+    return null;
+  }
+  const startMs = Date.parse(selection.start);
+  const endMs = Date.parse(selection.end);
+  if (
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    endMs <= startMs
+  ) {
+    return null;
+  }
+  return Math.min(
+    100,
+    Math.max(0, ((now.getTime() - startMs) / (endMs - startMs)) * 100),
+  );
 }
 
 async function invokeWorkCalendarSnapshot() {
@@ -419,6 +481,9 @@ export function WidgetView() {
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
     string | null
   >(null);
+  const [finishedActiveEvents, setFinishedActiveEvents] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [widgetError, setWidgetError] = useState<string | null>(null);
   const [clockConversionSource, setClockConversionSource] =
     useState<ClockConversionSource | null>(null);
@@ -430,7 +495,20 @@ export function WidgetView() {
   const laterButtonRef = useRef<HTMLButtonElement>(null);
   const widgetWindow = useMemo(getCurrentWindow, []);
   const pinned = preferences.pinned;
+  const systemTimeZone = canonicalTimeZone(
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  const primaryTimeZone = preferences.primaryTimeZone ?? systemTimeZone;
   const secondaryTimeZone = preferences.secondaryTimeZone;
+  const timeZoneOptions = useMemo(
+    () =>
+      getCommonTimeZones(
+        [preferences.primaryTimeZone, secondaryTimeZone].filter(
+          (value): value is string => value !== null,
+        ),
+      ),
+    [preferences.primaryTimeZone, secondaryTimeZone],
+  );
   const visibleSources = useMemo(
     () =>
       preferences.appOrder.filter((sourceKey) =>
@@ -438,18 +516,16 @@ export function WidgetView() {
       ),
     [preferences.appOrder, preferences.monitoredSources],
   );
-  const resizeCalendarSelection =
-    workCalendar?.status === "observed" ? workCalendar.selection : null;
-  const resizeActiveEventKey =
-    resizeCalendarSelection?.classification === "active" &&
-    !resizeCalendarSelection.allDay
-      ? `${resizeCalendarSelection.start}|${resizeCalendarSelection.end}`
-      : null;
-  const showNextEvent =
-    resizeActiveEventKey !== null &&
-    acknowledgedActiveEvent === resizeActiveEventKey &&
-    workCalendar?.status === "observed" &&
-    workCalendar.nextSelection !== null;
+  const calendarDisplay = useMemo(
+    () =>
+      selectWorkCalendarDisplay(
+        workCalendar,
+        finishedActiveEvents,
+        acknowledgedActiveEvent,
+      ),
+    [acknowledgedActiveEvent, finishedActiveEvents, workCalendar],
+  );
+  const showNextEvent = calendarDisplay.companion !== null;
   const laterOpenItems = laterInbox?.items.filter(
     (item) => item.completedAt === null,
   ) ?? [];
@@ -712,6 +788,7 @@ export function WidgetView() {
             .map((sourceKey, slot) => ({ sourceKey, slot }))
             .filter(({ sourceKey }) => sourceKey !== "outlook"),
           visibleSourceCount: visibleSources.length,
+          compactMode: preferences.widthMode === "recommended",
         });
       } catch (error) {
         setWidgetError(`App layout update failed: ${String(error)}`);
@@ -773,7 +850,7 @@ export function WidgetView() {
               preferences.widthMode,
               showNextEvent,
             ),
-            80,
+            widgetHeight(preferences.widthMode),
           ),
         );
         const [position, size, monitors] = await Promise.all([
@@ -856,20 +933,27 @@ export function WidgetView() {
     }
   };
 
-  const openAdvanced = async () => {
+  const openAdvanced = async (focusTarget?: AdvancedFocusTarget) => {
     try {
       const existing = await WebviewWindow.getByLabel("advanced");
       if (existing) {
         await existing.show();
         await existing.setFocus();
+        if (focusTarget) {
+          await emitTo<AdvancedFocusRequest>(
+            "advanced",
+            ADVANCED_FOCUS_EVENT,
+            { target: focusTarget },
+          );
+        }
         return;
       }
 
       const advanced = new WebviewWindow("advanced", {
-        url: "/",
+        url: advancedWindowUrl(focusTarget),
         title: "Attention Hub - Advanced",
         width: 900,
-        height: 720,
+        height: 680,
         minWidth: 720,
         minHeight: 560,
         center: true,
@@ -900,11 +984,62 @@ export function WidgetView() {
     }
   };
 
-  const openCalendarJoin = async (joinToken: string) => {
+  const suppressCalendarEvent = (eventKey: string | null) => {
+    if (!eventKey) {
+      return;
+    }
+    setFinishedActiveEvents((current) => {
+      const next = new Set(current);
+      next.add(eventKey);
+      return next;
+    });
+  };
+
+  const chooseCalendarEvent = (eventKey: string | null) => {
+    if (!eventKey) {
+      return;
+    }
+    setAcknowledgedActiveEvent(eventKey);
+    if (calendarDisplay.hasOverlap) {
+      suppressCalendarEvent(
+        eventKey === calendarDisplay.selectionKey
+          ? calendarDisplay.companionKey
+          : calendarDisplay.selectionKey,
+      );
+    }
+  };
+
+  const openCalendarJoin = async (
+    selection: WorkCalendarSelection,
+    eventKey: string | null,
+  ) => {
+    if (!selection.joinToken) {
+      return;
+    }
     try {
-      await invoke("open_work_calendar_join_url", { joinToken });
+      await invoke("open_work_calendar_join_url", {
+        joinToken: selection.joinToken,
+      });
+      chooseCalendarEvent(eventKey);
     } catch (error) {
       setWidgetError(`Could not open the meeting link: ${String(error)}`);
+    }
+  };
+
+  const finishCalendarEvent = (
+    selection: WorkCalendarSelection,
+    eventKey: string | null,
+  ) => {
+    if (
+      !eventKey ||
+      selection.classification !== "active" ||
+      selection.allDay
+    ) {
+      return;
+    }
+    suppressCalendarEvent(eventKey);
+    if (acknowledgedActiveEvent === eventKey) {
+      setAcknowledgedActiveEvent(null);
     }
   };
 
@@ -958,13 +1093,11 @@ export function WidgetView() {
   const outlookStatus = outlook?.state === "notExposed"
     ? "unread count is unavailable while Outlook is minimized; open Outlook to refresh"
     : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
-  const calendarSelection =
-    workCalendar?.status === "observed" ? workCalendar.selection : null;
-  const calendarNextSelection =
-    workCalendar?.status === "observed" ? workCalendar.nextSelection : null;
+  const calendarSelection = calendarDisplay.selection;
+  const calendarNextSelection = calendarDisplay.companion;
   const activeEventKey =
     calendarSelection?.classification === "active" && !calendarSelection.allDay
-      ? `${calendarSelection.start}|${calendarSelection.end}`
+      ? calendarDisplay.selectionKey
       : null;
   const activeEventAcknowledged =
     activeEventKey !== null && acknowledgedActiveEvent === activeEventKey;
@@ -981,6 +1114,7 @@ export function WidgetView() {
     calendarSelection?.classification === "active" &&
     !calendarSelection.allDay &&
     !activeEventAcknowledged;
+  const calendarNotConfigured = workCalendar?.status === "notConfigured";
   const calendarAttentionState = calendarStartedNeedsAttention
     ? "started"
     : calendarStartingSoon
@@ -994,13 +1128,15 @@ export function WidgetView() {
         : calendarSelection.classification === "active"
           ? "In progress"
           : "Up next"
-    : workCalendarRefreshing
-      ? "Calendar checking"
-      : "Calendar unavailable";
+    : calendarNotConfigured
+      ? "Calendar"
+      : workCalendarRefreshing
+        ? "Calendar checking"
+        : "Calendar unavailable";
   const calendarTitle = calendarSelection
     ? calendarSelection.subject
-    : workCalendar?.status === "notConfigured"
-      ? "Work calendar is not configured"
+    : calendarNotConfigured
+      ? "Connect work calendar"
       : workCalendar?.status === "busy"
         ? "Another calendar check is finishing"
         : "No fresh work-calendar event";
@@ -1013,51 +1149,54 @@ export function WidgetView() {
         : workCalendar?.status === "notConfigured"
           ? "Open Advanced to save one published calendar securely."
           : "The last refresh was unavailable; no cached event is shown.";
-  const calendarEndMs = calendarSelection
-    ? Date.parse(calendarSelection.end)
-    : Number.NaN;
-  const calendarProgress =
-    calendarSelection?.classification === "active" &&
-    !calendarSelection.allDay &&
-    Number.isFinite(calendarStartMs) &&
-    Number.isFinite(calendarEndMs) &&
-    calendarEndMs > calendarStartMs
-      ? Math.min(
-          100,
-          Math.max(
-            0,
-            ((now.getTime() - calendarStartMs) /
-              (calendarEndMs - calendarStartMs)) *
-              100,
-          ),
-        )
-      : null;
-  const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const calendarProgress = calendarEventProgress(calendarSelection, now);
+  const calendarNextAcknowledged =
+    calendarNextSelection?.classification === "active" &&
+    calendarDisplay.companionKey !== null &&
+    acknowledgedActiveEvent === calendarDisplay.companionKey;
+  const calendarNextStartedNeedsAttention =
+    calendarNextSelection?.classification === "active" &&
+    !calendarNextSelection.allDay &&
+    !calendarNextAcknowledged;
+  const calendarNextState =
+    calendarNextSelection?.classification === "active"
+      ? calendarNextAcknowledged
+        ? "In progress"
+        : "Meeting started"
+      : "Up next";
+  const calendarNextDetail = calendarNextSelection
+    ? formatCalendarDetail(calendarNextSelection, now)
+    : "";
+  const calendarNextProgress = calendarEventProgress(
+    calendarNextSelection,
+    now,
+  );
   const conversionSourceTimeZone =
-    clockConversionSource === "local" ? localTimeZone : secondaryTimeZone;
+    clockConversionSource === "local" ? primaryTimeZone : secondaryTimeZone;
   const conversionTargetTimeZone =
-    clockConversionSource === "local" ? secondaryTimeZone : localTimeZone;
+    clockConversionSource === "local" ? secondaryTimeZone : primaryTimeZone;
   const convertedClockTime = convertZonedTimeToInstant(
     conversionTime,
     now,
     conversionSourceTimeZone,
   );
   const clockConversion = convertedClockTime
-    ? clockConversionSource === "local"
-      ? formatZonedConversion(convertedClockTime, now, conversionTargetTimeZone)
-      : formatLocalConversion(convertedClockTime, now)
+    ? formatZonedConversion(convertedClockTime, now, conversionTargetTimeZone)
     : "Unavailable at the DST transition";
-  const secondaryTimeZoneLabel =
-    TIME_ZONE_OPTIONS.find(({ value }) => value === secondaryTimeZone)?.label ??
-    secondaryTimeZone;
+  const primaryTimeZoneLabel = preferences.primaryTimeZone
+    ? preferences.primaryTimeZone
+    : `System (${systemTimeZone})`;
+  const secondaryTimeZoneLabel = secondaryTimeZone;
   const panelStyle = {
     ...widgetPanelStyle(preferences),
-    "--widget-left-width": `${widgetLeftWidth(visibleSources.length)}px`,
-    "--widget-clock-width": `${WIDGET_CLOCK_WIDTH}px`,
+    "--widget-left-width": `${widgetLeftWidth(visibleSources.length, preferences.widthMode)}px`,
+    "--widget-clock-width": `${widgetClockWidth(preferences.widthMode)}px`,
     "--widget-calendar-width": `${widgetCalendarWidth(
       preferences.widthMode,
       showNextEvent,
     )}px`,
+    "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
+    "--widget-utility-width": `${WIDGET_UTILITY_WIDTH}px`,
   } as CSSProperties;
 
   const renderAppSlot = (sourceKey: AttentionAppKey) => {
@@ -1132,7 +1271,12 @@ export function WidgetView() {
   };
 
   return (
-    <main className="widget-shell" data-tauri-drag-region style={panelStyle}>
+    <main
+      className="widget-shell"
+      data-tauri-drag-region
+      data-width-mode={preferences.widthMode}
+      style={panelStyle}
+    >
       <section
         className="widget-zone widget-left"
         aria-label="Application attention"
@@ -1140,36 +1284,6 @@ export function WidgetView() {
       >
         <div className="widget-apps" data-tauri-drag-region>
           {visibleSources.map(renderAppSlot)}
-          <button
-            aria-label={`Open Later Inbox, ${laterOpenItems.length} open item${laterOpenItems.length === 1 ? "" : "s"}${laterDueCount ? `, ${laterDueCount} due` : ""}`}
-            className="widget-later"
-            data-due={laterDueCount > 0 || undefined}
-            onClick={() => void openLaterInbox()}
-            ref={laterButtonRef}
-            title="Open Later Inbox"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M4 4.5h16v15H4z" />
-              <path d="M4 14h4l1.6 2h4.8l1.6-2h4" />
-            </svg>
-            {laterOpenItems.length > 0 && (
-              <span className="widget-later__badge">
-                {laterDueCount > 0 ? "!" : ""}
-                {laterOpenItems.length > 99 ? "99+" : laterOpenItems.length}
-              </span>
-            )}
-          </button>
-          <button
-            aria-label="Open Advanced view"
-            className="widget-more"
-            onClick={() => void openAdvanced()}
-            title="Open Advanced view"
-            type="button"
-          >
-            <span aria-hidden="true">•••</span>
-            <span className="sr-only">Open Advanced view</span>
-          </button>
         </div>
       </section>
 
@@ -1182,7 +1296,7 @@ export function WidgetView() {
           <div className="widget-clock-converter">
             <label htmlFor="clock-conversion-time">
               {clockConversionSource === "local"
-                ? "Local"
+                ? primaryTimeZoneLabel
                 : secondaryTimeZoneLabel}
             </label>
             <input
@@ -1196,7 +1310,7 @@ export function WidgetView() {
               <span>
                 {clockConversionSource === "local"
                   ? secondaryTimeZoneLabel
-                  : "Local"}
+                  : primaryTimeZoneLabel}
               </span>
               <strong>{clockConversion}</strong>
             </output>
@@ -1212,51 +1326,100 @@ export function WidgetView() {
         ) : (
           <>
             <div data-tauri-drag-region>
-              <span className="widget-clock__label">Local</span>
+              <span className="widget-clock__label widget-clock__label--select">
+                <select
+                  aria-label="Primary timezone"
+                  className="widget-clock__native-select"
+                  title={`${primaryTimeZoneLabel} · ${timeZoneOffsetLabel(primaryTimeZone, now)}`}
+                  value=""
+                  onChange={(event) => {
+                    if (!event.target.value) {
+                      return;
+                    }
+                    setPreferences(
+                      writeWidgetPreferences({
+                        primaryTimeZone:
+                          event.target.value === "__system"
+                            ? null
+                            : event.target.value,
+                      }),
+                    );
+                  }}
+                >
+                  <option value="">
+                    {shortTimeZoneLabel(primaryTimeZone)}
+                  </option>
+                  <option value="__system">
+                    System — {timeZoneOptionLabel(systemTimeZone, now)}
+                  </option>
+                  {timeZoneOptions.map((timeZone) => (
+                    <option key={timeZone} value={timeZone}>
+                      {timeZoneOptionLabel(timeZone, now)}
+                    </option>
+                  ))}
+                </select>
+                <span aria-hidden="true" className="widget-clock__short-label">
+                  {shortTimeZoneLabel(primaryTimeZone)}
+                </span>
+                <svg aria-hidden="true" viewBox="0 0 12 8">
+                  <path d="m1 1.5 5 5 5-5" />
+                </svg>
+              </span>
               <button
-                aria-label={`Local time ${formatTime(now)}. Convert a local time to ${secondaryTimeZoneLabel}.`}
+                aria-label={`${primaryTimeZoneLabel} time ${formatTime(now, primaryTimeZone)}. Convert a ${primaryTimeZoneLabel} time to ${secondaryTimeZoneLabel}.`}
                 className="widget-clock__time-button"
                 onClick={() => {
-                  setConversionTime(formatTime(now));
+                  setConversionTime(formatTime(now, primaryTimeZone));
                   setClockConversionSource("local");
                 }}
-                title={`Click to convert a local time to ${secondaryTimeZoneLabel}`}
+                title={`Click to convert a ${primaryTimeZoneLabel} time to ${secondaryTimeZoneLabel}`}
                 type="button"
               >
-                <time>{formatTime(now)}</time>
+                <time>{formatTime(now, primaryTimeZone)}</time>
               </button>
             </div>
             <div data-tauri-drag-region>
               <span className="widget-clock__label widget-clock__label--select">
                 <select
                   aria-label="Secondary timezone"
-                  value={secondaryTimeZone}
-                  onChange={(event) =>
+                  className="widget-clock__native-select"
+                  title={`${secondaryTimeZone} · ${timeZoneOffsetLabel(secondaryTimeZone, now)}`}
+                  value=""
+                  onChange={(event) => {
+                    if (!event.target.value) {
+                      return;
+                    }
                     setPreferences(
                       writeWidgetPreferences({
                         secondaryTimeZone: event.target.value,
                       }),
-                    )
-                  }
+                    );
+                  }}
                 >
-                  {TIME_ZONE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  <option value="">
+                    {shortTimeZoneLabel(secondaryTimeZone)}
+                  </option>
+                  {timeZoneOptions.map((timeZone) => (
+                    <option key={timeZone} value={timeZone}>
+                      {timeZoneOptionLabel(timeZone, now)}
                     </option>
                   ))}
                 </select>
+                <span aria-hidden="true" className="widget-clock__short-label">
+                  {shortTimeZoneLabel(secondaryTimeZone)}
+                </span>
                 <svg aria-hidden="true" viewBox="0 0 12 8">
                   <path d="m1 1.5 5 5 5-5" />
                 </svg>
               </span>
               <button
-                aria-label={`${secondaryTimeZoneLabel} time ${formatTime(now, secondaryTimeZone)}. Convert a ${secondaryTimeZoneLabel} time to local time.`}
+                aria-label={`${secondaryTimeZoneLabel} time ${formatTime(now, secondaryTimeZone)}. Convert a ${secondaryTimeZoneLabel} time to ${primaryTimeZoneLabel}.`}
                 className="widget-clock__time-button"
                 onClick={() => {
                   setConversionTime(formatTime(now, secondaryTimeZone));
                   setClockConversionSource("secondary");
                 }}
-                title={`Click to convert a ${secondaryTimeZoneLabel} time to local`}
+                title={`Click to convert a ${secondaryTimeZoneLabel} time to ${primaryTimeZoneLabel}`}
                 type="button"
               >
                 <time>{formatTime(now, secondaryTimeZone)}</time>
@@ -1269,6 +1432,7 @@ export function WidgetView() {
       <section
         className="widget-zone widget-calendar"
         data-calendar-attention={calendarAttentionState}
+        data-calendar-setup={calendarNotConfigured || undefined}
         aria-label="Work calendar"
         data-tauri-drag-region
       >
@@ -1277,41 +1441,93 @@ export function WidgetView() {
           data-has-next={showNextEvent || undefined}
           data-tauri-drag-region
         >
-          <div className="widget-calendar__event" data-tauri-drag-region>
+          <div
+            className="widget-calendar__event"
+            data-tauri-drag-region
+            title={`${calendarTitle}\n${calendarDetail}`}
+          >
             <div className="widget-calendar__event-header">
               <span
                 className="widget-calendar__state"
                 data-calendar-status={
                   calendarSelection ? "observed" : undefined
                 }
+                data-calendar-progress={activeEventAcknowledged || undefined}
               >
                 {calendarState}
               </span>
-              {calendarStartedNeedsAttention && activeEventKey && (
-                <button
-                  className="widget-calendar__ack"
-                  onClick={() => setAcknowledgedActiveEvent(activeEventKey)}
-                  type="button"
-                >
-                  I&apos;m in
-                </button>
-              )}
-              {calendarSelection?.joinToken && (
-                <button
-                  aria-label={`Join ${calendarSelection.subject}`}
-                  className="widget-calendar__join"
-                  onClick={() =>
-                    void openCalendarJoin(calendarSelection.joinToken ?? "")
-                  }
-                  title="Open meeting link"
-                  type="button"
-                >
-                  Join
-                </button>
-              )}
+              <strong className="widget-calendar__title widget-calendar__title--compact">
+                {calendarTitle}
+              </strong>
             </div>
-            <strong>{calendarTitle}</strong>
-            <small>{calendarDetail}</small>
+            {calendarSelection &&
+              (calendarSelection.joinToken ||
+                calendarStartedNeedsAttention ||
+                activeEventAcknowledged) && (
+                <div className="widget-calendar__hover-actions">
+                  {calendarStartedNeedsAttention && (
+                    <button
+                      className="widget-calendar__ack"
+                      onClick={() => chooseCalendarEvent(activeEventKey)}
+                      type="button"
+                    >
+                      I&apos;m in
+                    </button>
+                  )}
+                  {calendarSelection.joinToken && (
+                    <button
+                      aria-label={`Join ${calendarSelection.subject}`}
+                      className="widget-calendar__join"
+                      onClick={() =>
+                        void openCalendarJoin(
+                          calendarSelection,
+                          calendarDisplay.selectionKey,
+                        )
+                      }
+                      title="Open meeting link"
+                      type="button"
+                    >
+                      Join
+                    </button>
+                  )}
+                  {activeEventAcknowledged && (
+                    <button
+                      aria-label={`Finish ${calendarSelection.subject} locally`}
+                      className="widget-calendar__finish"
+                      onClick={() =>
+                        finishCalendarEvent(calendarSelection, activeEventKey)
+                      }
+                      title="Hide locally until its scheduled end"
+                      type="button"
+                    >
+                      Finish
+                    </button>
+                  )}
+                </div>
+              )}
+            <strong className="widget-calendar__title widget-calendar__title--standard">
+              {calendarTitle}
+            </strong>
+            {calendarNotConfigured ? (
+              <div className="widget-calendar__detail widget-calendar__setup">
+                <small className="widget-calendar__metadata">
+                  Published ICS link required
+                </small>
+                <button
+                  aria-label="Set up work calendar in Advanced"
+                  className="widget-calendar__setup-button"
+                  onClick={() => void openAdvanced("work-calendar")}
+                  title="Open calendar setup in Advanced"
+                  type="button"
+                >
+                  Set up
+                </button>
+              </div>
+            ) : calendarSelection ? (
+              <CalendarEventDetail selection={calendarSelection} now={now} />
+            ) : (
+              <small>{calendarDetail}</small>
+            )}
             {calendarProgress !== null && (
               <div
                 aria-label={`Event progress ${Math.round(calendarProgress)} percent`}
@@ -1328,63 +1544,175 @@ export function WidgetView() {
 
           {showNextEvent && calendarNextSelection && (
             <div
-              aria-label="Next work-calendar event"
+              aria-label={
+                calendarNextSelection.classification === "active"
+                  ? "Overlapping active work-calendar event"
+                  : calendarDisplay.hasOverlap
+                    ? "Simultaneous upcoming work-calendar event"
+                    : "Next work-calendar event"
+              }
               className="widget-calendar__next"
               data-tauri-drag-region
+              title={`${calendarNextSelection.subject}\n${calendarNextDetail}`}
             >
               <div className="widget-calendar__next-header">
-                <span>Up next</span>
-                {calendarNextSelection.joinToken && (
-                  <button
-                    aria-label={`Join ${calendarNextSelection.subject}`}
-                    className="widget-calendar__join"
-                    onClick={() =>
-                      void openCalendarJoin(
-                        calendarNextSelection.joinToken ?? "",
-                      )
-                    }
-                    title="Open meeting link"
-                    type="button"
-                  >
-                    Join
-                  </button>
-                )}
+                <span
+                  className="widget-calendar__state"
+                  data-calendar-progress={
+                    calendarNextAcknowledged || undefined
+                  }
+                  data-calendar-started={
+                    (calendarNextSelection.classification === "active" &&
+                      !calendarNextAcknowledged) ||
+                    undefined
+                  }
+                >
+                  {calendarNextState}
+                </span>
+                <strong className="widget-calendar__title widget-calendar__title--compact">
+                  {calendarNextSelection.subject}
+                </strong>
               </div>
-              <strong>{calendarNextSelection.subject}</strong>
-              <small>
-                {formatCalendarDetail(calendarNextSelection, now)}
-              </small>
+              {(calendarNextSelection.joinToken ||
+                calendarNextStartedNeedsAttention ||
+                calendarNextAcknowledged) && (
+                <div className="widget-calendar__hover-actions">
+                  {calendarNextStartedNeedsAttention && (
+                    <button
+                      className="widget-calendar__ack"
+                      onClick={() =>
+                        chooseCalendarEvent(calendarDisplay.companionKey)
+                      }
+                      type="button"
+                    >
+                      I&apos;m in
+                    </button>
+                  )}
+                  {calendarNextSelection.joinToken && (
+                    <button
+                      aria-label={`Join ${calendarNextSelection.subject}`}
+                      className="widget-calendar__join"
+                      onClick={() =>
+                        void openCalendarJoin(
+                          calendarNextSelection,
+                          calendarDisplay.companionKey,
+                        )
+                      }
+                      title="Open meeting link"
+                      type="button"
+                    >
+                      Join
+                    </button>
+                  )}
+                  {calendarNextAcknowledged && (
+                    <button
+                      aria-label={`Finish ${calendarNextSelection.subject} locally`}
+                      className="widget-calendar__finish"
+                      onClick={() =>
+                        finishCalendarEvent(
+                          calendarNextSelection,
+                          calendarDisplay.companionKey,
+                        )
+                      }
+                      title="Hide locally until its scheduled end"
+                      type="button"
+                    >
+                      Finish
+                    </button>
+                  )}
+                </div>
+              )}
+              <strong className="widget-calendar__title widget-calendar__title--standard">
+                {calendarNextSelection.subject}
+              </strong>
+              <CalendarEventDetail
+                selection={calendarNextSelection}
+                now={now}
+              />
+              {calendarNextProgress !== null && (
+                <div
+                  aria-label={`Event progress ${Math.round(calendarNextProgress)} percent`}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={Math.round(calendarNextProgress)}
+                  className="widget-calendar__progress"
+                  role="progressbar"
+                >
+                  <span style={{ width: `${calendarNextProgress}%` }} />
+                </div>
+              )}
             </div>
           )}
         </div>
-        <div className="widget-controls">
-          <button
-            aria-label={
-              pinned ? "Unpin Attention Hub" : "Pin Attention Hub always on top"
-            }
-            aria-pressed={pinned}
-            onClick={() => void togglePinned()}
-            title={pinned ? "Unpin from always on top" : "Pin always on top"}
-            type="button"
-          >
-            <span className="widget-control__surface">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
-              </svg>
-            </span>
-          </button>
-          <button
-            aria-label="Close Attention Hub"
-            onClick={() => void invoke("quit_application")}
-            title="Close Attention Hub"
-            type="button"
-          >
-            <span aria-hidden="true" className="widget-control__surface">
-              ×
-            </span>
-          </button>
-        </div>
       </section>
+
+      <aside
+        aria-label="Widget controls"
+        className="widget-utility"
+        data-tauri-drag-region
+      >
+        <button
+          aria-label={
+            pinned ? "Unpin Attention Hub" : "Pin Attention Hub always on top"
+          }
+          aria-pressed={pinned}
+          onClick={() => void togglePinned()}
+          title={pinned ? "Unpin from always on top" : "Pin always on top"}
+          type="button"
+        >
+          <span className="widget-utility__surface">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
+            </svg>
+          </span>
+        </button>
+        <button
+          aria-label="Close Attention Hub"
+          onClick={() => void invoke("quit_application")}
+          title="Close Attention Hub"
+          type="button"
+        >
+          <span aria-hidden="true" className="widget-utility__surface">
+            ×
+          </span>
+        </button>
+        <button
+          aria-label={`Open Later Inbox, ${laterOpenItems.length} open reminder${laterOpenItems.length === 1 ? "" : "s"}${laterDueCount ? `, ${laterDueCount} due` : ""}`}
+          className="widget-reminder-control"
+          data-due={laterDueCount > 0 || undefined}
+          onClick={() => void openLaterInbox()}
+          ref={laterButtonRef}
+          title="Open reminders"
+          type="button"
+        >
+          <span className="widget-utility__surface">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM9.7 20h4.6" />
+            </svg>
+          </span>
+          {laterOpenItems.length > 0 && (
+            <span className="widget-reminder__badge">
+              {laterDueCount > 0 ? "!" : ""}
+              {laterOpenItems.length > 99 ? "99+" : laterOpenItems.length}
+            </span>
+          )}
+        </button>
+        <button
+          aria-label="Open Advanced view"
+          className="widget-advanced-control"
+          onClick={() => void openAdvanced()}
+          title="Open Advanced view"
+          type="button"
+        >
+          <span aria-hidden="true" className="widget-utility__surface">
+            <svg viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1A1.7 1.7 0 0 0 8.4 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2V9.55h.3A1.7 1.7 0 0 0 4 8.4a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.46 3.6l.06.06A1.7 1.7 0 0 0 8.4 4a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2h4.05v.3A1.7 1.7 0 0 0 15 4a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.4a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.3v4.05h-.3A1.7 1.7 0 0 0 19.4 15Z" />
+            </svg>
+          </span>
+          <span className="sr-only">Open Advanced view</span>
+        </button>
+      </aside>
 
       {widgetError && (
         <p className="widget-error" role="status">

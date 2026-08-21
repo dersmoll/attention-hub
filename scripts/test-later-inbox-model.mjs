@@ -71,11 +71,19 @@ const isoValue = model.fromLocalDateTimeInput(localValue);
 assert.equal(typeof isoValue, "string");
 assert.equal(model.toLocalDateTimeInput(isoValue), localValue);
 assert.equal(model.fromLocalDateTimeInput(""), null);
+assert.equal(
+  model.nextQuarterHour(new Date("2026-08-14T10:00:00.000Z")).toISOString(),
+  "2026-08-14T10:15:00.000Z",
+);
+assert.equal(
+  model.nextQuarterHour(new Date("2026-08-14T10:59:59.999Z")).toISOString(),
+  "2026-08-14T11:00:00.000Z",
+);
 assert.deepEqual(model.LATER_INBOX_WINDOW_GEOMETRY, {
   width: 360,
-  height: 420,
+  height: 560,
   minWidth: 340,
-  minHeight: 360,
+  minHeight: 440,
 });
 
 const richNotesUrl = new URL("../src/later-inbox-rich-notes.ts", import.meta.url);

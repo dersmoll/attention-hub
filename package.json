@@ -1,15 +1,17 @@
 {
   "name": "attention-hub",
   "private": true,
-  "version": "0.5.0-beta.1",
+  "version": "0.6.0-beta.1",
   "type": "module",
   "scripts": {
+    "test:advanced-focus": "node scripts/test-advanced-focus.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "test:attention-model": "node scripts/test-attention-model.mjs",
     "test:later-inbox": "node scripts/test-later-inbox-model.mjs",
     "test:preferences": "node scripts/test-widget-preferences.mjs",
     "test:time-zone": "node scripts/test-time-zone-converter.mjs",
+    "test:work-calendar": "node scripts/test-work-calendar-model.mjs",
     "test:widget-layout": "node scripts/test-widget-layout.mjs",
     "preview": "vite preview",
     "tauri": "tauri"

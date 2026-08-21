@@ -90,8 +90,7 @@ export function LaterInboxDataPanel() {
 
   return (
     <section aria-labelledby="later-data-heading" className="later-data-panel">
-      <p className="eyebrow">Personal local queue</p>
-      <h2 id="later-data-heading">Later Inbox data</h2>
+      <h2 id="later-data-heading">Storage and data</h2>
       <p>
         {openCount} open and {completedCount} completed. These user-owned items
         are separate from source attention coverage and never affect All clear.

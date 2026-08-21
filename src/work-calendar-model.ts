@@ -22,11 +22,116 @@ export interface WorkCalendarSnapshot {
   sourceIdentityState: "userSavedSinglePublishedCalendarTitleCapable";
   capturedAtUnixMs: number;
   selection: WorkCalendarSelection | null;
+  overlappingSelections: WorkCalendarSelection[];
   nextSelection: WorkCalendarSelection | null;
   stopReason: string | null;
   requestMs: number;
   parseMs: number;
   diagnostics: string[];
+}
+
+export interface WorkCalendarDisplay {
+  selection: WorkCalendarSelection | null;
+  selectionKey: string | null;
+  companion: WorkCalendarSelection | null;
+  companionKey: string | null;
+  hasOverlap: boolean;
+}
+
+export function workCalendarSelectionKey(
+  selection: WorkCalendarSelection,
+  slot: string,
+) {
+  return `${slot}|${selection.start}|${selection.end}|${selection.subject}`;
+}
+
+export function selectWorkCalendarDisplay(
+  snapshot: WorkCalendarSnapshot | null,
+  finishedEventKeys: ReadonlySet<string>,
+  acknowledgedActiveEvent: string | null,
+): WorkCalendarDisplay {
+  if (snapshot?.status !== "observed" || !snapshot.selection) {
+    return {
+      selection: null,
+      selectionKey: null,
+      companion: null,
+      companionKey: null,
+      hasOverlap: false,
+    };
+  }
+
+  const primaryEntry = {
+    selection: snapshot.selection,
+    key: workCalendarSelectionKey(snapshot.selection, "primary"),
+  };
+  const overlappingEntries = snapshot.overlappingSelections.map(
+    (selection, index) => ({
+      selection,
+      key: workCalendarSelectionKey(selection, `overlap-${index}`),
+    }),
+  );
+  const parallelEntries = [primaryEntry, ...overlappingEntries];
+  const activeSelections = parallelEntries.filter(
+    ({ selection, key }) =>
+      selection.classification === "active" && !finishedEventKeys.has(key),
+  );
+
+  if (activeSelections.length > 0) {
+    const primary = activeSelections[0];
+    const overlapping = activeSelections[1] ?? null;
+    const upcoming = snapshot.nextSelection
+      ? {
+          selection: snapshot.nextSelection,
+          key: workCalendarSelectionKey(snapshot.nextSelection, "next"),
+        }
+      : null;
+    const companionEntry =
+      overlapping ??
+      (acknowledgedActiveEvent === primary.key ? upcoming : null);
+    return {
+      selection: primary.selection,
+      selectionKey: primary.key,
+      companion: companionEntry?.selection ?? null,
+      companionKey: companionEntry?.key ?? null,
+      hasOverlap: overlapping !== null,
+    };
+  }
+
+  if (snapshot.selection.classification === "active") {
+    return {
+      selection: snapshot.nextSelection,
+      selectionKey: snapshot.nextSelection
+        ? workCalendarSelectionKey(snapshot.nextSelection, "next")
+        : null,
+      companion: null,
+      companionKey: null,
+      hasOverlap: false,
+    };
+  }
+
+  const upcomingSelections = parallelEntries.filter(
+    ({ selection, key }) =>
+      selection.classification === "upcoming" && !finishedEventKeys.has(key),
+  );
+  if (upcomingSelections.length > 0) {
+    const primary = upcomingSelections[0];
+    const companion = upcomingSelections[1] ?? null;
+    return {
+      selection: primary.selection,
+      selectionKey: primary.key,
+      companion: companion?.selection ?? null,
+      companionKey: companion?.key ?? null,
+      hasOverlap: companion !== null,
+    };
+  }
+
+  return {
+    selection: null,
+    selectionKey: null,
+    companion: null,
+    companionKey: null,
+    hasOverlap: false,
+  };
 }
 
 export interface WorkCalendarConfiguration {

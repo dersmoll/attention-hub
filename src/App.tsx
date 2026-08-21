@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -21,12 +21,24 @@ import {
   type LiveVisualAppKey,
   DEFAULT_APP_ORDER,
   DEFAULT_LIVE_VISUAL_SOURCES,
+  DEFAULT_MONITORED_SOURCES,
   DEFAULT_WIDGET_PREFERENCES,
+  LIVE_VISUAL_APP_KEYS,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
   readWidgetPreferences,
   writeWidgetPreferences,
 } from "./widget-preferences";
+import {
+  canonicalTimeZone,
+  searchTimeZones,
+  timeZoneOptionLabel,
+} from "./time-zone-options";
+import {
+  ADVANCED_FOCUS_EVENT,
+  readAdvancedFocusTarget,
+  type AdvancedFocusRequest,
+} from "./advanced-focus";
 import "./App.css";
 
 type NotificationAccessStatus =
@@ -77,9 +89,72 @@ interface NotificationChangeSignal {
   notificationId: number | null;
 }
 
-const PUBLISHED_ICS_UI_DEADLINE_MS = 20_000;
+type AdvancedPage =
+  | "general"
+  | "clocks"
+  | "apps"
+  | "calendar"
+  | "reminders"
+  | "diagnostics";
 
+const ADVANCED_PAGES: Array<{
+  id: AdvancedPage;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "general",
+    label: "General",
+    description: "Widget size and panel appearance.",
+  },
+  {
+    id: "clocks",
+    label: "Clocks",
+    description: "Primary and secondary timezone settings.",
+  },
+  {
+    id: "apps",
+    label: "Apps",
+    description: "Source visibility, visual mirrors, and ordering.",
+  },
+  {
+    id: "calendar",
+    label: "Calendar",
+    description: "Connect and manage one secure Published ICS source.",
+  },
+  {
+    id: "reminders",
+    label: "Reminders",
+    description: "Later Inbox storage and data controls.",
+  },
+  {
+    id: "diagnostics",
+    label: "Diagnostics",
+    description: "Source observations and technical Windows evidence.",
+  },
+];
+
+const PUBLISHED_ICS_UI_DEADLINE_MS = 20_000;
 class PublishedIcsUiDeadlineError extends Error {}
+
+function sourceScanLabel(
+  snapshot: AttentionSignalSnapshot | null,
+  sourceKey: AttentionAppKey,
+) {
+  const state = snapshot?.sources.find(
+    (source) => source.sourceKey === sourceKey,
+  )?.state;
+  if (state === "observed") {
+    return "Detected now";
+  }
+  if (state === "notRunning") {
+    return "Not running";
+  }
+  if (state === "notExposed") {
+    return "Running, but not exposed";
+  }
+  return state === "error" ? "Unavailable" : null;
+}
 
 async function invokePublishedIcsWithDeadline<T>(
   command: string,
@@ -104,6 +179,10 @@ async function invokePublishedIcsWithDeadline<T>(
 }
 
 function AdvancedView() {
+  const initialAdvancedFocus = readAdvancedFocusTarget(window.location.search);
+  const [activePage, setActivePage] = useState<AdvancedPage>(
+    initialAdvancedFocus === "work-calendar" ? "calendar" : "general",
+  );
   const [widgetPreferences, setWidgetPreferences] = useState(
     readWidgetPreferences,
   );
@@ -125,6 +204,12 @@ function AdvancedView() {
   const [attentionRefreshing, setAttentionRefreshing] = useState(false);
   const [attentionClock, setAttentionClock] = useState(() => Date.now());
   const attentionRequestInFlight = useRef(false);
+  const workCalendarSectionRef = useRef<HTMLElement>(null);
+  const publishedIcsInputRef = useRef<HTMLInputElement>(null);
+  const [catalogScan, setCatalogScan] =
+    useState<AttentionSignalSnapshot | null>(null);
+  const [catalogScanPending, setCatalogScanPending] = useState(false);
+  const [catalogScanError, setCatalogScanError] = useState<string | null>(null);
   const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
   const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
   const [report, setReport] = useState<NotificationAccessReport | null>(null);
@@ -139,6 +224,27 @@ function AdvancedView() {
     "refresh" | "request" | "snapshot" | null
   >(null);
   const [frontendError, setFrontendError] = useState<string | null>(null);
+  const [primaryTimeZoneSearch, setPrimaryTimeZoneSearch] = useState("");
+  const [secondaryTimeZoneSearch, setSecondaryTimeZoneSearch] = useState("");
+  const currentTimeZones = useMemo(
+    () =>
+      [
+        widgetPreferences.primaryTimeZone,
+        widgetPreferences.secondaryTimeZone,
+      ].filter((value): value is string => value !== null),
+    [
+      widgetPreferences.primaryTimeZone,
+      widgetPreferences.secondaryTimeZone,
+    ],
+  );
+  const primaryTimeZoneOptions = useMemo(
+    () => searchTimeZones(primaryTimeZoneSearch, currentTimeZones),
+    [currentTimeZones, primaryTimeZoneSearch],
+  );
+  const secondaryTimeZoneOptions = useMemo(
+    () => searchTimeZones(secondaryTimeZoneSearch, currentTimeZones),
+    [currentTimeZones, secondaryTimeZoneSearch],
+  );
 
   const applyWidgetPreferences = useCallback(
     (update: Parameters<typeof writeWidgetPreferences>[0]) => {
@@ -192,7 +298,7 @@ function AdvancedView() {
         selected.add(sourceKey);
       }
       applyWidgetPreferences({
-        liveVisualSources: DEFAULT_LIVE_VISUAL_SOURCES.filter((key) =>
+        liveVisualSources: LIVE_VISUAL_APP_KEYS.filter((key) =>
           selected.has(key),
         ),
       });
@@ -226,6 +332,22 @@ function AdvancedView() {
     }
   }, [widgetPreferences.monitoredSources]);
 
+  const scanFixedSources = useCallback(async () => {
+    setCatalogScanPending(true);
+    setCatalogScanError(null);
+    try {
+      setCatalogScan(
+        await invoke<AttentionSignalSnapshot>("get_attention_signal_snapshot", {
+          sourceKeys: DEFAULT_APP_ORDER,
+        }),
+      );
+    } catch (error) {
+      setCatalogScanError(String(error));
+    } finally {
+      setCatalogScanPending(false);
+    }
+  }, []);
+
   const refreshWorkCalendarConfiguration = useCallback(async () => {
     try {
       setWorkCalendarConfiguration(
@@ -238,6 +360,17 @@ function AdvancedView() {
         "The secure work-calendar configuration could not be read.",
       );
     }
+  }, []);
+
+  const focusWorkCalendarSetup = useCallback(() => {
+    setActivePage("calendar");
+    requestAnimationFrame(() => {
+      workCalendarSectionRef.current?.scrollIntoView({
+        block: "start",
+        behavior: "auto",
+      });
+      publishedIcsInputRef.current?.focus({ preventScroll: true });
+    });
   }, []);
 
   const saveWorkCalendarSource = useCallback(async () => {
@@ -369,6 +502,34 @@ function AdvancedView() {
   }, [refreshWorkCalendarConfiguration]);
 
   useEffect(() => {
+    if (readAdvancedFocusTarget(window.location.search) === "work-calendar") {
+      focusWorkCalendarSetup();
+    }
+
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listen<AdvancedFocusRequest>(
+      ADVANCED_FOCUS_EVENT,
+      ({ payload }) => {
+        if (!disposed && payload.target === "work-calendar") {
+          focusWorkCalendarSetup();
+        }
+      },
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, [focusWorkCalendarSetup]);
+
+  useEffect(() => {
     let disposed = false;
     let stopListening: (() => void) | undefined;
     void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
@@ -493,24 +654,57 @@ function AdvancedView() {
     };
   }, [refreshSnapshot, report?.accessStatus]);
 
+  const activePageDetails =
+    ADVANCED_PAGES.find((page) => page.id === activePage) ?? ADVANCED_PAGES[0];
+
   return (
     <main className="advanced-shell">
-      <header className="app-header">
-        <p className="eyebrow">Local-first Windows observer</p>
-        <h1>Attention Hub</h1>
-        <p>What currently needs my attention?</p>
-      </header>
-
-      <section aria-labelledby="widget-preferences-heading">
-        <p className="eyebrow">Compact widget</p>
-        <h2 id="widget-preferences-heading">Widget settings</h2>
-        <p>
-          Changes apply immediately. Calendar warning colors remain fixed so
-          “starting soon” and “meeting started” keep their meaning.
+      <aside className="advanced-sidebar">
+        <div className="advanced-brand">
+          <span aria-hidden="true" className="advanced-brand__mark">
+            A
+          </span>
+          <span>
+            <strong>Attention Hub</strong>
+            <small>Settings</small>
+          </span>
+        </div>
+        <nav aria-label="Advanced settings pages" className="advanced-nav">
+          {ADVANCED_PAGES.map((page) => (
+            <button
+              aria-current={activePage === page.id ? "page" : undefined}
+              key={page.id}
+              onClick={() => setActivePage(page.id)}
+              type="button"
+            >
+              {page.label}
+            </button>
+          ))}
+        </nav>
+        <p className="advanced-sidebar__note">
+          Local-first Windows observer
         </p>
+      </aside>
+
+      <div className="advanced-content">
+        <header className="advanced-page-header">
+          <h1>{activePageDetails.label}</h1>
+          <p>{activePageDetails.description}</p>
+        </header>
+
+      <section
+        aria-labelledby="widget-preferences-heading"
+        hidden={!(["general", "clocks", "apps"] as AdvancedPage[]).includes(activePage)}
+      >
+        <h2 className="sr-only" id="widget-preferences-heading">
+          Widget settings
+        </h2>
 
         <div className="widget-preferences-grid">
-          <fieldset className="widget-preference-card">
+          <fieldset
+            className="widget-preference-card"
+            hidden={activePage !== "general"}
+          >
             <legend>Panel surface</legend>
             <label htmlFor="widget-panel-color">Background color</label>
             <div className="widget-color-control">
@@ -536,7 +730,7 @@ function AdvancedView() {
             <input
               id="widget-panel-opacity"
               max="100"
-              min="85"
+              min="25"
               onChange={(event) =>
                 applyWidgetPreferences({
                   panelOpacity: Number(event.target.value),
@@ -547,35 +741,20 @@ function AdvancedView() {
               value={widgetPreferences.panelOpacity}
             />
             <small>
-              Text and border colors are selected automatically for contrast.
+              Text and borders adapt to the selected color. The desktop behind
+              translucent panels can still reduce readability.
             </small>
-            <label htmlFor="widget-width-mode">Widget width</label>
-            <select
-              id="widget-width-mode"
-              onChange={(event) =>
-                applyWidgetPreferences({
-                  widthMode: event.target.value as
-                    | "compact"
-                    | "auto"
-                    | "wide",
-                })
-              }
-              value={widgetPreferences.widthMode}
-            >
-              <option value="compact">Compact</option>
-              <option value="auto">Auto (recommended)</option>
-              <option value="wide">Wide</option>
-            </select>
-            <small>
-              Auto uses a narrower calendar for one event and expands only when
-              the acknowledged current event is shown with the next event.
-            </small>
+            {widgetPreferences.panelOpacity < 60 && (
+              <small className="widget-preference-warning" role="status">
+                Low opacity may make text and controls difficult to read over a
+                busy desktop.
+              </small>
+            )}
             <button
               onClick={() =>
                 applyWidgetPreferences({
                   panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
                   panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
-                  widthMode: DEFAULT_WIDGET_PREFERENCES.widthMode,
                 })
               }
               type="button"
@@ -584,7 +763,113 @@ function AdvancedView() {
             </button>
           </fieldset>
 
-          <fieldset className="widget-preference-card">
+          <fieldset
+            className="widget-preference-card"
+            hidden={activePage !== "general"}
+          >
+            <legend>Widget size</legend>
+            <label htmlFor="widget-width-mode">Size preset</label>
+            <select
+              id="widget-width-mode"
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  widthMode: event.target.value as
+                    | "recommended"
+                    | "larger",
+                })
+              }
+              value={widgetPreferences.widthMode}
+            >
+              <option value="recommended">Recommended</option>
+              <option value="larger">Larger</option>
+            </select>
+            <small>
+              Recommended uses the current dense 68 px layout. Larger uses an
+              80 px layout with a fixed 416 px calendar area.
+            </small>
+          </fieldset>
+
+          <fieldset
+            className="widget-preference-card"
+            hidden={activePage !== "clocks"}
+          >
+            <legend>Clocks</legend>
+            <label htmlFor="widget-primary-time-zone">Primary timezone</label>
+            <input
+              aria-label="Search primary timezones"
+              className="widget-time-zone-search"
+              onChange={(event) => setPrimaryTimeZoneSearch(event.target.value)}
+              placeholder="Search city, IANA name, or UTC offset"
+              type="search"
+              value={primaryTimeZoneSearch}
+            />
+            <select
+              id="widget-primary-time-zone"
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  primaryTimeZone: event.target.value || null,
+                })
+              }
+              value={widgetPreferences.primaryTimeZone ?? ""}
+            >
+              <option value="">
+                {`System (${canonicalTimeZone(
+                  Intl.DateTimeFormat().resolvedOptions().timeZone,
+                )})`}
+              </option>
+              {primaryTimeZoneOptions.map((timeZone) => (
+                <option key={timeZone} value={timeZone}>
+                  {timeZoneOptionLabel(timeZone)}
+                </option>
+              ))}
+            </select>
+            <small>
+              This changes the primary clock and time converter only. Calendar,
+              reminders, and Windows keep using their established time rules.
+            </small>
+            <button
+              disabled={widgetPreferences.primaryTimeZone === null}
+              onClick={() => applyWidgetPreferences({ primaryTimeZone: null })}
+              type="button"
+            >
+              Use system timezone
+            </button>
+            <label htmlFor="widget-secondary-time-zone">
+              Secondary timezone
+            </label>
+            <input
+              aria-label="Search secondary timezones"
+              className="widget-time-zone-search"
+              onChange={(event) => setSecondaryTimeZoneSearch(event.target.value)}
+              placeholder="Search city, IANA name, or UTC offset"
+              type="search"
+              value={secondaryTimeZoneSearch}
+            />
+            <select
+              id="widget-secondary-time-zone"
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  secondaryTimeZone: event.target.value,
+                })
+              }
+              value={widgetPreferences.secondaryTimeZone}
+            >
+              {secondaryTimeZoneOptions.map((timeZone) => (
+                <option key={timeZone} value={timeZone}>
+                  {timeZoneOptionLabel(timeZone)}
+                </option>
+              ))}
+            </select>
+            <small>
+              The widget shows a short city label and a compact common-zone
+              list. Search here to reach the full IANA catalog.
+            </small>
+          </fieldset>
+
+          <fieldset
+            className="widget-preference-card"
+            hidden={activePage !== "apps"}
+          >
             <legend>Left-panel app order</legend>
             <ol className="widget-app-order">
               {widgetPreferences.appOrder.map((sourceKey, index) => {
@@ -604,17 +889,19 @@ function AdvancedView() {
                         aria-label={`Move ${labels[sourceKey]} up`}
                         disabled={index === 0}
                         onClick={() => moveApp(sourceKey, -1)}
+                        title="Move up"
                         type="button"
                       >
-                        Move up
+                        ↑
                       </button>
                       <button
                         aria-label={`Move ${labels[sourceKey]} down`}
                         disabled={index === widgetPreferences.appOrder.length - 1}
                         onClick={() => moveApp(sourceKey, 1)}
+                        title="Move down"
                         type="button"
                       >
-                        Move down
+                        ↓
                       </button>
                     </span>
                   </li>
@@ -635,12 +922,16 @@ function AdvancedView() {
             </button>
           </fieldset>
 
-          <fieldset className="widget-preference-card">
+          <fieldset
+            className="widget-preference-card"
+            hidden={activePage !== "apps"}
+          >
             <legend>Source monitoring</legend>
             <p>
               Showing {widgetPreferences.monitoredSources.length} of 6 fixed
-              sources. The first three provide semantic attention state; the
-              messenger additions provide app presence and visual-only badges.
+              sources. Microsoft Teams, Telegram, and Microsoft Outlook provide
+              semantic attention state; Slack, Viber, and WhatsApp provide app
+              presence and visual-only badges.
             </p>
             <div className="widget-source-controls">
               {widgetPreferences.appOrder.map((sourceKey) => {
@@ -656,6 +947,7 @@ function AdvancedView() {
                   sourceKey,
                 );
                 const supportsVisual = sourceKey !== "outlook";
+                const scanLabel = sourceScanLabel(catalogScan, sourceKey);
                 return (
                   <div className="widget-source-control" key={sourceKey}>
                     <label>
@@ -679,6 +971,11 @@ function AdvancedView() {
                         Show live taskbar icon and badge surface
                       </label>
                     )}
+                    {scanLabel && (
+                      <small className="widget-source-control__scan-result">
+                        Last manual scan: {scanLabel}
+                      </small>
+                    )}
                   </div>
                 );
               })}
@@ -688,24 +985,66 @@ function AdvancedView() {
               change the source-owned attention signal.
             </small>
             <button
+              disabled={catalogScanPending}
+              onClick={() => void scanFixedSources()}
+              type="button"
+            >
+              {catalogScanPending
+                ? "Scanning supported apps…"
+                : "Scan six supported apps now"}
+            </button>
+            <small aria-live="polite">
+              This one-time local scan checks only the six fixed sources and
+              does not enable or save any source selection.
+              {catalogScan?.capturedAt
+                ? ` Last scan: ${new Date(catalogScan.capturedAt).toLocaleTimeString()}.`
+                : ""}
+            </small>
+            {catalogScanError && (
+              <small className="error" role="alert">
+                Supported-app scan failed: {catalogScanError}
+              </small>
+            )}
+            <button
               onClick={() =>
                 applyWidgetPreferences({
-                  monitoredSources: [...DEFAULT_APP_ORDER],
+                  monitoredSources: [...DEFAULT_MONITORED_SOURCES],
                   liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
                 })
               }
               type="button"
             >
-              Reset source defaults
+              Reset to Teams + Outlook
+            </button>
+            <button
+              onClick={() =>
+                applyWidgetPreferences({
+                  monitoredSources: [...DEFAULT_APP_ORDER],
+                  liveVisualSources: [...LIVE_VISUAL_APP_KEYS],
+                })
+              }
+              type="button"
+            >
+              Enable all six
             </button>
           </fieldset>
         </div>
       </section>
 
-      <LaterInboxDataPanel />
+      <div
+        className="advanced-page-body"
+        hidden={activePage !== "reminders"}
+      >
+        <LaterInboxDataPanel />
+      </div>
 
-      <section aria-live="polite">
-        <p className="eyebrow">Work calendar</p>
+      <section
+        aria-live="polite"
+        className="advanced-page-body"
+        hidden={activePage !== "calendar"}
+        id="work-calendar-setup"
+        ref={workCalendarSectionRef}
+      >
         <h2>Connect one published work calendar</h2>
         <p>
           Paste the generated ICS link into this masked local field. Attention
@@ -728,6 +1067,7 @@ function AdvancedView() {
               autoCapitalize="none"
               autoComplete="off"
               id="published-ics-url"
+              ref={publishedIcsInputRef}
               maxLength={4096}
               onChange={(event) => setPublishedIcsUrl(event.target.value)}
               placeholder="https://outlook.office365.com/…/calendar.ics"
@@ -817,13 +1157,17 @@ function AdvancedView() {
             Saved-source result: {" "}
             <strong>{workCalendarSnapshot.status}</strong>. {" "}
             {workCalendarSnapshot.selection
-              ? "The widget received one fresh active-or-next event."
+              ? `The widget received one fresh active-or-next event${workCalendarSnapshot.overlappingSelections.length > 0 ? " and one simultaneous or overlapping event" : ""}.`
               : "No cached event was retained."}
           </p>
         )}
 
       </section>
 
+      <div
+        className="advanced-page-body advanced-diagnostics"
+        hidden={activePage !== "diagnostics"}
+      >
       <AttentionPanel
         snapshot={attentionSnapshot}
         refreshError={attentionError}
@@ -1104,6 +1448,8 @@ function AdvancedView() {
       </section>
         </div>
       </details>
+      </div>
+      </div>
     </main>
   );
 }

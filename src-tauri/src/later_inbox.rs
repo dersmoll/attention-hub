@@ -219,6 +219,24 @@ pub fn restore_item(
     })
 }
 
+pub fn delete_item(
+    app: &AppHandle,
+    state: &LaterInboxState,
+    item_id: &str,
+) -> Result<LaterInboxSnapshot, String> {
+    mutate_with_backup(app, state, false, |store| remove_item(store, item_id))
+}
+
+fn remove_item(store: &mut LaterInboxStore, item_id: &str) -> Result<(), String> {
+    let item_index = store
+        .items
+        .iter()
+        .position(|item| item.id == item_id)
+        .ok_or_else(|| "The Later Inbox item no longer exists.".to_owned())?;
+    store.items.remove(item_index);
+    Ok(())
+}
+
 pub fn delete_completed(
     app: &AppHandle,
     state: &LaterInboxState,
@@ -997,6 +1015,33 @@ mod tests {
         assert!(!backup_path(&path).exists());
         assert!(!temporary_path(&path).exists());
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn removes_only_the_requested_item() {
+        let mut store = LaterInboxStore::empty();
+        store.items.push(LaterInboxItem {
+            id: "keep".into(),
+            scope: LaterInboxScope::Work,
+            title: "Keep me".into(),
+            notes: Vec::new(),
+            url: None,
+            follow_up_at: None,
+            notified_follow_up_at: None,
+            created_at: timestamp_now(),
+            updated_at: timestamp_now(),
+            completed_at: None,
+        });
+        let mut removable = store.items[0].clone();
+        removable.id = "remove".into();
+        removable.title = "Remove me".into();
+        store.items.push(removable);
+
+        remove_item(&mut store, "remove").unwrap();
+
+        assert_eq!(store.items.len(), 1);
+        assert_eq!(store.items[0].id, "keep");
+        assert!(remove_item(&mut store, "missing").is_err());
     }
 
     #[test]

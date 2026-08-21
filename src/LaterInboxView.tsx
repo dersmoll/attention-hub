@@ -9,6 +9,7 @@ import {
   LATER_INBOX_OPEN_EVENT,
   fromLocalDateTimeInput,
   isLaterInboxItemDue,
+  nextQuarterHour,
   sortCompletedLaterInboxItems,
   sortOpenLaterInboxItems,
   toLocalDateTimeInput,
@@ -42,6 +43,8 @@ const emptyForm = (scope: LaterInboxScope) => ({
   followUp: "",
 });
 
+type ReminderWizardStep = 0 | 1 | 2;
+
 function formatTimestamp(value: string) {
   const date = new Date(value);
   return new Intl.DateTimeFormat(undefined, {
@@ -51,19 +54,37 @@ function formatTimestamp(value: string) {
 }
 
 export function LaterInboxView() {
+  const initialFollowUpAt = useMemo(
+    () => new URLSearchParams(window.location.search).get("laterFollowUp"),
+    [],
+  );
   const [snapshot, setSnapshot] = useState<LaterInboxSnapshot | null>(null);
   const [activeScope, setActiveScope] = useState<LaterInboxScope>("work");
-  const [form, setForm] = useState(() => emptyForm("work"));
+  const [form, setForm] = useState(() => ({
+    ...emptyForm("work"),
+    followUp: toLocalDateTimeInput(initialFollowUpAt),
+  }));
   const [preferences, setPreferences] = useState(readLaterInboxPreferences);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(
+    () => toLocalDateTimeInput(initialFollowUpAt) !== "",
+  );
+  const [wizardStep, setWizardStep] = useState<ReminderWizardStep>(0);
+  const [wizardDirection, setWizardDirection] = useState<"forward" | "back">(
+    "forward",
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [discardRequested, setDiscardRequested] = useState(false);
+  const [deleteRequestedId, setDeleteRequestedId] = useState<string | null>(
+    null,
+  );
   const [now, setNow] = useState(() => new Date());
   const titleRef = useRef<HTMLInputElement>(null);
+  const followUpRef = useRef<HTMLInputElement>(null);
   const notesRef = useRef<HTMLDivElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const currentWindow = useMemo(getCurrentWindow, []);
   const returnFocusWindow = useRef<LaterInboxReturnWindow>(
     new URLSearchParams(window.location.search).get("laterReturn") === "advanced"
@@ -118,9 +139,34 @@ export function LaterInboxView() {
   }, [currentWindow]);
 
   useEffect(() => {
-    titleRef.current?.focus();
     void refresh();
-  }, [refresh]);
+    if (toLocalDateTimeInput(initialFollowUpAt)) {
+      setAnnouncement(
+        preferences.dueNotificationsEnabled
+          ? "Reminder time prefilled. A notification will be requested when due while Attention Hub is running."
+          : "Reminder time prefilled. Due notifications are off; enable them to receive an alert while Attention Hub is running.",
+      );
+    }
+  }, [initialFollowUpAt, preferences.dueNotificationsEnabled, refresh]);
+
+  useEffect(() => {
+    if (!captureOpen) {
+      requestAnimationFrame(() => addButtonRef.current?.focus());
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (wizardStep === 0) {
+        titleRef.current?.focus();
+      } else if (wizardStep === 1) {
+        followUpRef.current?.focus();
+      } else {
+        if (notesRef.current) {
+          setRichNoteEditor(notesRef.current, form.notes);
+        }
+        notesRef.current?.focus();
+      }
+    });
+  }, [captureOpen, wizardStep]);
 
   useEffect(() => {
     let disposed = false;
@@ -133,8 +179,33 @@ export function LaterInboxView() {
         }
         returnFocusWindow.current = payload.returnFocusWindow;
         setNow(new Date());
+        const followUp = toLocalDateTimeInput(
+          payload.prefillFollowUpAt ?? null,
+        );
+        if (followUp) {
+          if (dirty) {
+            setCaptureOpen(true);
+            setAnnouncement(
+              "Existing draft kept. Its follow-up time was not replaced.",
+            );
+          } else {
+            setEditingId(null);
+            setDiscardRequested(false);
+            setCaptureOpen(true);
+            setWizardDirection("forward");
+            setWizardStep(0);
+            setForm({ ...emptyForm(activeScope), followUp });
+            if (notesRef.current) {
+              setRichNoteEditor(notesRef.current, []);
+            }
+            setAnnouncement(
+              preferences.dueNotificationsEnabled
+                ? "Reminder time prefilled. A notification will be requested when due while Attention Hub is running."
+                : "Reminder time prefilled. Due notifications are off; enable them to receive an alert while Attention Hub is running.",
+            );
+          }
+        }
         void refresh();
-        requestAnimationFrame(() => titleRef.current?.focus());
       },
     ).then((unlisten) => {
       if (disposed) {
@@ -147,7 +218,7 @@ export function LaterInboxView() {
       disposed = true;
       stopListening?.();
     };
-  }, [refresh]);
+  }, [activeScope, dirty, preferences.dueNotificationsEnabled, refresh]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
@@ -229,13 +300,41 @@ export function LaterInboxView() {
       setRichNoteEditor(notesRef.current, []);
     }
     setEditingId(null);
-    setDetailsOpen(false);
+    setCaptureOpen(false);
+    setWizardDirection("forward");
+    setWizardStep(0);
     setDiscardRequested(false);
-    requestAnimationFrame(() => titleRef.current?.focus());
+    setError(null);
+  };
+
+  const startNewReminder = () => {
+    setEditingId(null);
+    setDiscardRequested(false);
+    setError(null);
+    setWizardDirection("forward");
+    setWizardStep(0);
+    setForm({
+      ...emptyForm(activeScope),
+      followUp: toLocalDateTimeInput(nextQuarterHour(new Date()).toISOString()),
+    });
+    if (notesRef.current) {
+      setRichNoteEditor(notesRef.current, []);
+    }
+    setCaptureOpen(true);
+    setAnnouncement("New reminder wizard opened.");
+  };
+
+  const moveWizard = (nextStep: ReminderWizardStep) => {
+    setWizardDirection(nextStep > wizardStep ? "forward" : "back");
+    setWizardStep(nextStep);
   };
 
   const submit = async () => {
     if (pending) {
+      return;
+    }
+    if (!form.title.trim() || fromLocalDateTimeInput(form.followUp) === null) {
+      setError("Enter what to remember and when to be reminded.");
       return;
     }
     setPending(true);
@@ -256,7 +355,9 @@ export function LaterInboxView() {
         editingId ? { itemId: editingId, input } : { input },
       );
       setSnapshot(next);
-      setAnnouncement(editingId ? "Later item updated." : "Saved for later.");
+      setAnnouncement(
+        editingId ? "Reminder updated." : "Reminder saved.",
+      );
       resetForm();
     } catch (nextError) {
       setError(String(nextError));
@@ -267,6 +368,7 @@ export function LaterInboxView() {
   };
 
   const editItem = (item: LaterInboxItem) => {
+    setError(null);
     setEditingId(item.id);
     setForm({
       scope: item.scope,
@@ -276,15 +378,11 @@ export function LaterInboxView() {
       followUp: toLocalDateTimeInput(item.followUpAt),
     });
     setActiveScope(item.scope);
-    setDetailsOpen(true);
+    setCaptureOpen(true);
+    setWizardDirection("forward");
+    setWizardStep(0);
     setDiscardRequested(false);
     setAnnouncement(`Editing ${item.title}.`);
-    requestAnimationFrame(() => {
-      if (notesRef.current) {
-        setRichNoteEditor(notesRef.current, item.notes);
-      }
-      titleRef.current?.focus();
-    });
   };
 
   const completeItem = async (item: LaterInboxItem) => {
@@ -297,7 +395,29 @@ export function LaterInboxView() {
         }),
       );
       setAnnouncement(`${item.title} completed.`);
-      requestAnimationFrame(() => titleRef.current?.focus());
+      requestAnimationFrame(() => addButtonRef.current?.focus());
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const deleteItem = async (item: LaterInboxItem) => {
+    setPending(true);
+    setError(null);
+    try {
+      setSnapshot(
+        await invoke<LaterInboxSnapshot>("delete_later_inbox_item", {
+          itemId: item.id,
+        }),
+      );
+      if (editingId === item.id) {
+        resetForm();
+      }
+      setDeleteRequestedId(null);
+      setAnnouncement(`${item.title} deleted.`);
+      requestAnimationFrame(() => addButtonRef.current?.focus());
     } catch (nextError) {
       setError(String(nextError));
     } finally {
@@ -349,19 +469,6 @@ export function LaterInboxView() {
             {allOpenItems.length} open{dueCount ? ` · ${dueCount} due here` : ""}
           </p>
         </div>
-        <button
-          aria-label="Close Later Inbox"
-          onClick={() => {
-            if (dirty) {
-              setDiscardRequested(true);
-            } else {
-              void closeWindow();
-            }
-          }}
-          type="button"
-        >
-          Close
-        </button>
       </header>
 
       <div
@@ -376,10 +483,10 @@ export function LaterInboxView() {
           return (
             <button
               aria-pressed={activeScope === scope}
+              disabled={captureOpen}
               key={scope}
               onClick={() => {
                 setActiveScope(scope);
-                setForm((current) => ({ ...current, scope }));
               }}
               type="button"
             >
@@ -409,152 +516,233 @@ export function LaterInboxView() {
         Notify when due (while Hub is running)
       </label>
 
-      <form
-        className="later-capture"
-        onKeyDown={(event) => {
-          if (event.ctrlKey && event.key === "Enter") {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
+      <button
+        className="later-add-reminder"
+        disabled={captureOpen}
+        onClick={startNewReminder}
+        ref={addButtonRef}
+        type="button"
       >
-        <label htmlFor="later-title">
-          {editingId
-            ? `Edit ${form.scope} item`
-            : `What ${activeScope} item should I come back to?`}
-        </label>
-        <div className="later-title-row">
-          <input
-            aria-describedby="later-capture-help"
-            aria-invalid={error ? true : undefined}
-            autoComplete="off"
-            id="later-title"
-            maxLength={160}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, title: event.target.value }))
-            }
-            placeholder="Short title"
-            ref={titleRef}
-            value={form.title}
-          />
-          <button
-            disabled={pending || !form.title.trim() || notesOverLimit}
-            type="submit"
-          >
-            {pending ? "Saving…" : editingId ? "Update" : "Save"}
-          </button>
-        </div>
+        {captureOpen ? "Reminder in progress" : "+ Add new reminder"}
+      </button>
 
-        <label id="later-notes-label">Notes / context</label>
-        <div
-          aria-describedby="later-context-help"
-          aria-invalid={notesOverLimit || undefined}
-          aria-labelledby="later-notes-label"
-          aria-multiline="true"
-          className="later-rich-notes"
-          contentEditable={!pending}
-          data-placeholder="Paste instructions here; linked words are preserved"
-          id="later-context"
-          onClick={(event) => {
-            if ((event.target as HTMLElement).closest("a")) {
+      {captureOpen && (
+        <form
+          className="later-capture later-wizard"
+          onKeyDown={(event) => {
+            if (event.ctrlKey && event.key === "Enter" && wizardStep === 2) {
               event.preventDefault();
+              void submit();
             }
           }}
-          onInput={(event) => {
-            const notes = readRichNoteEditor(event.currentTarget);
-            if (notes.length === 0) {
-              event.currentTarget.replaceChildren();
-            }
-            setForm((current) => ({ ...current, notes }));
-          }}
-          onDrop={(event) => event.preventDefault()}
-          onPaste={(event) => {
+          onSubmit={(event) => {
             event.preventDefault();
-            insertRichNoteAtSelection(
-              event.currentTarget,
-              richNoteSegmentsFromClipboard(event.clipboardData),
-            );
-            const notes = readRichNoteEditor(event.currentTarget);
-            setForm((current) => ({ ...current, notes }));
+            if (wizardStep === 2) {
+              void submit();
+            }
           }}
-          ref={notesRef}
-          role="textbox"
-          spellCheck
-          suppressContentEditableWarning
-        />
-        <small id="later-context-help">
-          {notesOverLimit ? (
-            <strong role="alert">
-              Reduce notes by {notesCharacters - MAX_LATER_NOTE_CHARACTERS}
-              characters.
-            </strong>
-          ) : (
-            <>
-              Linked words and line breaks are preserved · {notesCharacters}/
-              {MAX_LATER_NOTE_CHARACTERS}
-            </>
-          )}
-        </small>
-        <small className="sr-only" id="later-capture-help">
-          Enter a short title. Press Control plus Enter anywhere in this form to
-          save.
-        </small>
-
-        <details
-          onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
-          open={detailsOpen}
         >
-          <summary>More details</summary>
-          <div className="later-details">
-            <label htmlFor="later-url">Task URL</label>
-            <input
-              autoCapitalize="none"
-              autoComplete="off"
-              id="later-url"
-              inputMode="url"
-              maxLength={2048}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, url: event.target.value }))
-              }
-              placeholder="https://…"
-              spellCheck={false}
-              type="url"
-              value={form.url}
-            />
-            <label htmlFor="later-follow-up">Follow up</label>
-            <input
-              id="later-follow-up"
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  followUp: event.target.value,
-                }))
-              }
-              type="datetime-local"
-              value={form.followUp}
-            />
-            <small>
-              Follow-up time changes sorting and due styling only. It does not
-              create a Windows notification.
-            </small>
-          </div>
-        </details>
+          <ol aria-label="Reminder steps" className="later-wizard-progress">
+            {["What", "When", "Details"].map((label, index) => (
+              <li
+                data-complete={wizardStep > index || undefined}
+                key={label}
+              >
+                <button
+                  aria-current={wizardStep === index ? "step" : undefined}
+                  onClick={() => moveWizard(index as ReminderWizardStep)}
+                  type="button"
+                >
+                  <span>{index + 1}</span>
+                  <span>{label}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
 
-        {editingId && (
-          <button
-            className="later-cancel-edit"
-            disabled={pending}
-            onClick={resetForm}
-            type="button"
+          <div
+            className="later-wizard-step"
+            data-direction={wizardDirection}
+            key={wizardStep}
           >
-            Cancel edit
-          </button>
-        )}
-      </form>
+            {wizardStep === 0 && (
+              <>
+                <h2>{editingId ? "What should change?" : "What to remind?"}</h2>
+                <label className="sr-only" htmlFor="later-title">
+                  Reminder
+                </label>
+                <input
+                  aria-invalid={error ? true : undefined}
+                  autoComplete="off"
+                  id="later-title"
+                  maxLength={160}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  placeholder="Short reminder"
+                  ref={titleRef}
+                  value={form.title}
+                />
+              </>
+            )}
+
+            {wizardStep === 1 && (
+              <>
+                <h2>When to remind?</h2>
+                <label className="sr-only" htmlFor="later-follow-up">
+                  Date and time
+                </label>
+                <input
+                  id="later-follow-up"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      followUp: event.target.value,
+                    }))
+                  }
+                  ref={followUpRef}
+                  required
+                  type="datetime-local"
+                  value={form.followUp}
+                />
+                <small>
+                  {preferences.dueNotificationsEnabled
+                    ? "A Windows notification will be requested at this time while Attention Hub is running."
+                    : "Due notifications are off. Enable them above to receive an alert while Attention Hub is running."}
+                </small>
+              </>
+            )}
+
+            {wizardStep === 2 && (
+              <>
+                <h2>Any additional details?</h2>
+                <label className="sr-only" id="later-notes-label">
+                  Optional notes
+                </label>
+                <div
+                  aria-describedby="later-context-help"
+                  aria-invalid={notesOverLimit || undefined}
+                  aria-labelledby="later-notes-label"
+                  aria-multiline="true"
+                  className="later-rich-notes"
+                  contentEditable={!pending}
+                  data-placeholder="Add context; linked words are preserved"
+                  id="later-context"
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a")) {
+                      event.preventDefault();
+                    }
+                  }}
+                  onInput={(event) => {
+                    const notes = readRichNoteEditor(event.currentTarget);
+                    if (notes.length === 0) {
+                      event.currentTarget.replaceChildren();
+                    }
+                    setForm((current) => ({ ...current, notes }));
+                  }}
+                  onDrop={(event) => event.preventDefault()}
+                  onPaste={(event) => {
+                    event.preventDefault();
+                    insertRichNoteAtSelection(
+                      event.currentTarget,
+                      richNoteSegmentsFromClipboard(event.clipboardData),
+                    );
+                    const notes = readRichNoteEditor(event.currentTarget);
+                    setForm((current) => ({ ...current, notes }));
+                  }}
+                  ref={notesRef}
+                  role="textbox"
+                  spellCheck
+                  suppressContentEditableWarning
+                />
+                <small id="later-context-help">
+                  {notesOverLimit ? (
+                    <strong role="alert">
+                      Reduce notes by {notesCharacters - MAX_LATER_NOTE_CHARACTERS}
+                      characters.
+                    </strong>
+                  ) : (
+                    <>
+                      Linked words and line breaks are preserved · {notesCharacters}/
+                      {MAX_LATER_NOTE_CHARACTERS}
+                    </>
+                  )}
+                </small>
+                {form.url && (
+                  <small>
+                    This existing reminder&apos;s saved link will be preserved.
+                  </small>
+                )}
+                <div
+                  aria-label="Reminder space"
+                  className="later-wizard-scope"
+                  role="group"
+                >
+                  {(["work", "private"] as const).map((scope) => (
+                    <button
+                      aria-pressed={form.scope === scope}
+                      key={scope}
+                      onClick={() =>
+                        setForm((current) => ({ ...current, scope }))
+                      }
+                      type="button"
+                    >
+                      {scope === "work" ? "Work" : "Private"}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="later-wizard-actions">
+            <button disabled={pending} onClick={resetForm} type="button">
+              Cancel
+            </button>
+            {wizardStep > 0 && (
+              <button
+                disabled={pending}
+                onClick={() =>
+                  moveWizard((wizardStep - 1) as ReminderWizardStep)
+                }
+                type="button"
+              >
+                Back
+              </button>
+            )}
+            {wizardStep < 2 ? (
+              <button
+                disabled={pending}
+                onClick={() =>
+                  moveWizard((wizardStep + 1) as ReminderWizardStep)
+                }
+                type="button"
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                disabled={
+                  pending ||
+                  !form.title.trim() ||
+                  fromLocalDateTimeInput(form.followUp) === null ||
+                  notesOverLimit
+                }
+                type="submit"
+              >
+                {pending
+                  ? "Saving…"
+                  : editingId
+                    ? "Update reminder"
+                    : "Save reminder"}
+              </button>
+            )}
+          </div>
+        </form>
+      )}
 
       {discardRequested && (
         <div className="later-discard" role="alert">
@@ -597,72 +785,117 @@ export function LaterInboxView() {
       </p>
 
       <section aria-labelledby="later-open-heading" className="later-review">
-        <h2 id="later-open-heading">Open items</h2>
+        <h2 id="later-open-heading">Reminders</h2>
         {snapshot === null && !error ? (
           <p>Loading local items…</p>
         ) : openItems.length === 0 ? (
-          <p className="later-empty">Nothing is waiting. Capture the next request above.</p>
+          <p className="later-empty">No reminders are waiting.</p>
         ) : (
           <ol className="later-list">
             {openItems.map((item) => {
               const due = isLaterInboxItemDue(item, now);
               return (
-                <li data-due={due || undefined} key={item.id}>
-                  <div className="later-item-heading">
-                    <strong>{item.title}</strong>
-                    {due && <span>Due</span>}
-                  </div>
-                  {item.notes.length > 0 && (
-                    <details className="later-item-notes-disclosure">
-                      <summary>Notes / context</summary>
-                      <div className="later-item-notes">
-                        {item.notes.map((segment, index) =>
-                          segment.href ? (
-                            <button
-                              className="later-note-link"
-                              key={`${index}-${segment.href}`}
-                              onClick={() =>
-                                void openNoteUrl(item, segment.href ?? "")
-                              }
-                              role="link"
-                              type="button"
-                            >
-                              {segment.text}
-                            </button>
-                          ) : (
-                            <span key={index}>{segment.text}</span>
-                          ),
-                        )}
-                      </div>
-                    </details>
-                  )}
-                  <small>
-                    Captured {formatTimestamp(item.createdAt)}
-                    {item.followUpAt
-                      ? ` · Follow up ${formatTimestamp(item.followUpAt)}`
-                      : ""}
-                  </small>
-                  <div className="later-item-actions">
+                <li className="later-item" data-due={due || undefined} key={item.id}>
+                  <button
+                    aria-label={`Complete ${item.title}`}
+                    className="later-item__complete"
+                    disabled={pending}
+                    onClick={() => void completeItem(item)}
+                    title="Complete reminder"
+                    type="button"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="m5 12.5 4 4L19 7" />
+                    </svg>
+                  </button>
+                  <div className="later-item__content">
+                    <div className="later-item-heading">
+                      <strong>{item.title}</strong>
+                      {due && <span>Due</span>}
+                    </div>
+                    {item.notes.length > 0 && (
+                      <details className="later-item-notes-disclosure">
+                        <summary>Notes / context</summary>
+                        <div className="later-item-notes">
+                          {item.notes.map((segment, index) =>
+                            segment.href ? (
+                              <button
+                                className="later-note-link"
+                                key={`${index}-${segment.href}`}
+                                onClick={() =>
+                                  void openNoteUrl(item, segment.href ?? "")
+                                }
+                                role="link"
+                                type="button"
+                              >
+                                {segment.text}
+                              </button>
+                            ) : (
+                              <span key={index}>{segment.text}</span>
+                            ),
+                          )}
+                        </div>
+                      </details>
+                    )}
+                    <small>
+                      Captured {formatTimestamp(item.createdAt)}
+                      {item.followUpAt
+                        ? ` · Follow up ${formatTimestamp(item.followUpAt)}`
+                        : ""}
+                    </small>
                     {item.url && (
-                      <button onClick={() => void openItemUrl(item)} type="button">
+                      <button
+                        className="later-item__link"
+                        onClick={() => void openItemUrl(item)}
+                        type="button"
+                      >
                         Open link <span className="sr-only">in default browser</span>
                       </button>
                     )}
+                  </div>
+                  <div className="later-item__tools">
                     <button
+                      aria-label={`Edit ${item.title}`}
                       disabled={pending}
                       onClick={() => editItem(item)}
+                      title="Edit reminder"
                       type="button"
                     >
-                      Edit
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4" />
+                      </svg>
                     </button>
                     <button
+                      aria-label={`Delete ${item.title}`}
                       disabled={pending}
-                      onClick={() => void completeItem(item)}
+                      onClick={() => setDeleteRequestedId(item.id)}
+                      title="Delete reminder"
                       type="button"
                     >
-                      Complete
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" />
+                      </svg>
                     </button>
                   </div>
+                  {deleteRequestedId === item.id && (
+                    <div className="later-item__delete-confirm" role="alert">
+                      <span>Delete this reminder permanently?</span>
+                      <button
+                        disabled={pending}
+                        onClick={() => void deleteItem(item)}
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        disabled={pending}
+                        onClick={() => setDeleteRequestedId(null)}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
