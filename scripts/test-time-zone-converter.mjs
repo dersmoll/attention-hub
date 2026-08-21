@@ -99,6 +99,10 @@ assert.equal(
 );
 assert.equal(options.shortTimeZoneLabel("America/New_York"), "New York");
 assert.equal(
+  options.shortTimeZoneLabel("Africa/Johannesburg"),
+  "Johannesburg",
+);
+assert.equal(
   options.timeZoneOptionLabel(
     "America/New_York",
     new Date("2026-01-13T12:00:00Z"),

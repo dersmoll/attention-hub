@@ -7,9 +7,9 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.2` is the current public beta.
+Version `0.6.0-beta.3` is the current public beta.
 
-[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.2)
+[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.3)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
 page publishes the exact installer checksum for verification.
@@ -25,7 +25,9 @@ page publishes the exact installer checksum for verification.
   human-readable UTC/city groups; Advanced can search the full IANA catalog.
   The legacy `Europe/Kiev` alias is normalized to `Europe/Kyiv`. The primary
   timezone can be overridden locally, and either clock opens the inline
-  converter in the corresponding direction.
+  converter in the corresponding direction. Converter mode preserves the live
+  clock's centered two-column layout, keeps the day marker on a separate line,
+  retains the native time picker, and returns to live clocks with **Esc**.
 - Shows the active or next event from one user-supplied Published ICS calendar,
   plus at most one timed event with the same upcoming start or an overlapping
   active time. Allowlisted Teams, Zoom, Google Meet, and Webex links use compact
@@ -78,7 +80,7 @@ page publishes the exact installer checksum for verification.
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
 The current artifact and validation record is in
-[the 0.6.0-beta.2 release notes](docs/releases/attention-hub-0.6.0-beta.2.md).
+[the 0.6.0-beta.3 release notes](docs/releases/attention-hub-0.6.0-beta.3.md).
 
 ## Development
 

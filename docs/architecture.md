@@ -50,10 +50,13 @@ IANA override. That override affects only the primary clock and converter, not
 calendar selection, Later Inbox follow-ups, notifications, or Windows. Both
 live times open the same inline converter. Conversion resolves the entered wall
 time in the selected source zone, handles day rollover, and rejects nonexistent
-DST times. The widget displays short city labels and offers a compact list of
-representative rules formatted as a UTC offset plus familiar equivalent-city
-names and the full IANA identifier. Advanced provides text search across the
-runtime-supported IANA catalog. The obsolete `Europe/Kiev` alias is normalized
+DST times. Converter mode keeps the live clock's centered two-column layout,
+uses the native time picker, places the target day marker on its own line, and
+returns to live clocks with Escape. The widget displays short city labels and
+offers a compact list of representative rules formatted as a UTC offset plus
+familiar equivalent-city names and the full IANA identifier. Advanced provides
+text search across the runtime-supported IANA catalog. The obsolete
+`Europe/Kiev` alias is normalized
 to `Europe/Kyiv`, while persisted values otherwise remain IANA identifiers.
 
 ### Work calendar
