@@ -146,10 +146,11 @@ panel's top-right edge. Recommended utility surfaces are 26 px with 14 px glyphs
 inside unchanged 28 px controls.
 
 Recommended is the fresh preference default and reuses the previously shipped
-Compact geometry. Preference normalization maps legacy `compact` to
-`recommended` and legacy `auto` or `wide` to `larger`; Larger intentionally
-uses the former fixed-Wide geometry. The Compact product name is reserved for a
-future one-line mode and is not exposed in this milestone.
+Compact geometry. Preference normalization maps legacy `compact` and the old
+default `auto` to `recommended`; only an explicitly selected legacy `wide`
+maps to `larger`. Larger intentionally uses the former fixed-Wide geometry. The
+Compact product name is reserved for a future one-line mode and is not exposed
+in this milestone.
 
 ### Advanced settings
 
