@@ -10,11 +10,12 @@ export type AttentionAppKey =
   | "viber"
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
-export type WidgetWidthMode = "compact" | "auto" | "wide";
+export type WidgetWidthMode = "recommended" | "larger";
 
 export interface WidgetPreferences {
   sourceCatalogVersion: 2;
   pinned: boolean;
+  primaryTimeZone: string | null;
   secondaryTimeZone: string;
   x: number | null;
   y: number | null;
@@ -34,27 +35,34 @@ export const DEFAULT_APP_ORDER: AttentionAppKey[] = [
   "viber",
   "whatsapp",
 ];
-export const DEFAULT_LIVE_VISUAL_SOURCES: LiveVisualAppKey[] = [
+export const LIVE_VISUAL_APP_KEYS: LiveVisualAppKey[] = [
   "teams",
   "telegram",
   "slack",
   "viber",
   "whatsapp",
 ];
+export const DEFAULT_MONITORED_SOURCES: AttentionAppKey[] = [
+  "teams",
+  "outlook",
+];
+export const DEFAULT_LIVE_VISUAL_SOURCES: LiveVisualAppKey[] = [
+  "teams",
+];
 const LEGACY_APP_ORDER: AttentionAppKey[] = ["teams", "telegram", "outlook"];
-const LEGACY_LIVE_VISUAL_SOURCES: LiveVisualAppKey[] = ["teams", "telegram"];
 
 export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   sourceCatalogVersion: 2,
   pinned: true,
+  primaryTimeZone: null,
   secondaryTimeZone: DEFAULT_TIME_ZONE,
   x: null,
   y: null,
   panelColor: "#f8fafc",
   panelOpacity: 100,
-  widthMode: "auto",
+  widthMode: "recommended",
   appOrder: [...DEFAULT_APP_ORDER],
-  monitoredSources: [...DEFAULT_APP_ORDER],
+  monitoredSources: [...DEFAULT_MONITORED_SOURCES],
   liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
 };
 
@@ -66,24 +74,49 @@ function normalizeColor(value: unknown) {
 
 function normalizeOpacity(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(100, Math.max(85, Math.round(value)))
+    ? Math.min(100, Math.max(25, Math.round(value)))
     : DEFAULT_WIDGET_PREFERENCES.panelOpacity;
 }
 
 function normalizeWidthMode(value: unknown): WidgetWidthMode {
-  return value === "compact" || value === "wide" ? value : "auto";
+  if (value === "recommended" || value === "compact") {
+    return "recommended";
+  }
+  if (value === "larger" || value === "auto" || value === "wide") {
+    return "larger";
+  }
+  return DEFAULT_WIDGET_PREFERENCES.widthMode;
+}
+
+function isValidTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canonicalTimeZone(value: string) {
+  return value === "Europe/Kiev" ? "Europe/Kyiv" : value;
+}
+
+function normalizePrimaryTimeZone(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = canonicalTimeZone(value);
+  return isValidTimeZone(normalized) ? normalized : null;
 }
 
 function normalizeTimeZone(value: unknown) {
   if (typeof value !== "string") {
     return DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone;
   }
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(0);
-    return value;
-  } catch {
-    return DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone;
-  }
+  const normalized = canonicalTimeZone(value);
+  return isValidTimeZone(normalized)
+    ? normalized
+    : DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone;
 }
 
 function normalizeCoordinate(value: unknown) {
@@ -124,8 +157,6 @@ function normalizeSourceSubset<T extends AttentionAppKey>(
   value: unknown,
   supportedSources: readonly T[],
   fallback: readonly T[],
-  legacyDefaults: readonly T[] = [],
-  migrateLegacyCatalog = false,
 ): T[] {
   if (!Array.isArray(value)) {
     return [...fallback];
@@ -134,13 +165,6 @@ function normalizeSourceSubset<T extends AttentionAppKey>(
   const normalized = supportedSources.filter((sourceKey) =>
     selected.has(sourceKey),
   );
-  if (
-    migrateLegacyCatalog &&
-    normalized.length === legacyDefaults.length &&
-    legacyDefaults.every((key) => normalized.includes(key))
-  ) {
-    return [...fallback];
-  }
   return normalized;
 }
 
@@ -148,12 +172,19 @@ export function normalizeWidgetPreferences(
   value: Partial<WidgetPreferences> | null | undefined,
 ): WidgetPreferences {
   const migrateLegacyCatalog = value?.sourceCatalogVersion !== 2;
+  const legacyMonitoredFallback = migrateLegacyCatalog
+    ? DEFAULT_APP_ORDER
+    : DEFAULT_WIDGET_PREFERENCES.monitoredSources;
+  const legacyVisualFallback = migrateLegacyCatalog
+    ? LIVE_VISUAL_APP_KEYS
+    : DEFAULT_WIDGET_PREFERENCES.liveVisualSources;
   return {
     sourceCatalogVersion: 2,
     pinned:
       typeof value?.pinned === "boolean"
         ? value.pinned
         : DEFAULT_WIDGET_PREFERENCES.pinned,
+    primaryTimeZone: normalizePrimaryTimeZone(value?.primaryTimeZone),
     secondaryTimeZone: normalizeTimeZone(value?.secondaryTimeZone),
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
@@ -164,16 +195,16 @@ export function normalizeWidgetPreferences(
     monitoredSources: normalizeSourceSubset(
       value?.monitoredSources,
       DEFAULT_APP_ORDER,
-      DEFAULT_WIDGET_PREFERENCES.monitoredSources,
-      LEGACY_APP_ORDER,
-      migrateLegacyCatalog,
+      value == null
+        ? DEFAULT_WIDGET_PREFERENCES.monitoredSources
+        : legacyMonitoredFallback,
     ),
     liveVisualSources: normalizeSourceSubset(
       value?.liveVisualSources,
-      DEFAULT_LIVE_VISUAL_SOURCES,
-      DEFAULT_WIDGET_PREFERENCES.liveVisualSources,
-      LEGACY_LIVE_VISUAL_SOURCES,
-      migrateLegacyCatalog,
+      LIVE_VISUAL_APP_KEYS,
+      value == null
+        ? DEFAULT_WIDGET_PREFERENCES.liveVisualSources
+        : legacyVisualFallback,
     ),
   };
 }

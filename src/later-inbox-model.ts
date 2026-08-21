@@ -3,15 +3,16 @@ export const LATER_INBOX_FOCUS_EVENT = "later-inbox-focus-control";
 export const LATER_INBOX_OPEN_EVENT = "later-inbox-opened";
 export const LATER_INBOX_WINDOW_GEOMETRY = {
   width: 360,
-  height: 420,
+  height: 560,
   minWidth: 340,
-  minHeight: 360,
+  minHeight: 440,
 } as const;
 
 export type LaterInboxReturnWindow = "main" | "advanced";
 
 export interface LaterInboxOpenPayload {
   returnFocusWindow: LaterInboxReturnWindow;
+  prefillFollowUpAt?: string;
 }
 
 export interface LaterInboxNoteSegment {
@@ -107,4 +108,11 @@ export function fromLocalDateTimeInput(value: string) {
   }
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+export function nextQuarterHour(value: Date) {
+  const next = new Date(value);
+  next.setSeconds(0, 0);
+  next.setMinutes(Math.floor(next.getMinutes() / 15) * 15 + 15);
+  return next;
 }

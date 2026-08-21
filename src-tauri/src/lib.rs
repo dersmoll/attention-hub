@@ -250,6 +250,7 @@ fn set_fixed_taskbar_mirror_layout(
     state: tauri::State<'_, TaskbarMirrorState>,
     source_slots: Vec<TaskbarMirrorSlot>,
     visible_source_count: i32,
+    compact_mode: bool,
 ) -> Result<(), String> {
     if !(0..=6).contains(&visible_source_count) {
         return Err("Visible source count must be from 0 through 6.".into());
@@ -268,7 +269,7 @@ fn set_fixed_taskbar_mirror_layout(
         }
         seen_sources.push(source);
         seen_slots.push(item.slot);
-        state.set_layout(source, Some(item.slot), visible_source_count);
+        state.set_layout(source, Some(item.slot), visible_source_count, compact_mode);
     }
     Ok(())
 }
@@ -292,11 +293,17 @@ fn set_taskbar_mirror_layout(
             "Visible taskbar mirror slots must be distinct app positions from 0 through 2.".into(),
         );
     }
-    state.set_layout(TaskbarMirrorSource::Teams, teams_slot, visible_source_count);
+    state.set_layout(
+        TaskbarMirrorSource::Teams,
+        teams_slot,
+        visible_source_count,
+        false,
+    );
     state.set_layout(
         TaskbarMirrorSource::Telegram,
         telegram_slot,
         visible_source_count,
+        false,
     );
     Ok(())
 }
@@ -366,6 +373,17 @@ fn restore_later_inbox_item(
     item_id: String,
 ) -> Result<LaterInboxSnapshot, String> {
     let snapshot = later_inbox::restore_item(&app, state.inner(), &item_id)?;
+    emit_later_inbox_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn delete_later_inbox_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LaterInboxState>,
+    item_id: String,
+) -> Result<LaterInboxSnapshot, String> {
+    let snapshot = later_inbox::delete_item(&app, state.inner(), &item_id)?;
     emit_later_inbox_changed(&app);
     Ok(snapshot)
 }
@@ -455,6 +473,7 @@ pub fn run() {
             update_later_inbox_item,
             complete_later_inbox_item,
             restore_later_inbox_item,
+            delete_later_inbox_item,
             delete_completed_later_inbox_items,
             delete_all_later_inbox_items,
             notify_due_later_inbox_items,

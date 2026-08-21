@@ -44,6 +44,7 @@ pub struct WorkCalendarSnapshot {
     pub source_identity_state: &'static str,
     pub captured_at_unix_ms: u64,
     pub selection: Option<WorkCalendarSelection>,
+    pub overlapping_selections: Vec<WorkCalendarSelection>,
     pub next_selection: Option<WorkCalendarSelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub request_ms: u64,
@@ -91,11 +92,20 @@ impl WorkCalendarState {
     fn expose_selections(
         &self,
         selection: Option<EventSelection>,
+        overlapping_selections: Vec<EventSelection>,
         next_selection: Option<EventSelection>,
-    ) -> (Option<WorkCalendarSelection>, Option<WorkCalendarSelection>) {
+    ) -> (
+        Option<WorkCalendarSelection>,
+        Vec<WorkCalendarSelection>,
+        Option<WorkCalendarSelection>,
+    ) {
         let Ok(mut cache) = self.join_targets.lock() else {
             return (
                 selection.map(|value| WorkCalendarSelection::from_event(value, None)),
+                overlapping_selections
+                    .into_iter()
+                    .map(|value| WorkCalendarSelection::from_event(value, None))
+                    .collect(),
                 next_selection.map(|value| WorkCalendarSelection::from_event(value, None)),
             );
         };
@@ -109,7 +119,13 @@ impl WorkCalendarState {
             });
             WorkCalendarSelection::from_event(event, token)
         };
-        (selection.map(&mut expose), next_selection.map(expose))
+        let selection = selection.map(&mut expose);
+        let overlapping_selections = overlapping_selections
+            .into_iter()
+            .map(&mut expose)
+            .collect();
+        let next_selection = next_selection.map(expose);
+        (selection, overlapping_selections, next_selection)
     }
 }
 
@@ -189,6 +205,7 @@ pub async fn save_source(
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                overlapping_selections: Vec::new(),
                 next_selection: None,
                 stop_reason: None,
                 request_ms: probe.request_ms,
@@ -215,6 +232,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                overlapping_selections: Vec::new(),
                 next_selection: None,
                 stop_reason: None,
                 request_ms: 0,
@@ -238,6 +256,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                overlapping_selections: Vec::new(),
                 next_selection: None,
                 stop_reason: None,
                 request_ms: 0,
@@ -255,6 +274,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 source_identity_state: SOURCE_IDENTITY_STATE,
                 captured_at_unix_ms: now_unix_ms(),
                 selection: None,
+                overlapping_selections: Vec::new(),
                 next_selection: None,
                 stop_reason: None,
                 request_ms: 0,
@@ -339,10 +359,14 @@ fn snapshot_from_probe(
     };
     if !matches!(status, WorkCalendarStatus::Observed) {
         probe.selection = None;
+        probe.overlapping_selections.clear();
         probe.next_selection = None;
     }
-    let (selection, next_selection) =
-        state.expose_selections(probe.selection, probe.next_selection);
+    let (selection, overlapping_selections, next_selection) = state.expose_selections(
+        probe.selection,
+        probe.overlapping_selections,
+        probe.next_selection,
+    );
     WorkCalendarSnapshot {
         status,
         configured,
@@ -350,6 +374,7 @@ fn snapshot_from_probe(
         source_identity_state: SOURCE_IDENTITY_STATE,
         captured_at_unix_ms: probe.captured_at_unix_ms,
         selection,
+        overlapping_selections,
         next_selection,
         stop_reason: probe.stop_reason,
         request_ms: probe.request_ms,
@@ -427,6 +452,7 @@ mod tests {
             expanded_occurrence_count: 0,
             private_title_redacted: false,
             selection: None,
+            overlapping_selections: Vec::new(),
             next_selection: None,
             stop_reason: None,
             diagnostics: Vec::new(),
@@ -449,17 +475,41 @@ mod tests {
             meeting_link_present: Some(true),
             meeting_url: Some("https://teams.microsoft.com/l/meetup-join/opaque-token".into()),
         };
+        let overlapping_event = EventSelection {
+            subject: "Overlapping meeting".into(),
+            start: "2026-08-17T11:30:00Z".into(),
+            end: "2026-08-17T12:30:00Z".into(),
+            all_day: false,
+            classification: EventClassification::Active,
+            meeting_link_present: Some(true),
+            meeting_url: Some(
+                "https://teams.microsoft.com/l/meetup-join/second-opaque-token".into(),
+            ),
+        };
 
-        let (selection, _) = state.expose_selections(Some(event), None);
+        let (selection, overlapping, next) =
+            state.expose_selections(Some(event), vec![overlapping_event], None);
+        assert_eq!(overlapping.len(), 1);
+        assert!(next.is_none());
         let selection = selection.unwrap();
         let token = selection.join_token.as_deref().unwrap();
+        let overlapping_token = overlapping[0].join_token.as_deref().unwrap();
+        assert_ne!(token, overlapping_token);
         assert_eq!(
             join_url(&state, token).unwrap(),
             "https://teams.microsoft.com/l/meetup-join/opaque-token"
         );
+        assert_eq!(
+            join_url(&state, overlapping_token).unwrap(),
+            "https://teams.microsoft.com/l/meetup-join/second-opaque-token"
+        );
         let serialized = serde_json::to_string(&selection).unwrap();
+        let overlapping_serialized = serde_json::to_string(&overlapping).unwrap();
         assert!(serialized.contains(token));
         assert!(!serialized.contains("meetup-join"));
         assert!(!serialized.contains("opaque-token"));
+        assert!(overlapping_serialized.contains(overlapping_token));
+        assert!(!overlapping_serialized.contains("meetup-join"));
+        assert!(!overlapping_serialized.contains("second-opaque-token"));
     }
 }
