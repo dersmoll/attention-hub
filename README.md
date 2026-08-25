@@ -7,9 +7,9 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.4` is the current public beta.
+Version `0.6.0-beta.5` is the current public beta.
 
-[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.4)
+[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.5)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
 page publishes the exact installer checksum for verification.
@@ -83,7 +83,7 @@ page publishes the exact installer checksum for verification.
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
 The current artifact and validation record is in
-[the 0.6.0-beta.4 release notes](docs/releases/attention-hub-0.6.0-beta.4.md).
+[the 0.6.0-beta.5 release notes](docs/releases/attention-hub-0.6.0-beta.5.md).
 
 ## Development
 

@@ -1829,6 +1829,34 @@ body[data-window="main"] #root {
   filter: grayscale(0.45);
 }
 
+.widget-app-slot[data-feedback] {
+  z-index: 12;
+  filter: none;
+}
+
+.widget-app-slot[data-feedback]::after {
+  position: absolute;
+  z-index: 12;
+  top: 50%;
+  left: calc(100% + 6px);
+  width: max-content;
+  max-width: 220px;
+  padding: 5px 7px;
+  border: 1px solid #64748b;
+  border-radius: 6px;
+  color: #f8fafc;
+  background: #111827;
+  box-shadow: 0 3px 10px rgb(15 23 42 / 28%);
+  content: attr(data-feedback);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  pointer-events: none;
+  text-align: left;
+  white-space: normal;
+  transform: translateY(-50%);
+}
+
 .widget-app-surface {
   position: relative;
   display: grid;
