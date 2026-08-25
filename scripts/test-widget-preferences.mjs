@@ -34,6 +34,9 @@ assert.deepEqual(legacy, {
   pinned: false,
   primaryTimeZone: null,
   secondaryTimeZone: "Europe/Kyiv",
+  extraTimeZones: [],
+  clockLayout: "horizontal",
+  meetingStartSoundEnabled: true,
   x: 120,
   y: -46,
   panelColor: "#f8fafc",
@@ -65,6 +68,9 @@ assert.deepEqual(malformed, {
   pinned: true,
   primaryTimeZone: null,
   secondaryTimeZone: preferences.DEFAULT_TIME_ZONE,
+  extraTimeZones: [],
+  clockLayout: "horizontal",
+  meetingStartSoundEnabled: true,
   x: null,
   y: null,
   panelColor: "#f8fafc",
@@ -110,6 +116,49 @@ assert.deepEqual(fresh.monitoredSources, ["teams", "outlook"]);
 assert.deepEqual(fresh.liveVisualSources, ["teams"]);
 assert.equal(fresh.primaryTimeZone, null);
 assert.equal(fresh.widthMode, "recommended");
+assert.deepEqual(fresh.extraTimeZones, []);
+assert.equal(fresh.clockLayout, "horizontal");
+assert.equal(fresh.meetingStartSoundEnabled, true);
+
+const meetingSound = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
+  meetingStartSoundEnabled: true,
+});
+assert.equal(meetingSound.meetingStartSoundEnabled, true);
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    meetingStartSoundEnabled: false,
+  }).meetingStartSoundEnabled,
+  false,
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    meetingStartSoundEnabled: "yes",
+  }).meetingStartSoundEnabled,
+  true,
+);
+
+const multipleClocks = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
+  primaryTimeZone: "Europe/Kyiv",
+  secondaryTimeZone: "America/New_York",
+  extraTimeZones: [
+    "Europe/Belgrade",
+    "Europe/Belgrade",
+    "Invalid/Zone",
+    "Europe/Sarajevo",
+    "Europe/Skopje",
+    "Asia/Tokyo",
+  ],
+  clockLayout: "vertical",
+});
+assert.deepEqual(multipleClocks.extraTimeZones, [
+  "Europe/Belgrade",
+  "Asia/Tokyo",
+]);
+assert.equal(multipleClocks.clockLayout, "vertical");
 
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "compact" }).widthMode,
@@ -195,6 +244,9 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   pinned: false,
   primaryTimeZone: null,
   secondaryTimeZone: "UTC",
+  extraTimeZones: [],
+  clockLayout: "horizontal",
+  meetingStartSoundEnabled: true,
   x: 10,
   y: 20,
   panelColor: "#f8fafc",

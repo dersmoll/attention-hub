@@ -7,9 +7,9 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.3` is the current public beta.
+Version `0.6.0-beta.4` is the current public beta.
 
-[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.3)
+[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.4)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
 page publishes the exact installer checksum for verification.
@@ -20,9 +20,9 @@ page publishes the exact installer checksum for verification.
   Viber, and WhatsApp surfaces with truthful source-specific availability.
   Fresh installs start with Teams and Outlook shown; the other regional
   messengers remain available as explicit choices in Advanced.
-- Displays a primary clock that follows Windows by default and a selectable
-  secondary clock. The widget uses short city labels and a compact set of
-  human-readable UTC/city groups; Advanced can search the full IANA catalog.
+- Displays two to five clocks in a horizontal or compact vertical layout. The
+  widget uses short city labels and a compact set of human-readable UTC/city
+  groups; Advanced can search the full IANA catalog.
   The legacy `Europe/Kiev` alias is normalized to `Europe/Kyiv`. The primary
   timezone can be overridden locally, and either clock opens the inline
   converter in the corresponding direction. Converter mode preserves the live
@@ -36,6 +36,9 @@ page publishes the exact installer checksum for verification.
   expose **I'm in** beside Join until either action acknowledges the event.
   **Finish** locally hides an acknowledged active event until its scheduled end
   or app restart; neither action edits the calendar.
+  Clicking the calendar surface opens a compact same-day meeting summary.
+  Upcoming and newly started meetings receive a local visual cue, and a bundled
+  start sound is enabled by default with an Advanced setting to disable it.
   An unconfigured widget shows a compact **Set up** action that opens Advanced
   at the masked Published ICS field; configured calendars with no current or
   upcoming event retain the ordinary empty state.
@@ -80,7 +83,7 @@ page publishes the exact installer checksum for verification.
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
 The current artifact and validation record is in
-[the 0.6.0-beta.3 release notes](docs/releases/attention-hub-0.6.0-beta.3.md).
+[the 0.6.0-beta.4 release notes](docs/releases/attention-hub-0.6.0-beta.4.md).
 
 ## Development
 

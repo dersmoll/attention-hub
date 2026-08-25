@@ -14,6 +14,8 @@ export const WIDGET_LEFT_PADDING = 24;
 export const WIDGET_COMPACT_ICON_SIZE = 40;
 export const WIDGET_COMPACT_ICON_GAP = 4;
 export const WIDGET_COMPACT_LEFT_PADDING = 16;
+export const CALENDAR_DAY_PANEL_ROW_HEIGHT = 216;
+export const CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT = 224;
 
 export type WidgetWidthMode = "recommended" | "larger";
 
@@ -21,10 +23,40 @@ export function widgetHeight(widthMode: WidgetWidthMode = "recommended") {
   return widthMode === "recommended" ? WIDGET_COMPACT_HEIGHT : WIDGET_HEIGHT;
 }
 
+export function calendarDayPanelDirection(
+  widgetTop: number,
+  widgetHeight: number,
+  monitorTop: number,
+  monitorHeight: number,
+) {
+  const widgetCenter = widgetTop + widgetHeight / 2;
+  const monitorCenter = monitorTop + monitorHeight / 2;
+  return widgetCenter >= monitorCenter ? "above" : "below";
+}
+
+export function calendarDayPanelPhysicalOffset(scaleFactor: number) {
+  const safeScaleFactor =
+    Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+  return Math.round(CALENDAR_DAY_PANEL_ROW_HEIGHT * safeScaleFactor);
+}
+
 export function widgetClockWidth(widthMode: WidgetWidthMode = "recommended") {
   return widthMode === "recommended"
     ? WIDGET_COMPACT_CLOCK_WIDTH
     : WIDGET_CLOCK_WIDTH;
+}
+
+export function widgetClockPanelWidth(
+  widthMode: WidgetWidthMode = "recommended",
+  clockCount = 2,
+  clockLayout: "horizontal" | "vertical" = "horizontal",
+) {
+  const base = widgetClockWidth(widthMode);
+  if (clockLayout === "vertical") {
+    return base;
+  }
+  const boundedCount = Math.min(5, Math.max(2, Math.trunc(clockCount)));
+  return base + (boundedCount - 2) * (widthMode === "recommended" ? 104 : 120);
 }
 
 export function widgetZoneGap(widthMode: WidgetWidthMode = "recommended") {
@@ -67,10 +99,12 @@ export function widgetWidth(
   visibleSourceCount: number,
   widthMode: WidgetWidthMode = "recommended",
   showsNextEvent = false,
+  clockCount = 2,
+  clockLayout: "horizontal" | "vertical" = "horizontal",
 ) {
   return (
     widgetLeftWidth(visibleSourceCount, widthMode) +
-    widgetClockWidth(widthMode) +
+    widgetClockPanelWidth(widthMode, clockCount, clockLayout) +
     widgetCalendarWidth(widthMode, showsNextEvent) +
     WIDGET_UTILITY_WIDTH +
     widgetZoneGap(widthMode) * 3

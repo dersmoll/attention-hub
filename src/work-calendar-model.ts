@@ -15,6 +15,13 @@ export interface WorkCalendarSelection {
   joinToken: string | null;
 }
 
+export interface WorkCalendarDaySelection {
+  subject: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+}
+
 export interface WorkCalendarSnapshot {
   status: WorkCalendarStatus;
   configured: boolean;
@@ -24,6 +31,7 @@ export interface WorkCalendarSnapshot {
   selection: WorkCalendarSelection | null;
   overlappingSelections: WorkCalendarSelection[];
   nextSelection: WorkCalendarSelection | null;
+  daySelections: WorkCalendarDaySelection[];
   stopReason: string | null;
   requestMs: number;
   parseMs: number;
@@ -43,6 +51,66 @@ export function workCalendarSelectionKey(
   slot: string,
 ) {
   return `${slot}|${selection.start}|${selection.end}|${selection.subject}`;
+}
+
+export function workCalendarOccupiedMinutes(
+  selections: readonly WorkCalendarDaySelection[],
+  dayStart: Date,
+  dayEnd: Date,
+) {
+  const startBoundary = dayStart.getTime();
+  const endBoundary = dayEnd.getTime();
+  const intervals = selections
+    .filter((selection) => !selection.allDay)
+    .map((selection) => [
+      Math.max(startBoundary, Date.parse(selection.start)),
+      Math.min(endBoundary, Date.parse(selection.end)),
+    ] as const)
+    .filter(
+      ([start, end]) =>
+        Number.isFinite(start) && Number.isFinite(end) && end > start,
+    )
+    .sort(([firstStart], [secondStart]) => firstStart - secondStart);
+
+  let occupiedMs = 0;
+  let mergedStart = 0;
+  let mergedEnd = 0;
+  for (const [start, end] of intervals) {
+    if (mergedEnd === 0) {
+      mergedStart = start;
+      mergedEnd = end;
+    } else if (start <= mergedEnd) {
+      mergedEnd = Math.max(mergedEnd, end);
+    } else {
+      occupiedMs += mergedEnd - mergedStart;
+      mergedStart = start;
+      mergedEnd = end;
+    }
+  }
+  if (mergedEnd > mergedStart) {
+    occupiedMs += mergedEnd - mergedStart;
+  }
+  return Math.round(occupiedMs / 60_000);
+}
+
+export function workCalendarJoinLabel(opened: boolean) {
+  return opened ? "Rejoin" : "Join";
+}
+
+export function isMeetingStartTransition(
+  previousKey: string | null,
+  previousClassification: WorkCalendarSelection["classification"] | null,
+  currentKey: string | null,
+  currentClassification: WorkCalendarSelection["classification"] | null,
+  allDay: boolean,
+) {
+  return (
+    !allDay &&
+    currentKey !== null &&
+    currentKey === previousKey &&
+    previousClassification === "upcoming" &&
+    currentClassification === "active"
+  );
 }
 
 export function selectWorkCalendarDisplay(

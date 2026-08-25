@@ -200,6 +200,7 @@ impl TaskbarMirrorState {
         _slot_index: Option<i32>,
         _visible_source_count: i32,
         _compact_mode: bool,
+        _vertical_offset: i32,
     ) {
     }
 

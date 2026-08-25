@@ -21,6 +21,7 @@ const COMMON_TIME_ZONES = [
   "UTC",
   "Europe/London",
   "Europe/Paris",
+  "Europe/Belgrade",
   "Europe/Kyiv",
   "Africa/Lagos",
   "Africa/Johannesburg",
@@ -50,6 +51,7 @@ const TIME_ZONE_CITIES: Record<string, string> = {
   UTC: "UTC, Reykjavik",
   "Europe/London": "London, Dublin, Lisbon",
   "Europe/Paris": "Paris, Berlin, Rome, Madrid, Warsaw, Prague",
+  "Europe/Belgrade": "Belgrade, Sarajevo, Skopje",
   "Europe/Kyiv": "Kyiv, Helsinki, Riga, Sofia, Tallinn, Vilnius",
   "Africa/Lagos": "Lagos",
   "Africa/Johannesburg": "Johannesburg, Harare",
@@ -66,8 +68,21 @@ const TIME_ZONE_CITIES: Record<string, string> = {
   "Pacific/Auckland": "Auckland",
 };
 
+const TIME_ZONE_SEARCH_ALIASES: Record<string, string> = {
+  "Europe/Belgrade":
+    "Serbia Serbian Bosnia Bosnia and Herzegovina Bosnian Macedonia North Macedonia Macedonian Sarajevo Skopje",
+};
+
+const DISCOVERABLE_TIME_ZONES = Object.keys(TIME_ZONE_SEARCH_ALIASES);
+
 export function canonicalTimeZone(timeZone: string) {
-  return timeZone === "Europe/Kiev" ? "Europe/Kyiv" : timeZone;
+  if (timeZone === "Europe/Kiev") {
+    return "Europe/Kyiv";
+  }
+  if (timeZone === "Europe/Sarajevo" || timeZone === "Europe/Skopje") {
+    return "Europe/Belgrade";
+  }
+  return timeZone;
 }
 
 export function getSupportedTimeZones(currentValues: readonly string[] = []) {
@@ -81,7 +96,17 @@ export function getSupportedTimeZones(currentValues: readonly string[] = []) {
     : FALLBACK_TIME_ZONES
   ).map(canonicalTimeZone);
   const current = currentValues.map(canonicalTimeZone);
-  return Array.from(new Set([...values, "UTC", ...current])).sort(
+  const discoverable = DISCOVERABLE_TIME_ZONES.filter((timeZone) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return Array.from(
+    new Set([...values, ...discoverable, "UTC", ...current]),
+  ).sort(
     (first, second) => first.localeCompare(second),
   );
 }
@@ -153,6 +178,7 @@ export function searchTimeZones(
       timeZone,
       shortTimeZoneLabel(timeZone),
       TIME_ZONE_CITIES[timeZone],
+      TIME_ZONE_SEARCH_ALIASES[timeZone],
       timeZoneOffsetLabel(timeZone, value),
     ]
       .join(" ")

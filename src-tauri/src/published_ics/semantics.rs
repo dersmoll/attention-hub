@@ -37,6 +37,15 @@ pub struct EventSelection {
     pub meeting_url: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayEventSelection {
+    pub subject: String,
+    pub start: String,
+    pub end: String,
+    pub all_day: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SemanticFailureReason {
     MalformedEvent,
@@ -59,6 +68,7 @@ pub struct SemanticScan {
     pub selection: EventSelection,
     pub overlapping_selections: Vec<EventSelection>,
     pub next_selection: Option<EventSelection>,
+    pub day_selections: Vec<DayEventSelection>,
     pub eligible_candidate_count: u32,
     pub active_candidate_count: u32,
     pub expanded_occurrence_count: u32,
@@ -216,6 +226,28 @@ pub fn extract_current_or_next(
         )?;
     }
 
+    let viewer_day = now.with_timezone(&viewer_timezone).date_naive();
+    let mut day_selections = candidates
+        .iter()
+        .filter(|candidate| {
+            let start_day = candidate.start.with_timezone(&viewer_timezone).date_naive();
+            let end = candidate.end.with_timezone(&viewer_timezone);
+            let end_day = end.date_naive();
+            start_day <= viewer_day
+                && (end_day > viewer_day
+                    || (end_day == viewer_day && end.time() != chrono::NaiveTime::default()))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    day_selections.sort_by(|left, right| {
+        left.start
+            .cmp(&right.start)
+            .then_with(|| left.end.cmp(&right.end))
+            .then_with(|| left.uid.cmp(&right.uid))
+            .then_with(|| left.source_order.cmp(&right.source_order))
+    });
+    day_selections.truncate(24);
+
     candidates.retain(|candidate| candidate.end > now && candidate.start < window_end);
     let active_candidate_count = candidates
         .iter()
@@ -282,7 +314,8 @@ pub fn extract_current_or_next(
         .flatten();
     let private_title_redacted = selected.private
         || overlapping_selected.iter().any(|event| event.private)
-        || next_selected.as_ref().is_some_and(|event| event.private);
+        || next_selected.as_ref().is_some_and(|event| event.private)
+        || day_selections.iter().any(|event| event.private);
 
     Ok(SemanticScan {
         selection: selection_from_candidate(selected, now),
@@ -291,11 +324,28 @@ pub fn extract_current_or_next(
             .map(|candidate| selection_from_candidate(candidate, now))
             .collect(),
         next_selection: next_selected.map(|candidate| selection_from_candidate(candidate, now)),
+        day_selections: day_selections
+            .into_iter()
+            .map(day_selection_from_candidate)
+            .collect(),
         eligible_candidate_count: u32::try_from(eligible_candidate_count).unwrap_or(u32::MAX),
         active_candidate_count: u32::try_from(active_candidate_count).unwrap_or(u32::MAX),
         expanded_occurrence_count: u32::try_from(expanded_occurrence_count).unwrap_or(u32::MAX),
         private_title_redacted,
     })
+}
+
+fn day_selection_from_candidate(candidate: Candidate) -> DayEventSelection {
+    DayEventSelection {
+        subject: if candidate.private {
+            "Private event".to_owned()
+        } else {
+            candidate.subject
+        },
+        start: candidate.start.to_rfc3339(),
+        end: candidate.end.to_rfc3339(),
+        all_day: candidate.all_day,
+    }
 }
 
 fn compare_upcoming_candidates(left: &Candidate, right: &Candidate) -> std::cmp::Ordering {
@@ -1119,6 +1169,9 @@ mod tests {
         assert_eq!(result.selection.classification, EventClassification::Active);
         assert_eq!(result.selection.subject, "Private event");
         assert_eq!(result.selection.meeting_link_present, None);
+        assert_eq!(result.day_selections.len(), 2);
+        assert_eq!(result.day_selections[0].subject, "Private event");
+        assert_eq!(result.day_selections[1].subject, "Next meeting");
         assert_eq!(
             result
                 .next_selection
@@ -1140,6 +1193,14 @@ mod tests {
         assert_eq!(result.selection.subject, "Next timed event");
         assert!(result.next_selection.is_none());
         assert_eq!(result.active_candidate_count, 1);
+    }
+
+    #[test]
+    fn same_day_summary_treats_midnight_end_as_exclusive() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:yesterday\r\nDTSTART;VALUE=DATE:20260810\r\nDTEND;VALUE=DATE:20260811\r\nSUMMARY:Yesterday\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:today\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:Today\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+
+        assert_eq!(result.day_selections.len(), 1);
+        assert_eq!(result.day_selections[0].subject, "Today");
     }
 
     #[test]

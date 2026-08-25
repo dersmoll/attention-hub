@@ -24,8 +24,11 @@ import {
   type TaskbarMirrorStatus,
 } from "./attention-model";
 import {
+  isMeetingStartTransition,
   nextWorkCalendarRefreshDelay,
   selectWorkCalendarDisplay,
+  workCalendarJoinLabel,
+  workCalendarOccupiedMinutes,
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
@@ -41,9 +44,13 @@ import {
   timeZoneOffsetLabel,
 } from "./time-zone-options";
 import {
+  CALENDAR_DAY_PANEL_ROW_HEIGHT,
+  CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT,
   WIDGET_UTILITY_WIDTH,
+  calendarDayPanelDirection,
+  calendarDayPanelPhysicalOffset,
   widgetCalendarWidth,
-  widgetClockWidth,
+  widgetClockPanelWidth,
   widgetHeight,
   widgetLeftWidth,
   widgetWidth,
@@ -79,6 +86,7 @@ import {
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
+const WORK_CALENDAR_IMMINENT_MS = 60 * 1_000;
 const LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const MIAMI_TIME_ZONE = "America/New_York";
 type ClockConversionSource = "local" | "secondary";
@@ -475,6 +483,10 @@ export function WidgetView() {
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
+  const [calendarDayPanelOpen, setCalendarDayPanelOpen] = useState(false);
+  const [calendarDayPanelPlacement, setCalendarDayPanelPlacement] = useState<
+    "above" | "below"
+  >("below");
   const [laterInbox, setLaterInbox] = useState<LaterInboxSnapshot | null>(null);
   const [laterInboxPreferences, setLaterInboxPreferences] =
     useState<LaterInboxPreferences>(readLaterInboxPreferences);
@@ -493,6 +505,13 @@ export function WidgetView() {
   const attentionInFlight = useRef(false);
   const workCalendarInFlight = useRef(false);
   const laterButtonRef = useRef<HTMLButtonElement>(null);
+  const calendarPanelExpandedRef = useRef(false);
+  const suppressPositionPersistenceRef = useRef(false);
+  const meetingStartObservationRef = useRef<{
+    initialized: boolean;
+    key: string | null;
+    classification: "active" | "upcoming" | null;
+  }>({ initialized: false, key: null, classification: null });
   const widgetWindow = useMemo(getCurrentWindow, []);
   const pinned = preferences.pinned;
   const systemTimeZone = canonicalTimeZone(
@@ -503,11 +522,19 @@ export function WidgetView() {
   const timeZoneOptions = useMemo(
     () =>
       getCommonTimeZones(
-        [preferences.primaryTimeZone, secondaryTimeZone].filter(
+        [
+          preferences.primaryTimeZone,
+          secondaryTimeZone,
+          ...preferences.extraTimeZones,
+        ].filter(
           (value): value is string => value !== null,
         ),
       ),
-    [preferences.primaryTimeZone, secondaryTimeZone],
+    [
+      preferences.extraTimeZones,
+      preferences.primaryTimeZone,
+      secondaryTimeZone,
+    ],
   );
   const visibleSources = useMemo(
     () =>
@@ -806,6 +833,10 @@ export function WidgetView() {
             .filter(({ sourceKey }) => sourceKey !== "outlook"),
           visibleSourceCount: visibleSources.length,
           compactMode: preferences.widthMode === "recommended",
+          verticalOffset:
+            calendarDayPanelOpen && calendarDayPanelPlacement === "above"
+              ? CALENDAR_DAY_PANEL_ROW_HEIGHT
+              : 0,
         });
       } catch (error) {
         setWidgetError(`App layout update failed: ${String(error)}`);
@@ -835,7 +866,14 @@ export function WidgetView() {
       );
       await refreshMirrors();
     })();
-  }, [attentionSnapshot, preferences, refreshMirrors, visibleSources]);
+  }, [
+    attentionSnapshot,
+    calendarDayPanelOpen,
+    calendarDayPanelPlacement,
+    preferences,
+    refreshMirrors,
+    visibleSources,
+  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -860,14 +898,26 @@ export function WidgetView() {
     let disposed = false;
     void (async () => {
       try {
+        const [previousPosition, scaleFactor] = await Promise.all([
+          widgetWindow.outerPosition(),
+          widgetWindow.scaleFactor(),
+        ]);
+        const wasPanelOpen = calendarPanelExpandedRef.current;
+        suppressPositionPersistenceRef.current =
+          calendarDayPanelOpen || wasPanelOpen;
         await widgetWindow.setSize(
           new LogicalSize(
             widgetWidth(
               visibleSources.length,
               preferences.widthMode,
               showNextEvent,
+              2 + preferences.extraTimeZones.length,
+              preferences.clockLayout,
             ),
-            widgetHeight(preferences.widthMode),
+              widgetHeight(preferences.widthMode) +
+              (calendarDayPanelOpen
+                ? CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT
+                : 0),
           ),
         );
         const [position, size, monitors] = await Promise.all([
@@ -875,17 +925,40 @@ export function WidgetView() {
           widgetWindow.outerSize(),
           availableMonitors(),
         ]);
-        const clamped = clampSavedPosition(
-          position.x,
-          position.y,
-          size.width,
-          size.height,
-          monitors,
-        );
-        if (clamped.x !== position.x || clamped.y !== position.y) {
-          await widgetWindow.setPosition(
-            new PhysicalPosition(clamped.x, clamped.y),
+        let targetPosition = { x: position.x, y: position.y };
+        if (
+          calendarDayPanelOpen !== wasPanelOpen &&
+          calendarDayPanelPlacement === "above"
+        ) {
+          const panelOffset = calendarDayPanelPhysicalOffset(scaleFactor);
+          targetPosition = {
+            x: previousPosition.x,
+            y: calendarDayPanelOpen
+              ? previousPosition.y - panelOffset
+              : previousPosition.y + panelOffset,
+          };
+        } else if (!calendarDayPanelOpen && !wasPanelOpen) {
+          targetPosition = clampSavedPosition(
+            position.x,
+            position.y,
+            size.width,
+            size.height,
+            monitors,
           );
+        }
+        if (
+          targetPosition.x !== position.x ||
+          targetPosition.y !== position.y
+        ) {
+          await widgetWindow.setPosition(
+            new PhysicalPosition(targetPosition.x, targetPosition.y),
+          );
+        }
+        calendarPanelExpandedRef.current = calendarDayPanelOpen;
+        if (!calendarDayPanelOpen) {
+          window.setTimeout(() => {
+            suppressPositionPersistenceRef.current = false;
+          }, 150);
         }
       } catch (error) {
         if (!disposed) {
@@ -898,6 +971,10 @@ export function WidgetView() {
     };
   }, [
     preferences.widthMode,
+    preferences.clockLayout,
+    preferences.extraTimeZones.length,
+    calendarDayPanelOpen,
+    calendarDayPanelPlacement,
     showNextEvent,
     visibleSources.length,
     widgetWindow,
@@ -926,6 +1003,9 @@ export function WidgetView() {
           );
         }
         unlistenMoved = await widgetWindow.onMoved(({ payload }) => {
+          if (suppressPositionPersistenceRef.current) {
+            return;
+          }
           writeWidgetPreferences({ x: payload.x, y: payload.y });
         });
       } catch (error) {
@@ -989,6 +1069,48 @@ export function WidgetView() {
     } catch (error) {
       setWidgetError(`Later Inbox window failed: ${String(error)}`);
     }
+  };
+
+  const toggleCalendarDayPanel = async () => {
+    suppressPositionPersistenceRef.current = true;
+    if (calendarDayPanelOpen) {
+      setCalendarDayPanelOpen(false);
+      return;
+    }
+
+    try {
+      const [position, size, monitors] = await Promise.all([
+        widgetWindow.outerPosition(),
+        widgetWindow.outerSize(),
+        availableMonitors(),
+      ]);
+      const centerX = position.x + size.width / 2;
+      const centerY = position.y + size.height / 2;
+      const monitor =
+        monitors.find(({ workArea }) => {
+          const left = workArea.position.x;
+          const top = workArea.position.y;
+          return (
+            centerX >= left &&
+            centerX < left + workArea.size.width &&
+            centerY >= top &&
+            centerY < top + workArea.size.height
+          );
+        }) ?? monitors[0];
+      setCalendarDayPanelPlacement(
+        monitor
+          ? calendarDayPanelDirection(
+              position.y,
+              size.height,
+              monitor.workArea.position.y,
+              monitor.workArea.size.height,
+            )
+          : "below",
+      );
+    } catch {
+      setCalendarDayPanelPlacement("below");
+    }
+    setCalendarDayPanelOpen(true);
   };
 
   const activateSource = async (
@@ -1127,6 +1249,9 @@ export function WidgetView() {
     Number.isFinite(calendarStartMs) &&
     calendarStartMs > now.getTime() &&
     calendarStartMs - now.getTime() <= WORK_CALENDAR_STARTING_SOON_MS;
+  const calendarImminent =
+    calendarStartingSoon &&
+    calendarStartMs - now.getTime() <= WORK_CALENDAR_IMMINENT_MS;
   const calendarStartedNeedsAttention =
     calendarSelection?.classification === "active" &&
     !calendarSelection.allDay &&
@@ -1134,9 +1259,40 @@ export function WidgetView() {
   const calendarNotConfigured = workCalendar?.status === "notConfigured";
   const calendarAttentionState = calendarStartedNeedsAttention
     ? "started"
-    : calendarStartingSoon
-      ? "soon"
-      : undefined;
+    : calendarImminent
+      ? "imminent"
+      : calendarStartingSoon
+        ? "soon"
+        : undefined;
+  useEffect(() => {
+    const current = {
+      initialized: true,
+      key: calendarDisplay.selectionKey,
+      classification: calendarSelection?.classification ?? null,
+    } as const;
+    const previous = meetingStartObservationRef.current;
+    meetingStartObservationRef.current = current;
+    if (
+      previous.initialized &&
+      preferences.meetingStartSoundEnabled &&
+      isMeetingStartTransition(
+        previous.key,
+        previous.classification,
+        current.key,
+        current.classification,
+        calendarSelection?.allDay ?? false,
+      )
+    ) {
+      void invoke("play_meeting_start_sound").catch((error) =>
+        setWidgetError(`Meeting-start sound failed: ${String(error)}`),
+      );
+    }
+  }, [
+    calendarDisplay.selectionKey,
+    calendarSelection?.allDay,
+    calendarSelection?.classification,
+    preferences.meetingStartSoundEnabled,
+  ]);
   const calendarState = calendarSelection
     ? calendarStartedNeedsAttention
       ? "Meeting started"
@@ -1167,8 +1323,14 @@ export function WidgetView() {
           ? "Open Advanced to save one published calendar securely."
           : "The last refresh was unavailable; no cached event is shown.";
   const calendarProgress = calendarEventProgress(calendarSelection, now);
+  const calendarJoinOpened =
+    calendarDisplay.selectionKey !== null &&
+    acknowledgedActiveEvent === calendarDisplay.selectionKey;
   const calendarNextAcknowledged =
     calendarNextSelection?.classification === "active" &&
+    calendarDisplay.companionKey !== null &&
+    acknowledgedActiveEvent === calendarDisplay.companionKey;
+  const calendarNextJoinOpened =
     calendarDisplay.companionKey !== null &&
     acknowledgedActiveEvent === calendarDisplay.companionKey;
   const calendarNextStartedNeedsAttention =
@@ -1219,7 +1381,12 @@ export function WidgetView() {
   const panelStyle = {
     ...widgetPanelStyle(preferences),
     "--widget-left-width": `${widgetLeftWidth(visibleSources.length, preferences.widthMode)}px`,
-    "--widget-clock-width": `${widgetClockWidth(preferences.widthMode)}px`,
+    "--widget-clock-width": `${widgetClockPanelWidth(
+      preferences.widthMode,
+      2 + preferences.extraTimeZones.length,
+      preferences.clockLayout,
+    )}px`,
+    "--widget-clock-count": 2 + preferences.extraTimeZones.length,
     "--widget-calendar-width": `${widgetCalendarWidth(
       preferences.widthMode,
       showNextEvent,
@@ -1227,6 +1394,16 @@ export function WidgetView() {
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
     "--widget-utility-width": `${WIDGET_UTILITY_WIDTH}px`,
   } as CSSProperties;
+  const calendarDaySelections = workCalendar?.daySelections ?? [];
+  const calendarDayStart = new Date(now);
+  calendarDayStart.setHours(0, 0, 0, 0);
+  const calendarDayEnd = new Date(calendarDayStart);
+  calendarDayEnd.setDate(calendarDayEnd.getDate() + 1);
+  const calendarOccupiedMinutes = workCalendarOccupiedMinutes(
+    calendarDaySelections,
+    calendarDayStart,
+    calendarDayEnd,
+  );
 
   const renderAppSlot = (sourceKey: AttentionAppKey) => {
     if (sourceKey === "teams") {
@@ -1303,6 +1480,10 @@ export function WidgetView() {
     <main
       className="widget-shell"
       data-tauri-drag-region
+      data-day-panel={calendarDayPanelOpen || undefined}
+      data-day-panel-placement={
+        calendarDayPanelOpen ? calendarDayPanelPlacement : undefined
+      }
       data-width-mode={preferences.widthMode}
       style={panelStyle}
     >
@@ -1319,6 +1500,9 @@ export function WidgetView() {
       <section
         className="widget-zone widget-clock"
         aria-label="Current time"
+        data-clock-count={2 + preferences.extraTimeZones.length}
+        data-clock-layout={preferences.clockLayout}
+        data-clock-mode={clockConversionSource ? "converter" : "live"}
         data-tauri-drag-region
       >
         {clockConversionSource ? (
@@ -1461,6 +1645,22 @@ export function WidgetView() {
                 <time>{formatTime(now, secondaryTimeZone)}</time>
               </button>
             </div>
+            {preferences.extraTimeZones.map((timeZone) => (
+              <div data-tauri-drag-region key={timeZone}>
+                <span
+                  className="widget-clock__label"
+                  title={`${timeZone} · ${timeZoneOffsetLabel(timeZone, now)}`}
+                >
+                  {shortTimeZoneLabel(timeZone)}
+                </span>
+                <span
+                  aria-label={`${timeZone} time ${formatTime(now, timeZone)}`}
+                  className="widget-clock__time-display"
+                >
+                  <time>{formatTime(now, timeZone)}</time>
+                </span>
+              </div>
+            ))}
           </>
         )}
       </section>
@@ -1469,17 +1669,27 @@ export function WidgetView() {
         className="widget-zone widget-calendar"
         data-calendar-attention={calendarAttentionState}
         data-calendar-setup={calendarNotConfigured || undefined}
+        data-day-summary={calendarDaySelections.length > 0 || undefined}
         aria-label="Work calendar"
-        data-tauri-drag-region
+        onClick={(event) => {
+          if (
+            calendarDaySelections.length === 0 ||
+            (event.target as HTMLElement).closest(
+              "button, a, input, select, textarea, [role='button']",
+            )
+          ) {
+            return;
+          }
+          void toggleCalendarDayPanel();
+        }}
+        title="Click the calendar area for today's meetings"
       >
         <div
           className="widget-calendar__content"
           data-has-next={showNextEvent || undefined}
-          data-tauri-drag-region
         >
           <div
             className="widget-calendar__event"
-            data-tauri-drag-region
             title={`${calendarTitle}\n${calendarDetail}`}
           >
             <div className="widget-calendar__event-header">
@@ -1512,7 +1722,7 @@ export function WidgetView() {
                   )}
                   {calendarSelection.joinToken && (
                     <button
-                      aria-label={`Join ${calendarSelection.subject}`}
+                      aria-label={`${workCalendarJoinLabel(calendarJoinOpened)} ${calendarSelection.subject}`}
                       className="widget-calendar__join"
                       onClick={() =>
                         void openCalendarJoin(
@@ -1523,7 +1733,7 @@ export function WidgetView() {
                       title="Open meeting link"
                       type="button"
                     >
-                      Join
+                      {workCalendarJoinLabel(calendarJoinOpened)}
                     </button>
                   )}
                   {activeEventAcknowledged && (
@@ -1588,7 +1798,6 @@ export function WidgetView() {
                     : "Next work-calendar event"
               }
               className="widget-calendar__next"
-              data-tauri-drag-region
               title={`${calendarNextSelection.subject}\n${calendarNextDetail}`}
             >
               <div className="widget-calendar__next-header">
@@ -1626,7 +1835,7 @@ export function WidgetView() {
                   )}
                   {calendarNextSelection.joinToken && (
                     <button
-                      aria-label={`Join ${calendarNextSelection.subject}`}
+                      aria-label={`${workCalendarJoinLabel(calendarNextJoinOpened)} ${calendarNextSelection.subject}`}
                       className="widget-calendar__join"
                       onClick={() =>
                         void openCalendarJoin(
@@ -1637,7 +1846,7 @@ export function WidgetView() {
                       title="Open meeting link"
                       type="button"
                     >
-                      Join
+                      {workCalendarJoinLabel(calendarNextJoinOpened)}
                     </button>
                   )}
                   {calendarNextAcknowledged && (
@@ -1749,6 +1958,50 @@ export function WidgetView() {
           <span className="sr-only">Open Advanced view</span>
         </button>
       </aside>
+
+      {calendarDayPanelOpen && (
+        <section
+          aria-label="Today's meeting summary"
+          className="widget-calendar-day-panel"
+        >
+          <header>
+            <div>
+              <strong>Today</strong>
+              <span>
+                {calendarDaySelections.length} event
+                {calendarDaySelections.length === 1 ? "" : "s"} · {Math.floor(
+                  calendarOccupiedMinutes / 60,
+                )}
+                h {calendarOccupiedMinutes % 60}m in timed meetings
+              </span>
+            </div>
+            <button
+              aria-label="Close today's meeting summary"
+              onClick={() => void toggleCalendarDayPanel()}
+              type="button"
+            >
+              <svg aria-hidden="true" viewBox="0 0 12 12">
+                <path d="m2 2 8 8M10 2 2 10" />
+              </svg>
+            </button>
+          </header>
+          <ol>
+            {calendarDaySelections.map((selection, index) => (
+              <li key={`${selection.start}|${selection.end}|${index}`}>
+                <time>
+                  {selection.allDay
+                    ? "All day"
+                    : `${formatTime(new Date(selection.start), systemTimeZone)}–${formatTime(
+                        new Date(selection.end),
+                        systemTimeZone,
+                      )}`}
+                </time>
+                <span>{selection.subject}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {widgetError && (
         <p className="widget-error" role="status">

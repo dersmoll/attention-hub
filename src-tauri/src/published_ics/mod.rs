@@ -4,7 +4,7 @@ use reqwest::{header::CONTENT_TYPE, redirect::Policy, Url};
 use serde::Serialize;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub use semantics::{EventClassification, EventSelection};
+pub use semantics::{DayEventSelection, EventClassification, EventSelection};
 
 const MAX_URL_BYTES: usize = 4_096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -89,6 +89,7 @@ pub struct PublishedIcsSemanticProbe {
     pub selection: Option<EventSelection>,
     pub overlapping_selections: Vec<EventSelection>,
     pub next_selection: Option<EventSelection>,
+    pub day_selections: Vec<DayEventSelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub diagnostics: Vec<String>,
 }
@@ -115,6 +116,7 @@ impl PublishedIcsSemanticProbe {
             selection: None,
             overlapping_selections: Vec::new(),
             next_selection: None,
+            day_selections: Vec::new(),
             stop_reason: None,
             diagnostics: Vec::new(),
         }
@@ -432,8 +434,9 @@ pub async fn get_semantic_probe(
     probe.selection = Some(semantic.selection);
     probe.overlapping_selections = semantic.overlapping_selections;
     probe.next_selection = semantic.next_selection;
+    probe.day_selections = semantic.day_selections;
     probe.diagnostics.push(
-        "A fresh active-or-next selection, at most one simultaneous or overlapping event, and at most one later upcoming companion were produced from one user-confirmed title-capable published calendar.".to_owned(),
+        "A fresh active-or-next selection, at most one simultaneous or overlapping event, at most one later upcoming companion, and a bounded same-day summary were produced from one user-confirmed title-capable published calendar.".to_owned(),
     );
     probe.diagnostics.push(
         "Location, account, attendees, organizer, body, UID, raw calendar data, and meeting URLs were discarded and did not cross IPC.".to_owned(),

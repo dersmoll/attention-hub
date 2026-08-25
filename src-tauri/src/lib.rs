@@ -251,9 +251,13 @@ fn set_fixed_taskbar_mirror_layout(
     source_slots: Vec<TaskbarMirrorSlot>,
     visible_source_count: i32,
     compact_mode: bool,
+    vertical_offset: i32,
 ) -> Result<(), String> {
     if !(0..=6).contains(&visible_source_count) {
         return Err("Visible source count must be from 0 through 6.".into());
+    }
+    if !(0..=512).contains(&vertical_offset) {
+        return Err("Visual source vertical offset must be from 0 through 512.".into());
     }
     let mut seen_sources = Vec::new();
     let mut seen_slots = Vec::new();
@@ -269,7 +273,13 @@ fn set_fixed_taskbar_mirror_layout(
         }
         seen_sources.push(source);
         seen_slots.push(item.slot);
-        state.set_layout(source, Some(item.slot), visible_source_count, compact_mode);
+        state.set_layout(
+            source,
+            Some(item.slot),
+            visible_source_count,
+            compact_mode,
+            vertical_offset,
+        );
     }
     Ok(())
 }
@@ -298,12 +308,14 @@ fn set_taskbar_mirror_layout(
         teams_slot,
         visible_source_count,
         false,
+        0,
     );
     state.set_layout(
         TaskbarMirrorSource::Telegram,
         telegram_slot,
         visible_source_count,
         false,
+        0,
     );
     Ok(())
 }
@@ -318,6 +330,46 @@ fn activate_attention_source(source_key: String) -> Result<(), String> {
 #[tauri::command]
 fn quit_application(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use tauri::path::BaseDirectory;
+        use windows::{
+            core::PCWSTR,
+            Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME, SND_NODEFAULT, SND_SYSTEM},
+        };
+
+        let sound_path = app
+            .path()
+            .resolve("sounds/meeting-start.wav", BaseDirectory::Resource)
+            .map_err(|_| "Attention Hub could not resolve its bundled meeting sound.".to_owned())?;
+        if !sound_path.is_file() {
+            return Err("The bundled meeting-start sound is unavailable.".to_owned());
+        }
+        let sound_path = sound_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        unsafe {
+            PlaySoundW(
+                PCWSTR(sound_path.as_ptr()),
+                None,
+                SND_FILENAME | SND_ASYNC | SND_NODEFAULT | SND_SYSTEM,
+            )
+        }
+        .ok()
+        .map_err(|_| "Windows could not play the bundled meeting-start sound.".to_owned())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("Meeting-start sound is available only on Windows.".to_owned())
+    }
 }
 
 fn emit_later_inbox_changed(app: &tauri::AppHandle) {
@@ -479,6 +531,7 @@ pub fn run() {
             notify_due_later_inbox_items,
             open_later_inbox_item_url,
             open_later_inbox_note_url,
+            play_meeting_start_sound,
             quit_application
         ])
         .run(tauri::generate_context!())

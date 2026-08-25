@@ -11,12 +11,16 @@ export type AttentionAppKey =
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
 export type WidgetWidthMode = "recommended" | "larger";
+export type ClockLayout = "horizontal" | "vertical";
 
 export interface WidgetPreferences {
   sourceCatalogVersion: 2;
   pinned: boolean;
   primaryTimeZone: string | null;
   secondaryTimeZone: string;
+  extraTimeZones: string[];
+  clockLayout: ClockLayout;
+  meetingStartSoundEnabled: boolean;
   x: number | null;
   y: number | null;
   panelColor: string;
@@ -56,6 +60,9 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   pinned: true,
   primaryTimeZone: null,
   secondaryTimeZone: DEFAULT_TIME_ZONE,
+  extraTimeZones: [],
+  clockLayout: "horizontal",
+  meetingStartSoundEnabled: true,
   x: null,
   y: null,
   panelColor: "#f8fafc",
@@ -98,7 +105,13 @@ function isValidTimeZone(value: string) {
 }
 
 function canonicalTimeZone(value: string) {
-  return value === "Europe/Kiev" ? "Europe/Kyiv" : value;
+  if (value === "Europe/Kiev") {
+    return "Europe/Kyiv";
+  }
+  if (value === "Europe/Sarajevo" || value === "Europe/Skopje") {
+    return "Europe/Belgrade";
+  }
+  return value;
 }
 
 function normalizePrimaryTimeZone(value: unknown) {
@@ -117,6 +130,43 @@ function normalizeTimeZone(value: unknown) {
   return isValidTimeZone(normalized)
     ? normalized
     : DEFAULT_WIDGET_PREFERENCES.secondaryTimeZone;
+}
+
+function normalizeExtraTimeZones(
+  value: unknown,
+  primaryTimeZone: string | null,
+  secondaryTimeZone: string,
+) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const excluded = new Set(
+    [primaryTimeZone, secondaryTimeZone].filter(
+      (timeZone): timeZone is string => timeZone !== null,
+    ),
+  );
+  const normalized: string[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== "string") {
+      continue;
+    }
+    const timeZone = canonicalTimeZone(candidate);
+    if (
+      isValidTimeZone(timeZone) &&
+      !excluded.has(timeZone) &&
+      !normalized.includes(timeZone)
+    ) {
+      normalized.push(timeZone);
+    }
+    if (normalized.length === 3) {
+      break;
+    }
+  }
+  return normalized;
+}
+
+function normalizeClockLayout(value: unknown): ClockLayout {
+  return value === "vertical" ? "vertical" : "horizontal";
 }
 
 function normalizeCoordinate(value: unknown) {
@@ -178,14 +228,26 @@ export function normalizeWidgetPreferences(
   const legacyVisualFallback = migrateLegacyCatalog
     ? LIVE_VISUAL_APP_KEYS
     : DEFAULT_WIDGET_PREFERENCES.liveVisualSources;
+  const primaryTimeZone = normalizePrimaryTimeZone(value?.primaryTimeZone);
+  const secondaryTimeZone = normalizeTimeZone(value?.secondaryTimeZone);
   return {
     sourceCatalogVersion: 2,
     pinned:
       typeof value?.pinned === "boolean"
         ? value.pinned
         : DEFAULT_WIDGET_PREFERENCES.pinned,
-    primaryTimeZone: normalizePrimaryTimeZone(value?.primaryTimeZone),
-    secondaryTimeZone: normalizeTimeZone(value?.secondaryTimeZone),
+    primaryTimeZone,
+    secondaryTimeZone,
+    extraTimeZones: normalizeExtraTimeZones(
+      value?.extraTimeZones,
+      primaryTimeZone,
+      secondaryTimeZone,
+    ),
+    clockLayout: normalizeClockLayout(value?.clockLayout),
+    meetingStartSoundEnabled:
+      typeof value?.meetingStartSoundEnabled === "boolean"
+        ? value.meetingStartSoundEnabled
+        : DEFAULT_WIDGET_PREFERENCES.meetingStartSoundEnabled,
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
     panelColor: normalizeColor(value?.panelColor),
@@ -290,5 +352,8 @@ export function widgetPanelStyle(preferences: WidgetPreferences) {
     "--widget-panel-foreground": foreground,
     "--widget-panel-muted": muted,
     "--widget-panel-border": border,
+    "--widget-panel-interactive-foreground": useDarkForeground
+      ? "#f8fafc"
+      : "#111827",
   };
 }

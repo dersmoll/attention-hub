@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-title Attention Hub - Milestone 10 Test Launcher
+title Attention Hub - Milestone 11 Test Launcher
 
 cd /d "%~dp0"
 if errorlevel 1 goto :wrong_folder
@@ -8,8 +8,8 @@ if errorlevel 1 goto :wrong_folder
 set "ATTENTION_HUB_ROOT=%CD%"
 
 echo.
-echo Attention Hub Milestone 10 test launcher
-echo Update: 0.6.0-beta.3 release candidate - converter polish
+echo Attention Hub Milestone 11 test launcher
+echo Update: 0.6.0-beta.4 release candidate - community feedback
 echo Repository: %ATTENTION_HUB_ROOT%
 echo.
 echo Closing any previous Attention Hub run...
