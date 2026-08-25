@@ -48,6 +48,7 @@ struct MirrorLayoutState {
     slot_index: AtomicI32,
     visible_source_count: AtomicI32,
     compact_mode: AtomicBool,
+    vertical_offset: AtomicI32,
 }
 
 struct MirrorRuntime {
@@ -88,6 +89,7 @@ impl TaskbarMirrorState {
         slot_index: Option<i32>,
         visible_source_count: i32,
         compact_mode: bool,
+        vertical_offset: i32,
     ) {
         let instance = self.instance(source);
         if let Some(slot_index) = slot_index {
@@ -104,6 +106,10 @@ impl TaskbarMirrorState {
             .layout
             .compact_mode
             .store(compact_mode, Ordering::Release);
+        instance
+            .layout
+            .vertical_offset
+            .store(vertical_offset, Ordering::Release);
     }
 
     pub fn stop_all(&self) {
@@ -145,6 +151,7 @@ impl MirrorInstance {
                 slot_index: AtomicI32::new(source.slot_index()),
                 visible_source_count: AtomicI32::new(6),
                 compact_mode: AtomicBool::new(false),
+                vertical_offset: AtomicI32::new(0),
             }),
         }
     }
@@ -1352,11 +1359,10 @@ mod windows_probe {
             .clamp(0, 6);
         let slot_left = widget_slot_left(slot_index, source_count, compact);
         let x = owner_rect.left + scale(slot_left) + inset;
-        let icon_top = if compact {
-            WIDGET_COMPACT_ICON_TOP
-        } else {
-            WIDGET_ICON_TOP
-        };
+        let vertical_offset = layout
+            .map(|value| value.vertical_offset.load(Ordering::Acquire))
+            .unwrap_or(0);
+        let icon_top = widget_icon_top(compact, vertical_offset);
         let y = owner_rect.top + scale(icon_top) + inset;
 
         unsafe {
@@ -1371,6 +1377,15 @@ mod windows_probe {
             )?
         };
         Ok((size, size))
+    }
+
+    fn widget_icon_top(compact: bool, vertical_offset: i32) -> i32 {
+        let base = if compact {
+            WIDGET_COMPACT_ICON_TOP
+        } else {
+            WIDGET_ICON_TOP
+        };
+        base.saturating_add(vertical_offset.clamp(0, 512))
     }
 
     fn widget_slot_left(slot_index: i32, visible_source_count: i32, compact: bool) -> i32 {
@@ -2186,8 +2201,8 @@ mod windows_probe {
     mod tests {
         use super::{
             fit_within, source_identity_matches, source_name_matches,
-            source_window_candidate_is_usable, square_source_crop, widget_slot_left, RECT,
-            WIDGET_COMPACT_ICON_TOP, WIDGET_ICON_TOP,
+            source_window_candidate_is_usable, square_source_crop, widget_icon_top,
+            widget_slot_left, RECT, WIDGET_COMPACT_ICON_TOP, WIDGET_ICON_TOP,
         };
         use crate::teams_mirror::{AttentionAppSource, TaskbarMirrorSource};
 
@@ -2255,6 +2270,8 @@ mod windows_probe {
             assert_eq!(widget_slot_left(5, 6, true), 228);
             assert_eq!(WIDGET_ICON_TOP, 16);
             assert_eq!(WIDGET_COMPACT_ICON_TOP, 14);
+            assert_eq!(widget_icon_top(false, 0), 16);
+            assert_eq!(widget_icon_top(true, 216), 230);
         }
 
         #[test]

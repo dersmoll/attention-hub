@@ -2,8 +2,8 @@
 mod credential_store_windows;
 
 use crate::published_ics::{
-    self, EventClassification, EventSelection, PublishedIcsProbeStatus, PublishedIcsSemanticProbe,
-    PublishedIcsStopReason,
+    self, DayEventSelection, EventClassification, EventSelection, PublishedIcsProbeStatus,
+    PublishedIcsSemanticProbe, PublishedIcsStopReason,
 };
 use serde::Serialize;
 use std::{
@@ -46,6 +46,7 @@ pub struct WorkCalendarSnapshot {
     pub selection: Option<WorkCalendarSelection>,
     pub overlapping_selections: Vec<WorkCalendarSelection>,
     pub next_selection: Option<WorkCalendarSelection>,
+    pub day_selections: Vec<DayEventSelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub request_ms: u64,
     pub parse_ms: u64,
@@ -207,6 +208,7 @@ pub async fn save_source(
                 selection: None,
                 overlapping_selections: Vec::new(),
                 next_selection: None,
+                day_selections: Vec::new(),
                 stop_reason: None,
                 request_ms: probe.request_ms,
                 parse_ms: probe.parse_ms,
@@ -234,6 +236,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 selection: None,
                 overlapping_selections: Vec::new(),
                 next_selection: None,
+                day_selections: Vec::new(),
                 stop_reason: None,
                 request_ms: 0,
                 parse_ms: 0,
@@ -258,6 +261,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 selection: None,
                 overlapping_selections: Vec::new(),
                 next_selection: None,
+                day_selections: Vec::new(),
                 stop_reason: None,
                 request_ms: 0,
                 parse_ms: 0,
@@ -276,6 +280,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 selection: None,
                 overlapping_selections: Vec::new(),
                 next_selection: None,
+                day_selections: Vec::new(),
                 stop_reason: None,
                 request_ms: 0,
                 parse_ms: 0,
@@ -361,6 +366,7 @@ fn snapshot_from_probe(
         probe.selection = None;
         probe.overlapping_selections.clear();
         probe.next_selection = None;
+        probe.day_selections.clear();
     }
     let (selection, overlapping_selections, next_selection) = state.expose_selections(
         probe.selection,
@@ -376,6 +382,7 @@ fn snapshot_from_probe(
         selection,
         overlapping_selections,
         next_selection,
+        day_selections: probe.day_selections,
         stop_reason: probe.stop_reason,
         request_ms: probe.request_ms,
         parse_ms: probe.parse_ms,
@@ -454,6 +461,7 @@ mod tests {
             selection: None,
             overlapping_selections: Vec::new(),
             next_selection: None,
+            day_selections: Vec::new(),
             stop_reason: None,
             diagnostics: Vec::new(),
         };

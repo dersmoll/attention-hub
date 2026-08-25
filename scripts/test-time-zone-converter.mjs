@@ -91,6 +91,41 @@ assert.equal(
   "UTC-05:00",
 );
 assert.equal(
+  options.timeZoneOffsetLabel(
+    "America/New_York",
+    new Date("2026-07-13T12:00:00Z"),
+  ),
+  "UTC-04:00",
+);
+assert.equal(
+  options.timeZoneOffsetLabel(
+    "Europe/Kyiv",
+    new Date("2026-01-13T12:00:00Z"),
+  ),
+  "UTC+02:00",
+);
+assert.equal(
+  options.timeZoneOffsetLabel(
+    "Europe/Kyiv",
+    new Date("2026-07-13T12:00:00Z"),
+  ),
+  "UTC+03:00",
+);
+assert.equal(
+  options.timeZoneOffsetLabel(
+    "Europe/Belgrade",
+    new Date("2026-01-13T12:00:00Z"),
+  ),
+  "UTC+01:00",
+);
+assert.equal(
+  options.timeZoneOffsetLabel(
+    "Europe/Belgrade",
+    new Date("2026-07-13T12:00:00Z"),
+  ),
+  "UTC+02:00",
+);
+assert.equal(
   options.advancedTimeZoneLabel(
     "Europe/Kyiv",
     new Date("2026-08-13T12:00:00Z"),
@@ -130,6 +165,27 @@ assert.deepEqual(
 assert.deepEqual(
   options.searchTimeZones("miami", [], new Date("2026-08-13T12:00:00Z")),
   ["America/New_York"],
+);
+assert.deepEqual(
+  options.searchTimeZones("serbia", [], new Date("2026-08-13T12:00:00Z")),
+  ["Europe/Belgrade"],
+);
+assert.deepEqual(
+  options.searchTimeZones("bosnia", [], new Date("2026-08-13T12:00:00Z")),
+  ["Europe/Belgrade"],
+);
+assert.deepEqual(
+  options.searchTimeZones("north macedonia", [], new Date("2026-08-13T12:00:00Z")),
+  ["Europe/Belgrade"],
+);
+assert.equal(options.canonicalTimeZone("Europe/Sarajevo"), "Europe/Belgrade");
+assert.equal(options.canonicalTimeZone("Europe/Skopje"), "Europe/Belgrade");
+assert.equal(
+  options.timeZoneOptionLabel(
+    "Europe/Belgrade",
+    new Date("2026-08-13T12:00:00Z"),
+  ),
+  "(UTC+02:00) Belgrade, Sarajevo, Skopje — Europe/Belgrade",
 );
 
 console.log("time-zone conversion tests passed");

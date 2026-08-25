@@ -14,6 +14,63 @@ const calendar = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString("base64")}`
 );
 
+assert.equal(calendar.workCalendarJoinLabel(false), "Join");
+assert.equal(calendar.workCalendarJoinLabel(true), "Rejoin");
+assert.equal(
+  calendar.isMeetingStartTransition(
+    "event-1",
+    "upcoming",
+    "event-1",
+    "active",
+    false,
+  ),
+  true,
+);
+assert.equal(
+  calendar.isMeetingStartTransition(
+    "event-1",
+    "active",
+    "event-1",
+    "active",
+    false,
+  ),
+  false,
+);
+assert.equal(
+  calendar.isMeetingStartTransition(
+    "event-1",
+    "upcoming",
+    "event-2",
+    "active",
+    false,
+  ),
+  false,
+);
+assert.equal(
+  calendar.isMeetingStartTransition(
+    "event-1",
+    "upcoming",
+    "event-1",
+    "active",
+    true,
+  ),
+  false,
+);
+
+assert.equal(
+  calendar.workCalendarOccupiedMinutes(
+    [
+      { start: "2026-08-24T09:00:00Z", end: "2026-08-24T10:00:00Z", allDay: false },
+      { start: "2026-08-24T09:30:00Z", end: "2026-08-24T11:00:00Z", allDay: false },
+      { start: "2026-08-24T12:00:00Z", end: "2026-08-24T12:30:00Z", allDay: false },
+      { start: "2026-08-24T00:00:00Z", end: "2026-08-25T00:00:00Z", allDay: true },
+    ],
+    new Date("2026-08-24T00:00:00Z"),
+    new Date("2026-08-25T00:00:00Z"),
+  ),
+  150,
+);
+
 const activeOne = {
   subject: "Primary active",
   start: "2026-08-21T10:00:00Z",

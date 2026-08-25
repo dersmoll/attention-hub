@@ -16,8 +16,18 @@ const layout = await import(
 
 assert.equal(layout.widgetHeight("recommended"), 68);
 assert.equal(layout.widgetHeight("larger"), 80);
+assert.equal(layout.CALENDAR_DAY_PANEL_ROW_HEIGHT, 216);
+assert.equal(layout.CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT, 224);
+assert.equal(layout.calendarDayPanelDirection(40, 68, 0, 1080), "below");
+assert.equal(layout.calendarDayPanelDirection(980, 68, 0, 1080), "above");
+assert.equal(layout.calendarDayPanelPhysicalOffset(1), 216);
+assert.equal(layout.calendarDayPanelPhysicalOffset(1.25), 270);
+assert.equal(layout.calendarDayPanelPhysicalOffset(1.5), 324);
 assert.equal(layout.widgetClockWidth("recommended"), 208);
 assert.equal(layout.widgetClockWidth("larger"), 240);
+assert.equal(layout.widgetClockPanelWidth("recommended", 5, "horizontal"), 520);
+assert.equal(layout.widgetClockPanelWidth("recommended", 5, "vertical"), 208);
+assert.equal(layout.widgetClockPanelWidth("larger", 5, "horizontal"), 600);
 assert.equal(layout.widgetZoneGap("recommended"), 6);
 assert.equal(layout.widgetZoneGap("larger"), 8);
 
@@ -43,5 +53,7 @@ assert.equal(layout.widgetWidth(2), 666);
 assert.equal(layout.widgetWidth(2, "larger"), 876);
 assert.equal(layout.widgetWidth(6, "larger"), 1100);
 assert.equal(layout.widgetWidth(99, "larger"), 1100);
+assert.equal(layout.widgetWidth(2, "recommended", false, 5, "horizontal"), 978);
+assert.equal(layout.widgetWidth(2, "recommended", false, 5, "vertical"), 666);
 
 console.log("responsive widget layout tests passed");

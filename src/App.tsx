@@ -226,15 +226,18 @@ function AdvancedView() {
   const [frontendError, setFrontendError] = useState<string | null>(null);
   const [primaryTimeZoneSearch, setPrimaryTimeZoneSearch] = useState("");
   const [secondaryTimeZoneSearch, setSecondaryTimeZoneSearch] = useState("");
+  const [extraTimeZoneSearch, setExtraTimeZoneSearch] = useState("");
   const currentTimeZones = useMemo(
     () =>
       [
         widgetPreferences.primaryTimeZone,
         widgetPreferences.secondaryTimeZone,
+        ...widgetPreferences.extraTimeZones,
       ].filter((value): value is string => value !== null),
     [
       widgetPreferences.primaryTimeZone,
       widgetPreferences.secondaryTimeZone,
+      widgetPreferences.extraTimeZones,
     ],
   );
   const primaryTimeZoneOptions = useMemo(
@@ -244,6 +247,13 @@ function AdvancedView() {
   const secondaryTimeZoneOptions = useMemo(
     () => searchTimeZones(secondaryTimeZoneSearch, currentTimeZones),
     [currentTimeZones, secondaryTimeZoneSearch],
+  );
+  const extraTimeZoneOptions = useMemo(
+    () =>
+      searchTimeZones(extraTimeZoneSearch, currentTimeZones).filter(
+        (timeZone) => !currentTimeZones.includes(timeZone),
+      ),
+    [currentTimeZones, extraTimeZoneSearch],
   );
 
   const applyWidgetPreferences = useCallback(
@@ -794,6 +804,27 @@ function AdvancedView() {
             hidden={activePage !== "clocks"}
           >
             <legend>Clocks</legend>
+            <div className="widget-clock-layout-control">
+              <label htmlFor="widget-clock-layout">Clock layout</label>
+              <select
+                id="widget-clock-layout"
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    clockLayout: event.target.value as
+                      | "horizontal"
+                      | "vertical",
+                  })
+                }
+                value={widgetPreferences.clockLayout}
+              >
+                <option value="horizontal">Horizontal columns</option>
+                <option value="vertical">Vertical list</option>
+              </select>
+              <small>
+                Horizontal mode grows the clock panel. Vertical mode keeps its
+                current width and shows one compact time-and-city row per zone.
+              </small>
+            </div>
             <label htmlFor="widget-primary-time-zone">Primary timezone</label>
             <input
               aria-label="Search primary timezones"
@@ -862,7 +893,76 @@ function AdvancedView() {
             </select>
             <small>
               The widget shows a short city label and a compact common-zone
-              list. Search here to reach the full IANA catalog.
+              list. Search by city, country, IANA name, or UTC offset.
+            </small>
+            <small>
+              IANA timezone rules automatically apply summer and winter clock
+              changes wherever the selected zone observes them.
+            </small>
+            <label htmlFor="widget-extra-time-zone">Additional timezones</label>
+            {widgetPreferences.extraTimeZones.length > 0 && (
+              <ul className="widget-extra-time-zones">
+                {widgetPreferences.extraTimeZones.map((timeZone) => (
+                  <li key={timeZone}>
+                    <span>{timeZoneOptionLabel(timeZone)}</span>
+                    <button
+                      aria-label={`Remove ${timeZone}`}
+                      onClick={() =>
+                        applyWidgetPreferences({
+                          extraTimeZones:
+                            widgetPreferences.extraTimeZones.filter(
+                              (candidate) => candidate !== timeZone,
+                            ),
+                        })
+                      }
+                      type="button"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input
+              aria-label="Search additional timezones"
+              className="widget-time-zone-search"
+              disabled={widgetPreferences.extraTimeZones.length >= 3}
+              onChange={(event) => setExtraTimeZoneSearch(event.target.value)}
+              placeholder="Search Serbia, Sarajevo, Skopje…"
+              type="search"
+              value={extraTimeZoneSearch}
+            />
+            <select
+              disabled={widgetPreferences.extraTimeZones.length >= 3}
+              id="widget-extra-time-zone"
+              onChange={(event) => {
+                if (!event.target.value) {
+                  return;
+                }
+                applyWidgetPreferences({
+                  extraTimeZones: [
+                    ...widgetPreferences.extraTimeZones,
+                    event.target.value,
+                  ],
+                });
+                setExtraTimeZoneSearch("");
+              }}
+              value=""
+            >
+              <option value="">
+                {widgetPreferences.extraTimeZones.length >= 3
+                  ? "Maximum of five clocks reached"
+                  : "Add a timezone…"}
+              </option>
+              {extraTimeZoneOptions.map((timeZone) => (
+                <option key={timeZone} value={timeZone}>
+                  {timeZoneOptionLabel(timeZone)}
+                </option>
+              ))}
+            </select>
+            <small>
+              Add up to three display-only clocks. Time conversion remains
+              between the primary and secondary zones.
             </small>
           </fieldset>
 
@@ -1052,6 +1152,45 @@ function AdvancedView() {
           this Windows user and showing only the active or next event in the
           widget.
         </p>
+
+        <div className="calendar-attention-settings">
+          <div>
+            <h3>Meeting start attention</h3>
+            <p>
+              The calendar panel pulses visually when a timed meeting starts.
+              Reduced-motion mode keeps a static high-contrast outline.
+            </p>
+          </div>
+          <label>
+            <input
+              checked={widgetPreferences.meetingStartSoundEnabled}
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  meetingStartSoundEnabled: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />{" "}
+            Play one Windows system sound when an upcoming meeting starts
+          </label>
+          <button
+            onClick={() =>
+              void invoke("play_meeting_start_sound").catch((error) =>
+                setFrontendError(
+                  `Meeting-start sound test failed: ${String(error)}`,
+                ),
+              )
+            }
+            type="button"
+          >
+            Test sound
+          </button>
+          <small>
+            Sound is enabled by default, contains no meeting data, and fires once
+            per observed upcoming-to-active transition while Attention Hub is
+            running.
+          </small>
+        </div>
 
         <form
           className="secret-probe-form"
