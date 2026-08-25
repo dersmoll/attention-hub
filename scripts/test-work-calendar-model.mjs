@@ -16,46 +16,6 @@ const calendar = await import(
 
 assert.equal(calendar.workCalendarJoinLabel(false), "Join");
 assert.equal(calendar.workCalendarJoinLabel(true), "Rejoin");
-assert.equal(
-  calendar.isMeetingStartTransition(
-    "event-1",
-    "upcoming",
-    "event-1",
-    "active",
-    false,
-  ),
-  true,
-);
-assert.equal(
-  calendar.isMeetingStartTransition(
-    "event-1",
-    "active",
-    "event-1",
-    "active",
-    false,
-  ),
-  false,
-);
-assert.equal(
-  calendar.isMeetingStartTransition(
-    "event-1",
-    "upcoming",
-    "event-2",
-    "active",
-    false,
-  ),
-  false,
-);
-assert.equal(
-  calendar.isMeetingStartTransition(
-    "event-1",
-    "upcoming",
-    "event-1",
-    "active",
-    true,
-  ),
-  false,
-);
 
 assert.equal(
   calendar.workCalendarOccupiedMinutes(
@@ -165,6 +125,52 @@ const simultaneousUpcoming = {
   ],
   nextSelection: null,
 };
+
+const alertNow = Date.parse("2026-08-21T11:58:30Z");
+assert.deepEqual(
+  calendar.nextWorkCalendarMeetingAlert(simultaneousUpcoming, alertNow),
+  {
+    key: "2026-08-21T12:00:00.000Z",
+    startMs: Date.parse("2026-08-21T12:00:00Z"),
+    delayMs: 30_000,
+  },
+);
+assert.equal(
+  calendar.nextWorkCalendarMeetingAlert(
+    simultaneousUpcoming,
+    Date.parse("2026-08-21T11:59:30Z"),
+  )?.delayMs,
+  0,
+);
+assert.equal(
+  calendar.nextWorkCalendarMeetingAlert(snapshot, alertNow)?.key,
+  "2026-08-21T12:00:00.000Z",
+);
+assert.equal(
+  calendar.nextWorkCalendarMeetingAlert(
+    {
+      ...simultaneousUpcoming,
+      selection: { ...upcoming, allDay: true },
+      overlappingSelections: [],
+    },
+    alertNow,
+  ),
+  null,
+);
+assert.equal(
+  calendar.nextWorkCalendarMeetingAlert(
+    { ...simultaneousUpcoming, status: "unavailable" },
+    alertNow,
+  ),
+  null,
+);
+assert.equal(
+  calendar.nextWorkCalendarMeetingAlert(
+    { ...snapshot, selection: activeOne, overlappingSelections: [], nextSelection: null },
+    alertNow,
+  ),
+  null,
+);
 const upcomingPair = calendar.selectWorkCalendarDisplay(
   simultaneousUpcoming,
   new Set(),

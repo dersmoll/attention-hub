@@ -23,6 +23,11 @@ const moduleUrl = `data:text/javascript;base64,${Buffer.from(compiled.outputText
 const model = await import(moduleUrl);
 const capturedAt = new Date().toISOString();
 
+assert.equal(
+  model.sourceActivationFailureMessage("Microsoft Outlook"),
+  "Microsoft Outlook isn't available. Start or restore it, then try again.",
+);
+
 function source(sourceKey, needsAttention, state = "observed") {
   return {
     sourceKey,

@@ -1171,7 +1171,7 @@ function AdvancedView() {
               }
               type="checkbox"
             />{" "}
-            Play one Windows system sound when an upcoming meeting starts
+            Play one Windows system sound one minute before an upcoming meeting
           </label>
           <button
             onClick={() =>
@@ -1187,8 +1187,8 @@ function AdvancedView() {
           </button>
           <small>
             Sound is enabled by default, contains no meeting data, and fires once
-            per observed upcoming-to-active transition while Attention Hub is
-            running.
+            per observed timed meeting, one minute before it starts, while
+            Attention Hub is running.
           </small>
         </div>
 

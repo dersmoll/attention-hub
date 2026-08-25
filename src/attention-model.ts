@@ -58,6 +58,10 @@ export interface TaskbarMirrorStatus {
 
 export type TeamsMirrorStatus = TaskbarMirrorStatus;
 
+export function sourceActivationFailureMessage(displayName: string) {
+  return `${displayName} isn't available. Start or restore it, then try again.`;
+}
+
 export type AttentionFreshness = "fresh" | "retrying" | "stale" | "failed";
 export type AttentionSummaryKind =
   | "loading"

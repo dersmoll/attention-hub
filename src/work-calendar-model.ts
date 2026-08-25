@@ -97,20 +97,50 @@ export function workCalendarJoinLabel(opened: boolean) {
   return opened ? "Rejoin" : "Join";
 }
 
-export function isMeetingStartTransition(
-  previousKey: string | null,
-  previousClassification: WorkCalendarSelection["classification"] | null,
-  currentKey: string | null,
-  currentClassification: WorkCalendarSelection["classification"] | null,
-  allDay: boolean,
-) {
-  return (
-    !allDay &&
-    currentKey !== null &&
-    currentKey === previousKey &&
-    previousClassification === "upcoming" &&
-    currentClassification === "active"
-  );
+export const WORK_CALENDAR_MEETING_ALERT_LEAD_MS = 60_000;
+
+export interface WorkCalendarMeetingAlert {
+  key: string;
+  startMs: number;
+  delayMs: number;
+}
+
+export function nextWorkCalendarMeetingAlert(
+  snapshot: WorkCalendarSnapshot | null,
+  nowMs = Date.now(),
+): WorkCalendarMeetingAlert | null {
+  if (snapshot?.status !== "observed") {
+    return null;
+  }
+
+  const upcoming = [
+    snapshot.selection,
+    ...snapshot.overlappingSelections,
+    snapshot.nextSelection,
+  ]
+    .filter(
+      (selection): selection is WorkCalendarSelection =>
+        selection !== null &&
+        selection.classification === "upcoming" &&
+        !selection.allDay,
+    )
+    .map((selection) => Date.parse(selection.start))
+    .filter((startMs) => Number.isFinite(startMs) && startMs >= nowMs)
+    .sort((left, right) => left - right);
+
+  const startMs = upcoming[0];
+  if (startMs === undefined) {
+    return null;
+  }
+
+  return {
+    key: new Date(startMs).toISOString(),
+    startMs,
+    delayMs: Math.max(
+      0,
+      startMs - WORK_CALENDAR_MEETING_ALERT_LEAD_MS - nowMs,
+    ),
+  };
 }
 
 export function selectWorkCalendarDisplay(

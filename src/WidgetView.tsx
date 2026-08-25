@@ -19,16 +19,18 @@ import {
   ATTENTION_POLL_INTERVAL_MS,
   ATTENTION_STALE_AFTER_MS,
   findSignal,
+  sourceActivationFailureMessage,
   type AttentionSourceObservation,
   type AttentionSignalSnapshot,
   type TaskbarMirrorStatus,
 } from "./attention-model";
 import {
-  isMeetingStartTransition,
+  nextWorkCalendarMeetingAlert,
   nextWorkCalendarRefreshDelay,
   selectWorkCalendarDisplay,
   workCalendarJoinLabel,
   workCalendarOccupiedMinutes,
+  WORK_CALENDAR_POLL_INTERVAL_MS,
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
@@ -87,6 +89,7 @@ import {
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
 const WORK_CALENDAR_IMMINENT_MS = 60 * 1_000;
+const SOURCE_ACTIVATION_NOTICE_MS = 4_000;
 const LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const MIAMI_TIME_ZONE = "America/New_York";
 type ClockConversionSource = "local" | "secondary";
@@ -98,6 +101,14 @@ const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "whatsapp",
 ];
 const SEMANTIC_VISUAL_SOURCES: LiveVisualAppKey[] = ["teams", "telegram"];
+const ATTENTION_APP_LABELS: Record<AttentionAppKey, string> = {
+  teams: "Microsoft Teams",
+  telegram: "Telegram",
+  outlook: "Microsoft Outlook",
+  slack: "Slack",
+  viber: "Viber",
+  whatsapp: "WhatsApp",
+};
 
 function formatTime(now: Date, timeZone?: string) {
   return new Intl.DateTimeFormat([], {
@@ -385,6 +396,7 @@ function AppSlot({
   status,
   disabled,
   onActivate,
+  feedback,
 }: {
   sourceKey: AttentionAppKey;
   label: string;
@@ -394,6 +406,7 @@ function AppSlot({
   status?: TaskbarMirrorStatus | null;
   disabled: boolean;
   onActivate: () => void;
+  feedback: string | null;
 }) {
   const visualText = status ? mirrorLabel(status) : "Local application icon";
   const accessibleLabel = `Open ${label}. ${statusText}. ${visualText}.`;
@@ -403,6 +416,7 @@ function AppSlot({
       className="widget-app-slot"
       data-health={health}
       data-source={sourceKey}
+      data-feedback={feedback || undefined}
       disabled={disabled}
       onClick={onActivate}
       title={accessibleLabel}
@@ -497,6 +511,10 @@ export function WidgetView() {
     ReadonlySet<string>
   >(() => new Set());
   const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [sourceActivationNotice, setSourceActivationNotice] = useState<{
+    sourceKey: AttentionAppKey;
+    message: string;
+  } | null>(null);
   const [clockConversionSource, setClockConversionSource] =
     useState<ClockConversionSource | null>(null);
   const [conversionTime, setConversionTime] = useState(() =>
@@ -507,11 +525,8 @@ export function WidgetView() {
   const laterButtonRef = useRef<HTMLButtonElement>(null);
   const calendarPanelExpandedRef = useRef(false);
   const suppressPositionPersistenceRef = useRef(false);
-  const meetingStartObservationRef = useRef<{
-    initialized: boolean;
-    key: string | null;
-    classification: "active" | "upcoming" | null;
-  }>({ initialized: false, key: null, classification: null });
+  const sourceActivationNoticeTimerRef = useRef<number | null>(null);
+  const announcedMeetingStartAlertsRef = useRef<ReadonlySet<string>>(new Set());
   const widgetWindow = useMemo(getCurrentWindow, []);
   const pinned = preferences.pinned;
   const systemTimeZone = canonicalTimeZone(
@@ -1118,8 +1133,27 @@ export function WidgetView() {
   ) => {
     try {
       await invoke("activate_attention_source", { sourceKey });
+      if (sourceActivationNotice?.sourceKey === sourceKey) {
+        setSourceActivationNotice(null);
+        if (sourceActivationNoticeTimerRef.current !== null) {
+          window.clearTimeout(sourceActivationNoticeTimerRef.current);
+          sourceActivationNoticeTimerRef.current = null;
+        }
+      }
     } catch (error) {
-      setWidgetError(`Could not open the source application: ${String(error)}`);
+      const message = sourceActivationFailureMessage(
+        ATTENTION_APP_LABELS[sourceKey],
+      );
+      if (sourceActivationNoticeTimerRef.current !== null) {
+        window.clearTimeout(sourceActivationNoticeTimerRef.current);
+      }
+      setSourceActivationNotice({ sourceKey, message });
+      sourceActivationNoticeTimerRef.current = window.setTimeout(() => {
+        setSourceActivationNotice((current) =>
+          current?.sourceKey === sourceKey ? null : current,
+        );
+        sourceActivationNoticeTimerRef.current = null;
+      }, SOURCE_ACTIVATION_NOTICE_MS);
     }
   };
 
@@ -1265,34 +1299,47 @@ export function WidgetView() {
         ? "soon"
         : undefined;
   useEffect(() => {
-    const current = {
-      initialized: true,
-      key: calendarDisplay.selectionKey,
-      classification: calendarSelection?.classification ?? null,
-    } as const;
-    const previous = meetingStartObservationRef.current;
-    meetingStartObservationRef.current = current;
+    if (!preferences.meetingStartSoundEnabled) {
+      return;
+    }
+    const alert = nextWorkCalendarMeetingAlert(workCalendar);
     if (
-      previous.initialized &&
-      preferences.meetingStartSoundEnabled &&
-      isMeetingStartTransition(
-        previous.key,
-        previous.classification,
-        current.key,
-        current.classification,
-        calendarSelection?.allDay ?? false,
-      )
+      !alert ||
+      announcedMeetingStartAlertsRef.current.has(alert.key) ||
+      alert.delayMs > WORK_CALENDAR_POLL_INTERVAL_MS
     ) {
+      return;
+    }
+
+    const playAlert = () => {
+      if (announcedMeetingStartAlertsRef.current.has(alert.key)) {
+        return;
+      }
+      announcedMeetingStartAlertsRef.current = new Set([
+        ...announcedMeetingStartAlertsRef.current,
+        alert.key,
+      ]);
       void invoke("play_meeting_start_sound").catch((error) =>
         setWidgetError(`Meeting-start sound failed: ${String(error)}`),
       );
+    };
+
+    if (alert.delayMs === 0) {
+      playAlert();
+      return;
     }
-  }, [
-    calendarDisplay.selectionKey,
-    calendarSelection?.allDay,
-    calendarSelection?.classification,
-    preferences.meetingStartSoundEnabled,
-  ]);
+    const timer = window.setTimeout(playAlert, alert.delayMs);
+    return () => window.clearTimeout(timer);
+  }, [preferences.meetingStartSoundEnabled, workCalendar]);
+
+  useEffect(
+    () => () => {
+      if (sourceActivationNoticeTimerRef.current !== null) {
+        window.clearTimeout(sourceActivationNoticeTimerRef.current);
+      }
+    },
+    [],
+  );
   const calendarState = calendarSelection
     ? calendarStartedNeedsAttention
       ? "Meeting started"
@@ -1418,6 +1465,11 @@ export function WidgetView() {
           status={mirrorStatuses.teams}
           disabled={teams?.state === "notRunning"}
           onActivate={() => void activateSource(sourceKey)}
+          feedback={
+            sourceActivationNotice?.sourceKey === sourceKey
+              ? sourceActivationNotice.message
+              : null
+          }
         />
       );
     }
@@ -1433,6 +1485,11 @@ export function WidgetView() {
           status={mirrorStatuses.telegram}
           disabled={telegram?.state === "notRunning"}
           onActivate={() => void activateSource(sourceKey)}
+          feedback={
+            sourceActivationNotice?.sourceKey === sourceKey
+              ? sourceActivationNotice.message
+              : null
+          }
         />
       );
     }
@@ -1451,6 +1508,11 @@ export function WidgetView() {
           )}
           disabled={outlook?.state === "notRunning"}
           onActivate={() => void activateSource(sourceKey)}
+          feedback={
+            sourceActivationNotice?.sourceKey === sourceKey
+              ? sourceActivationNotice.message
+              : null
+          }
         />
       );
     }
@@ -1472,6 +1534,11 @@ export function WidgetView() {
         status={mirrorStatuses[sourceKey]}
         disabled={observation?.state === "notRunning"}
         onActivate={() => void activateSource(sourceKey)}
+        feedback={
+          sourceActivationNotice?.sourceKey === sourceKey
+            ? sourceActivationNotice.message
+            : null
+        }
       />
     );
   };
@@ -2007,6 +2074,11 @@ export function WidgetView() {
         <p className="widget-error" role="status">
           {widgetError}
         </p>
+      )}
+      {sourceActivationNotice && (
+        <span className="sr-only" role="status">
+          {sourceActivationNotice.message}
+        </span>
       )}
     </main>
   );
