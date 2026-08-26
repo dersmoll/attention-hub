@@ -1,0 +1,15 @@
+{
+  "version": "0.6.0-beta.7",
+  "notes": "Signed in-app updater artifacts are included. The Windows installer remains Authenticode-unsigned unless the release notes state otherwise.",
+  "pub_date": "2026-08-26T19:12:04.678Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdWVvdWpmUXRvbkZMdDlqQzYvTTJ5Zm9kYU1uSjJPSmdZUnJzNmRwYy9neXZvSWVkekhqeUdCS0ZteVcyaGg5Q2NJM1NkZVd1S1JmTUtQSDJPclZkVFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NzcxNTIyCWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjdfeDY0LXNldHVwLmV4ZQplK0JPWTRxcUp3Yk1RYkxMVm5OeDFiRUU4QjVOSmltL2xqaStneSsrc3ZYNEtneXpxSVUwVTZoSXd0c1dFN3BFZWJtVXkzRlRRd2IrNnlOZzJtdzZCdz09Cg==",
+      "url": "https://github.com/dersmoll/attention-hub/releases/download/v0.6.0-beta.7/Attention.Hub_0.6.0-beta.7_x64-setup_windows.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdWVvdWpmUXRvbkZMdDlqQzYvTTJ5Zm9kYU1uSjJPSmdZUnJzNmRwYy9neXZvSWVkekhqeUdCS0ZteVcyaGg5Q2NJM1NkZVd1S1JmTUtQSDJPclZkVFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NzcxNTIyCWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjdfeDY0LXNldHVwLmV4ZQplK0JPWTRxcUp3Yk1RYkxMVm5OeDFiRUU4QjVOSmltL2xqaStneSsrc3ZYNEtneXpxSVUwVTZoSXd0c1dFN3BFZWJtVXkzRlRRd2IrNnlOZzJtdzZCdz09Cg==",
+      "url": "https://github.com/dersmoll/attention-hub/releases/download/v0.6.0-beta.7/Attention.Hub_0.6.0-beta.7_x64-setup_windows.exe"
+    }
+  }
+}
