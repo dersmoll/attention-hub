@@ -1,11 +1,12 @@
 {
   "name": "attention-hub",
   "private": true,
-  "version": "0.6.0-beta.6",
+  "version": "0.6.0-beta.7",
   "license": "MIT",
+  "packageManager": "pnpm@10.17.1",
   "type": "module",
   "scripts": {
-    "test": "pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:later-inbox && pnpm run test:preferences && pnpm run test:time-zone && pnpm run test:widget-layout && pnpm run test:work-calendar",
+    "test": "pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:later-inbox && pnpm run test:preferences && pnpm run test:time-zone && pnpm run test:update && pnpm run test:widget-layout && pnpm run test:work-calendar",
     "test:advanced-focus": "node scripts/test-advanced-focus.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
@@ -13,13 +14,16 @@
     "test:later-inbox": "node scripts/test-later-inbox-model.mjs",
     "test:preferences": "node scripts/test-widget-preferences.mjs",
     "test:time-zone": "node scripts/test-time-zone-converter.mjs",
+    "test:update": "node scripts/test-app-update.mjs",
     "test:work-calendar": "node scripts/test-work-calendar-model.mjs",
     "test:widget-layout": "node scripts/test-widget-layout.mjs",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "verify:release-version": "node scripts/verify-release-version.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-updater": "^2.10.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
