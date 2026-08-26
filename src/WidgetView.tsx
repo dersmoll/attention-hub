@@ -89,6 +89,11 @@ import {
   type AdvancedFocusRequest,
   type AdvancedFocusTarget,
 } from "./advanced-focus";
+import {
+  APP_UPDATE_CHECK_INTERVAL_MS,
+  APP_UPDATE_INITIAL_DELAY_MS,
+} from "./app-update-model";
+import { checkAndOpenAppUpdate } from "./app-update-window";
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
@@ -564,6 +569,30 @@ export function WidgetView() {
     [],
   );
   const pinned = preferences.pinned;
+  useEffect(() => {
+    let disposed = false;
+    let interval: number | undefined;
+    const checkForUpdate = async () => {
+      if (disposed) {
+        return;
+      }
+      await checkAndOpenAppUpdate().catch(() => undefined);
+    };
+    const initialTimer = window.setTimeout(() => {
+      void checkForUpdate();
+      interval = window.setInterval(
+        () => void checkForUpdate(),
+        APP_UPDATE_CHECK_INTERVAL_MS,
+      );
+    }, APP_UPDATE_INITIAL_DELAY_MS);
+    return () => {
+      disposed = true;
+      window.clearTimeout(initialTimer);
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+      }
+    };
+  }, []);
   const showWidgetNotice = useCallback(
     (scope: WidgetNoticeScope, message: string) => {
       if (widgetNoticeTimerRef.current !== null) {

@@ -7,6 +7,7 @@ import { AttentionPanel } from "./AttentionPanel";
 import { LaterInboxDataPanel } from "./LaterInboxDataPanel";
 import { LaterInboxView } from "./LaterInboxView";
 import { WidgetView } from "./WidgetView";
+import { AppUpdatePanel } from "./AppUpdatePanel";
 import {
   ATTENTION_POLL_INTERVAL_MS,
   type AttentionSignalSnapshot,
@@ -48,6 +49,7 @@ type AdvancedPage =
   | "apps"
   | "calendar"
   | "reminders"
+  | "updates"
   | "diagnostics";
 
 const ADVANCED_PAGES: Array<{
@@ -79,6 +81,11 @@ const ADVANCED_PAGES: Array<{
     id: "reminders",
     label: "Reminders",
     description: "Later Inbox storage and data controls.",
+  },
+  {
+    id: "updates",
+    label: "Updates",
+    description: "Check for signed Attention Hub releases.",
   },
   {
     id: "diagnostics",
@@ -1262,6 +1269,10 @@ function AdvancedView() {
 
       </section>
 
+      <section className="advanced-page-body" hidden={activePage !== "updates"}>
+        <AppUpdatePanel variant="settings" />
+      </section>
+
       <div
         className="advanced-page-body advanced-diagnostics"
         hidden={activePage !== "diagnostics"}
@@ -1418,6 +1429,9 @@ function App() {
   }
   if (windowLabel === "later") {
     return <LaterInboxView />;
+  }
+  if (windowLabel === "update") {
+    return <AppUpdatePanel variant="dialog" />;
   }
   return <WidgetView />;
 }

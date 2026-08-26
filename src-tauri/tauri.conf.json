@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Attention Hub",
-  "version": "0.6.0-beta.6",
+  "version": "0.6.0-beta.7",
   "identifier": "com.attentionhub.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -33,6 +33,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "resources": {
       "../sounds/meeting-start.wav": "sounds/meeting-start.wav"
     },
@@ -43,5 +44,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5MDQyNDBGMzBDMTkwMEEKUldRS2tNRXdEeVFFdVZnSG5aRjQrc0F1ZlEzMkZ0VWZIQnZ6VG5qWjh5UFdtb3l3L3ZwMDRSWi8K",
+      "endpoints": [
+        "https://raw.githubusercontent.com/dersmoll/attention-hub/updater-feed/latest-beta.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

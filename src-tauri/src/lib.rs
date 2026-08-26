@@ -381,6 +381,7 @@ fn open_later_inbox_note_url(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(LaterInboxState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
