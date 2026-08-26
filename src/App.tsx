@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -40,54 +41,6 @@ import {
   type AdvancedFocusRequest,
 } from "./advanced-focus";
 import "./App.css";
-
-type NotificationAccessStatus =
-  | "unspecified"
-  | "allowed"
-  | "denied"
-  | "unsupported"
-  | "error";
-
-interface NotificationAccessReport {
-  accessStatus: NotificationAccessStatus;
-  apiAvailable: boolean;
-  packageIdentity: {
-    present: boolean;
-    fullName: string | null;
-  };
-  diagnostics: string[];
-}
-
-interface NotificationSnapshot {
-  accessStatus: NotificationAccessStatus;
-  capturedAt: string;
-  notifications: AttentionNotification[];
-  diagnostics: string[];
-}
-
-interface AttentionNotification {
-  id: number;
-  source: {
-    displayName: string | null;
-    appUserModelId: string | null;
-    packageFamilyName: string | null;
-  };
-  createdAt: string | null;
-  title: string | null;
-  body: string[];
-  rawTextElements: string[];
-  diagnostics: string[];
-}
-
-interface ListenerStartReport {
-  active: boolean;
-  diagnostics: string[];
-}
-
-interface NotificationChangeSignal {
-  kind: "added" | "removed" | "unknown";
-  notificationId: number | null;
-}
 
 type AdvancedPage =
   | "general"
@@ -136,6 +89,22 @@ const ADVANCED_PAGES: Array<{
 
 const PUBLISHED_ICS_UI_DEADLINE_MS = 20_000;
 class PublishedIcsUiDeadlineError extends Error {}
+
+function workCalendarStopReasonMessage(stopReason: string | null) {
+  if (stopReason === "redirectBlocked") {
+    return "This calendar link redirects. Use the final direct Outlook publication URL instead.";
+  }
+  if (stopReason === "disallowedSource" || stopReason === "invalidUrl") {
+    return "Use a direct, credential-free Microsoft Outlook Published ICS link.";
+  }
+  if (stopReason === "titleCapabilityNotConfirmed") {
+    return "Confirm the exact Outlook publication level before saving this source.";
+  }
+  if (stopReason === "requestTimeout" || stopReason === "commandDeadline") {
+    return "Calendar verification timed out safely. The pasted link is still available to retry.";
+  }
+  return "The source was not saved because bounded verification did not complete successfully.";
+}
 
 function sourceScanLabel(
   snapshot: AttentionSignalSnapshot | null,
@@ -212,18 +181,9 @@ function AdvancedView() {
   const [catalogScanError, setCatalogScanError] = useState<string | null>(null);
   const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
   const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
-  const [report, setReport] = useState<NotificationAccessReport | null>(null);
-  const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null);
-  const [listenerReport, setListenerReport] = useState<ListenerStartReport | null>(
-    null,
-  );
-  const [lastChange, setLastChange] = useState<NotificationChangeSignal | null>(
-    null,
-  );
-  const [pendingAction, setPendingAction] = useState<
-    "refresh" | "request" | "snapshot" | null
-  >(null);
-  const [frontendError, setFrontendError] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [frontendNotice, setFrontendNotice] = useState<string | null>(null);
+  const frontendNoticeTimerRef = useRef<number | null>(null);
   const [primaryTimeZoneSearch, setPrimaryTimeZoneSearch] = useState("");
   const [secondaryTimeZoneSearch, setSecondaryTimeZoneSearch] = useState("");
   const [extraTimeZoneSearch, setExtraTimeZoneSearch] = useState("");
@@ -256,15 +216,37 @@ function AdvancedView() {
     [currentTimeZones, extraTimeZoneSearch],
   );
 
+  const showFrontendNotice = useCallback((message: string) => {
+    setFrontendNotice(message);
+    if (frontendNoticeTimerRef.current !== null) {
+      window.clearTimeout(frontendNoticeTimerRef.current);
+    }
+    frontendNoticeTimerRef.current = window.setTimeout(() => {
+      setFrontendNotice(null);
+      frontendNoticeTimerRef.current = null;
+    }, 4_500);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (frontendNoticeTimerRef.current !== null) {
+        window.clearTimeout(frontendNoticeTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const applyWidgetPreferences = useCallback(
     (update: Parameters<typeof writeWidgetPreferences>[0]) => {
       const next = writeWidgetPreferences(update);
       setWidgetPreferences(next);
-      void emit(WIDGET_PREFERENCES_CHANGED_EVENT, next).catch((error) =>
-        setFrontendError(`Widget preference update failed: ${String(error)}`),
+      void emit(WIDGET_PREFERENCES_CHANGED_EVENT, next).catch(() =>
+        showFrontendNotice(
+          "The setting was saved, but the widget may need to be reopened.",
+        ),
       );
     },
-    [],
+    [showFrontendNotice],
   );
 
   const moveApp = useCallback(
@@ -333,8 +315,10 @@ function AdvancedView() {
       setAttentionError(null);
       setAttentionFailureCount(0);
       setAttentionClock(Date.now());
-    } catch (error) {
-      setAttentionError(String(error));
+    } catch {
+      setAttentionError(
+        "The selected app sources could not be read. Retrying automatically.",
+      );
       setAttentionFailureCount((count) => count + 1);
     } finally {
       attentionRequestInFlight.current = false;
@@ -351,8 +335,10 @@ function AdvancedView() {
           sourceKeys: DEFAULT_APP_ORDER,
         }),
       );
-    } catch (error) {
-      setCatalogScanError(String(error));
+    } catch {
+      setCatalogScanError(
+        "The one-time app scan could not finish. No source choices were changed.",
+      );
     } finally {
       setCatalogScanPending(false);
     }
@@ -385,7 +371,6 @@ function AdvancedView() {
 
   const saveWorkCalendarSource = useCallback(async () => {
     const secretUrl = publishedIcsUrl.trim();
-    setPublishedIcsUrl("");
     setWorkCalendarSnapshot(null);
     setWorkCalendarError(null);
     if (!secretUrl) {
@@ -410,10 +395,18 @@ function AdvancedView() {
           },
         );
       setWorkCalendarSnapshot(nextSnapshot);
+      if (nextSnapshot.status === "observed" && nextSnapshot.configured) {
+        setPublishedIcsUrl("");
+        setWorkCalendarError(null);
+      } else {
+        setWorkCalendarError(
+          workCalendarStopReasonMessage(nextSnapshot.stopReason),
+        );
+      }
       await refreshWorkCalendarConfiguration();
     } catch {
       setWorkCalendarError(
-        "The source was not saved because bounded verification did not finish safely.",
+        "Calendar verification did not finish safely. The pasted link is still available to retry.",
       );
       await refreshWorkCalendarConfiguration();
     } finally {
@@ -470,40 +463,8 @@ function AdvancedView() {
         await invoke<TeamsMirrorStatus>("get_teams_mirror_status"),
       );
       setTeamsMirrorError(null);
-    } catch (error) {
-      setTeamsMirrorError(String(error));
-    }
-  }, []);
-
-  const runCommand = useCallback(
-    async (
-      command: "get_notification_access_status" | "request_notification_access",
-      action: "refresh" | "request",
-    ) => {
-      setPendingAction(action);
-      setFrontendError(null);
-
-      try {
-        setReport(await invoke<NotificationAccessReport>(command));
-      } catch (error) {
-        setFrontendError(String(error));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [],
-  );
-
-  const refreshSnapshot = useCallback(async () => {
-    setPendingAction("snapshot");
-    setFrontendError(null);
-
-    try {
-      setSnapshot(await invoke<NotificationSnapshot>("get_notification_snapshot"));
-    } catch (error) {
-      setFrontendError(String(error));
-    } finally {
-      setPendingAction(null);
+    } catch {
+      setTeamsMirrorError("The Teams visual status could not be read.");
     }
   }, []);
 
@@ -564,8 +525,8 @@ function AdvancedView() {
   }, []);
 
   useEffect(() => {
-    void runCommand("get_notification_access_status", "refresh");
-  }, [runCommand]);
+    void getVersion().then(setAppVersion).catch(() => setAppVersion(null));
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -614,61 +575,16 @@ function AdvancedView() {
     };
   }, [refreshTeamsMirror]);
 
-  useEffect(() => {
-    if (report?.accessStatus === "allowed") {
-      void refreshSnapshot();
-    }
-  }, [refreshSnapshot, report?.accessStatus]);
-
-  useEffect(() => {
-    if (report?.accessStatus !== "allowed") {
-      return;
-    }
-
-    let disposed = false;
-    let stopListening: (() => void) | undefined;
-
-    void (async () => {
-      try {
-        const unlisten = await listen<NotificationChangeSignal>(
-          "notification-state-changed",
-          (event) => {
-            setLastChange(event.payload);
-            void refreshSnapshot();
-          },
-        );
-
-        if (disposed) {
-          unlisten();
-          return;
-        }
-
-        stopListening = unlisten;
-        const listener = await invoke<ListenerStartReport>(
-          "start_notification_listener",
-        );
-
-        if (!disposed) {
-          setListenerReport(listener);
-        }
-      } catch (error) {
-        if (!disposed) {
-          setFrontendError(String(error));
-        }
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      stopListening?.();
-    };
-  }, [refreshSnapshot, report?.accessStatus]);
-
   const activePageDetails =
     ADVANCED_PAGES.find((page) => page.id === activePage) ?? ADVANCED_PAGES[0];
 
   return (
     <main className="advanced-shell">
+      {frontendNotice && (
+        <p className="advanced-notice" role="status">
+          {frontendNotice}
+        </p>
+      )}
       <aside className="advanced-sidebar">
         <div className="advanced-brand">
           <span aria-hidden="true" className="advanced-brand__mark">
@@ -693,6 +609,7 @@ function AdvancedView() {
         </nav>
         <p className="advanced-sidebar__note">
           Local-first Windows observer
+          {appVersion ? ` · v${appVersion}` : ""}
         </p>
       </aside>
 
@@ -785,17 +702,55 @@ function AdvancedView() {
                 applyWidgetPreferences({
                   widthMode: event.target.value as
                     | "recommended"
-                    | "larger",
+                    | "larger"
+                    | "slim",
                 })
               }
               value={widgetPreferences.widthMode}
             >
               <option value="recommended">Recommended</option>
               <option value="larger">Larger</option>
+              <option value="slim">Compact single-line</option>
             </select>
             <small>
               Recommended uses the current dense 68 px layout. Larger uses an
-              80 px layout with a fixed 416 px calendar area.
+              80 px layout with a fixed 416 px calendar area. Compact
+              single-line uses a unified 44 px horizontal rail.
+            </small>
+          </fieldset>
+
+          <fieldset
+            className="widget-preference-card widget-visible-panels"
+            hidden={activePage !== "general"}
+          >
+            <legend>Visible panels</legend>
+            <label>
+              <input
+                checked={widgetPreferences.showAppsPanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showAppsPanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show app shortcuts
+            </label>
+            <label>
+              <input
+                checked={widgetPreferences.showClocksPanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showClocksPanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show clocks
+            </label>
+            <small>
+              Hidden panels keep their app and timezone configuration. Native
+              visual mirrors pause while app shortcuts are hidden.
             </small>
           </fieldset>
 
@@ -807,6 +762,7 @@ function AdvancedView() {
             <div className="widget-clock-layout-control">
               <label htmlFor="widget-clock-layout">Clock layout</label>
               <select
+                disabled={widgetPreferences.widthMode === "slim"}
                 id="widget-clock-layout"
                 onChange={(event) =>
                   applyWidgetPreferences({
@@ -823,6 +779,8 @@ function AdvancedView() {
               <small>
                 Horizontal mode grows the clock panel. Vertical mode keeps its
                 current width and shows one compact time-and-city row per zone.
+                Compact single-line always presents time and city horizontally
+                and preserves this choice for the other size presets.
               </small>
             </div>
             <label htmlFor="widget-primary-time-zone">Primary timezone</label>
@@ -1171,13 +1129,14 @@ function AdvancedView() {
               }
               type="checkbox"
             />{" "}
-            Play one Windows system sound one minute before an upcoming meeting
+            Play the bundled meeting notification sound one minute before an
+            upcoming meeting
           </label>
           <button
             onClick={() =>
-              void invoke("play_meeting_start_sound").catch((error) =>
-                setFrontendError(
-                  `Meeting-start sound test failed: ${String(error)}`,
+              void invoke("play_meeting_start_sound").catch(() =>
+                showFrontendNotice(
+                  "The meeting sound could not be played on this device.",
                 ),
               )
             }
@@ -1326,10 +1285,14 @@ function AdvancedView() {
       <details className="technical-details">
         <summary>
           <span>Technical diagnostics</span>
-          <small>Notifications and raw source data</small>
+          <small>Source observations and bounded diagnostics</small>
         </summary>
         <div className="technical-details__content">
-      <p>Milestone 0 persistent attention-signal evidence</p>
+      <p>
+        Source-owned attention evidence. Semantic Teams, Telegram, and Outlook
+        matching currently depends on English application accessibility labels;
+        other UI languages can report a truthful not-exposed state.
+      </p>
 
       <section aria-live="polite">
         <div className="section-heading">
@@ -1430,161 +1393,6 @@ function AdvancedView() {
         )}
       </section>
 
-      <hr />
-
-      <h2>Windows Notification Center comparison</h2>
-      <p>
-        Retained as spike evidence; this section observes existing notifications
-        and does not generate any.
-      </p>
-
-      <div className="actions">
-        <button
-          disabled={pendingAction !== null}
-          onClick={() =>
-            void runCommand("get_notification_access_status", "refresh")
-          }
-          type="button"
-        >
-          {pendingAction === "refresh" ? "Refreshing…" : "Refresh status"}
-        </button>
-        <button
-          disabled={pendingAction !== null || report?.apiAvailable === false}
-          onClick={() =>
-            void runCommand("request_notification_access", "request")
-          }
-          type="button"
-        >
-          {pendingAction === "request" ? "Waiting for Windows…" : "Request access"}
-        </button>
-        <button
-          disabled={pendingAction !== null || report?.accessStatus !== "allowed"}
-          onClick={() => void refreshSnapshot()}
-          type="button"
-        >
-          {pendingAction === "snapshot" ? "Reading…" : "Refresh snapshot"}
-        </button>
-      </div>
-
-      {frontendError && <p className="error">Frontend error: {frontendError}</p>}
-
-      {report ? (
-        <section aria-live="polite">
-          <dl>
-            <dt>Access status</dt>
-            <dd data-status={report.accessStatus}>{report.accessStatus}</dd>
-
-            <dt>WinRT API available</dt>
-            <dd>{String(report.apiAvailable)}</dd>
-
-            <dt>Package identity present</dt>
-            <dd>{String(report.packageIdentity.present)}</dd>
-
-            <dt>Package full name</dt>
-            <dd>{report.packageIdentity.fullName ?? "—"}</dd>
-
-            <dt>Live listener active</dt>
-            <dd>{listenerReport ? String(listenerReport.active) : "starting…"}</dd>
-
-            <dt>Last native change</dt>
-            <dd>
-              {lastChange
-                ? `${lastChange.kind}; notification ID ${lastChange.notificationId ?? "unknown"}`
-                : "none observed"}
-            </dd>
-          </dl>
-
-          <h2>Diagnostics</h2>
-          {report.diagnostics.length > 0 ? (
-            <ul>
-              {report.diagnostics.map((diagnostic) => (
-                <li key={diagnostic}>{diagnostic}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>None.</p>
-          )}
-          {listenerReport && listenerReport.diagnostics.length > 0 && (
-            <>
-              <h3>Listener diagnostics</h3>
-              <ul>
-                {listenerReport.diagnostics.map((diagnostic) => (
-                  <li key={diagnostic}>{diagnostic}</li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      ) : (
-        <p>Reading Windows notification access status…</p>
-      )}
-
-      <section>
-        <h2>Current notification snapshot</h2>
-        {snapshot ? (
-          <>
-            <p>
-              Count: <strong>{snapshot.notifications.length}</strong>; captured:{" "}
-              <time>{snapshot.capturedAt}</time>
-            </p>
-
-            {snapshot.notifications.length > 0 ? (
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Source</th>
-                      <th>Created</th>
-                      <th>Title</th>
-                      <th>Body</th>
-                      <th>Raw text / diagnostics</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {snapshot.notifications.map((notification) => (
-                      <tr key={`${notification.source.appUserModelId}-${notification.id}`}>
-                        <td>{notification.id}</td>
-                        <td>
-                          <strong>{notification.source.displayName ?? "Unknown"}</strong>
-                          <small>{notification.source.appUserModelId ?? "No AUMID"}</small>
-                          <small>
-                            {notification.source.packageFamilyName ?? "No package family"}
-                          </small>
-                        </td>
-                        <td>{notification.createdAt ?? "—"}</td>
-                        <td>{notification.title ?? "—"}</td>
-                        <td>{notification.body.join("\n") || "—"}</td>
-                        <td>
-                          <pre>{JSON.stringify(notification.rawTextElements, null, 2)}</pre>
-                          {notification.diagnostics.length > 0 && (
-                            <pre>{JSON.stringify(notification.diagnostics, null, 2)}</pre>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p>No current notifications returned.</p>
-            )}
-
-            {snapshot.diagnostics.length > 0 && (
-              <>
-                <h3>Snapshot diagnostics</h3>
-                <ul>
-                  {snapshot.diagnostics.map((diagnostic) => (
-                    <li key={diagnostic}>{diagnostic}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </>
-        ) : (
-          <p>No snapshot requested yet.</p>
-        )}
-      </section>
         </div>
       </details>
       </div>

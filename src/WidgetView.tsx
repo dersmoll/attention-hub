@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -7,7 +8,8 @@ import {
   useState,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { emit, emitTo, listen } from "@tauri-apps/api/event";
+import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   LogicalSize,
@@ -46,21 +48,23 @@ import {
   timeZoneOffsetLabel,
 } from "./time-zone-options";
 import {
-  CALENDAR_DAY_PANEL_ROW_HEIGHT,
-  CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT,
-  WIDGET_UTILITY_WIDTH,
+  WIDGET_SLIM_DRAG_HANDLE_WIDTH,
   calendarDayPanelDirection,
+  calendarDayPanelHeight,
   calendarDayPanelPhysicalOffset,
+  calendarDayPanelWindowExtraHeight,
   widgetCalendarWidth,
   widgetClockPanelWidth,
   widgetHeight,
   widgetLeftWidth,
+  widgetUtilityWidth,
   widgetWidth,
   widgetZoneGap,
 } from "./widget-layout";
 import {
   type AttentionAppKey,
   type LiveVisualAppKey,
+  type WidgetPreferences,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
   readWidgetPreferences,
@@ -90,9 +94,20 @@ const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
 const WORK_CALENDAR_IMMINENT_MS = 60 * 1_000;
 const SOURCE_ACTIVATION_NOTICE_MS = 4_000;
+const WIDGET_NOTICE_MS = 4_500;
 const LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const MIAMI_TIME_ZONE = "America/New_York";
 type ClockConversionSource = "local" | "secondary";
+type WidgetNoticeScope =
+  | "attention"
+  | "later"
+  | "layout"
+  | "position"
+  | "preference"
+  | "advanced"
+  | "menu"
+  | "calendar"
+  | "sound";
 const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "teams",
   "telegram",
@@ -391,6 +406,7 @@ function AppSlot({
   sourceKey,
   label,
   badge,
+  badgeTone = "attention",
   statusText,
   health,
   status,
@@ -401,6 +417,7 @@ function AppSlot({
   sourceKey: AttentionAppKey;
   label: string;
   badge: string | null;
+  badgeTone?: "neutral" | "attention";
   statusText: string;
   health: "observed" | "retrying" | "stale" | "unavailable";
   status?: TaskbarMirrorStatus | null;
@@ -425,7 +442,7 @@ function AppSlot({
       <span className="widget-app-surface" aria-hidden="true">
         <AppGlyph sourceKey={sourceKey} />
         {badge && !status?.visible && (
-          <strong className="widget-app-badge">
+          <strong className="widget-app-badge" data-tone={badgeTone}>
             {badge}
           </strong>
         )}
@@ -524,11 +541,55 @@ export function WidgetView() {
   const workCalendarInFlight = useRef(false);
   const laterButtonRef = useRef<HTMLButtonElement>(null);
   const calendarPanelExpandedRef = useRef(false);
+  const widgetInitialLayoutRef = useRef(true);
   const suppressPositionPersistenceRef = useRef(false);
+  const mirrorRepositionTimerRef = useRef<number | null>(null);
+  const widgetContextMenuRef = useRef<Menu | null>(null);
+  const widgetNoticeTimerRef = useRef<number | null>(null);
+  const widgetNoticeScopeRef = useRef<WidgetNoticeScope | null>(null);
   const sourceActivationNoticeTimerRef = useRef<number | null>(null);
   const announcedMeetingStartAlertsRef = useRef<ReadonlySet<string>>(new Set());
   const widgetWindow = useMemo(getCurrentWindow, []);
+  useEffect(
+    () => () => {
+      if (widgetContextMenuRef.current) {
+        void widgetContextMenuRef.current.close();
+        widgetContextMenuRef.current = null;
+      }
+      if (widgetNoticeTimerRef.current !== null) {
+        window.clearTimeout(widgetNoticeTimerRef.current);
+        widgetNoticeTimerRef.current = null;
+      }
+    },
+    [],
+  );
   const pinned = preferences.pinned;
+  const showWidgetNotice = useCallback(
+    (scope: WidgetNoticeScope, message: string) => {
+      if (widgetNoticeTimerRef.current !== null) {
+        window.clearTimeout(widgetNoticeTimerRef.current);
+      }
+      widgetNoticeScopeRef.current = scope;
+      setWidgetError(message);
+      widgetNoticeTimerRef.current = window.setTimeout(() => {
+        widgetNoticeTimerRef.current = null;
+        widgetNoticeScopeRef.current = null;
+        setWidgetError(null);
+      }, WIDGET_NOTICE_MS);
+    },
+    [],
+  );
+  const clearWidgetNotice = useCallback((scope: WidgetNoticeScope) => {
+    if (widgetNoticeScopeRef.current !== scope) {
+      return;
+    }
+    if (widgetNoticeTimerRef.current !== null) {
+      window.clearTimeout(widgetNoticeTimerRef.current);
+      widgetNoticeTimerRef.current = null;
+    }
+    widgetNoticeScopeRef.current = null;
+    setWidgetError(null);
+  }, []);
   const systemTimeZone = canonicalTimeZone(
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
@@ -558,6 +619,48 @@ export function WidgetView() {
       ),
     [preferences.appOrder, preferences.monitoredSources],
   );
+  const appsPanelVisible =
+    preferences.showAppsPanel && visibleSources.length > 0;
+  const clocksPanelVisible = preferences.showClocksPanel;
+  const enabledVisualSources = useMemo(
+    () =>
+      appsPanelVisible
+        ? VISUAL_SOURCES.filter(
+            (sourceKey) =>
+              preferences.monitoredSources.includes(sourceKey) &&
+              preferences.liveVisualSources.includes(sourceKey),
+          )
+        : [],
+    [
+      appsPanelVisible,
+      preferences.liveVisualSources,
+      preferences.monitoredSources,
+    ],
+  );
+  const desiredVisualSources = useMemo(
+    () =>
+      enabledVisualSources.filter((sourceKey) => {
+        const observation = attentionSnapshot?.sources.find(
+          (source) => source.sourceKey === sourceKey,
+        );
+        const semanticAttention = observation?.signals.some(
+          (signal) => signal.needsAttention === true,
+        );
+        const presenceAvailable =
+          observation?.state === "notExposed" ||
+          observation?.state === "observed";
+        return SEMANTIC_VISUAL_SOURCES.includes(sourceKey)
+          ? semanticAttention
+          : presenceAvailable;
+      }),
+    [attentionSnapshot, enabledVisualSources],
+  );
+  const desiredVisualSourcesKey = desiredVisualSources.join("|");
+  useEffect(() => {
+    if (!clocksPanelVisible) {
+      setClockConversionSource(null);
+    }
+  }, [clocksPanelVisible]);
   const calendarDisplay = useMemo(
     () =>
       selectWorkCalendarDisplay(
@@ -568,6 +671,17 @@ export function WidgetView() {
     [acknowledgedActiveEvent, finishedActiveEvents, workCalendar],
   );
   const showNextEvent = calendarDisplay.companion !== null;
+  const calendarDaySelectionCount = workCalendar?.daySelections.length ?? 0;
+  const calendarDayPanelLogicalHeight = calendarDayPanelHeight(
+    calendarDaySelectionCount,
+  );
+  const calendarDayPanelOffsetLogicalHeight =
+    calendarDayPanelWindowExtraHeight(calendarDaySelectionCount);
+  const calendarLayoutContentLength =
+    (calendarDisplay.selection?.subject.length ?? 0) +
+    (calendarDisplay.selection ? 28 : 0) +
+    (calendarDisplay.companion?.subject.length ?? 0) +
+    (calendarDisplay.companion ? 28 : 0);
   const laterOpenItems = laterInbox?.items.filter(
     (item) => item.completedAt === null,
   ) ?? [];
@@ -587,30 +701,38 @@ export function WidgetView() {
       );
       setAttentionSnapshot(snapshot);
       setAttentionRefreshFailed(false);
-    } catch (error) {
+      clearWidgetNotice("attention");
+    } catch {
       setAttentionRefreshFailed(true);
-      setWidgetError(`Attention refresh failed: ${String(error)}`);
+      showWidgetNotice(
+        "attention",
+        "App attention could not refresh. Retrying automatically.",
+      );
     } finally {
       attentionInFlight.current = false;
     }
-  }, [preferences.monitoredSources]);
+  }, [clearWidgetNotice, preferences.monitoredSources, showWidgetNotice]);
 
   const refreshMirrors = useCallback(async () => {
+    if (enabledVisualSources.length === 0) {
+      setMirrorStatuses({});
+      return;
+    }
     const results = await Promise.allSettled(
-      VISUAL_SOURCES.map((sourceKey) =>
+      enabledVisualSources.map((sourceKey) =>
         invoke<TaskbarMirrorStatus>("get_taskbar_mirror_status", { sourceKey }),
       ),
     );
-    setMirrorStatuses((current) => {
-      const next = { ...current };
+    setMirrorStatuses(() => {
+      const next: Partial<Record<LiveVisualAppKey, TaskbarMirrorStatus>> = {};
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
-          next[VISUAL_SOURCES[index]] = result.value;
+          next[enabledVisualSources[index]] = result.value;
         }
       });
       return next;
     });
-  }, []);
+  }, [enabledVisualSources]);
 
   const refreshWorkCalendar = useCallback(async () => {
     if (workCalendarInFlight.current) {
@@ -721,10 +843,14 @@ export function WidgetView() {
         );
         if (!disposed) {
           setLaterInbox(snapshot);
+          clearWidgetNotice("later");
         }
-      } catch (error) {
+      } catch {
         if (!disposed) {
-          setWidgetError(`Later Inbox refresh failed: ${String(error)}`);
+          showWidgetNotice(
+            "later",
+            "Later Inbox could not refresh. Try again shortly.",
+          );
         }
       }
     };
@@ -742,7 +868,7 @@ export function WidgetView() {
       disposed = true;
       stopListening?.();
     };
-  }, []);
+  }, [clearWidgetNotice, showWidgetNotice]);
 
   useEffect(() => {
     let disposed = false;
@@ -758,9 +884,12 @@ export function WidgetView() {
           if (!disposed) {
             setLaterInbox(snapshot);
           }
-        } catch (error) {
+        } catch {
           if (!disposed) {
-            setWidgetError(`Later Inbox notification failed: ${String(error)}`);
+            showWidgetNotice(
+              "later",
+              "A reminder notification could not be shown.",
+            );
           }
         }
       }
@@ -795,7 +924,7 @@ export function WidgetView() {
       }
       stopListening?.();
     };
-  }, [laterInboxPreferences.dueNotificationsEnabled]);
+  }, [laterInboxPreferences.dueNotificationsEnabled, showWidgetNotice]);
 
   useEffect(() => {
     let disposed = false;
@@ -840,55 +969,55 @@ export function WidgetView() {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        await invoke("set_fixed_taskbar_mirror_layout", {
-          sourceSlots: visibleSources
+    void invoke("set_fixed_taskbar_mirror_layout", {
+      sourceSlots: appsPanelVisible
+        ? visibleSources
             .map((sourceKey, slot) => ({ sourceKey, slot }))
-            .filter(({ sourceKey }) => sourceKey !== "outlook"),
-          visibleSourceCount: visibleSources.length,
-          compactMode: preferences.widthMode === "recommended",
-          verticalOffset:
-            calendarDayPanelOpen && calendarDayPanelPlacement === "above"
-              ? CALENDAR_DAY_PANEL_ROW_HEIGHT
-              : 0,
-        });
-      } catch (error) {
-        setWidgetError(`App layout update failed: ${String(error)}`);
-      }
-      await Promise.allSettled(
-        VISUAL_SOURCES.map((sourceKey) => {
-          const observation = attentionSnapshot?.sources.find(
-            (source) => source.sourceKey === sourceKey,
-          );
-          const semanticAttention = observation?.signals.some(
-            (signal) => signal.needsAttention === true,
-          );
-          const presenceAvailable =
-            observation?.state === "notExposed" ||
-            observation?.state === "observed";
-          const shouldStart =
-            preferences.monitoredSources.includes(sourceKey) &&
-            preferences.liveVisualSources.includes(sourceKey) &&
-            (SEMANTIC_VISUAL_SOURCES.includes(sourceKey)
-              ? semanticAttention
-              : presenceAvailable);
-          return invoke<TaskbarMirrorStatus>(
-            shouldStart ? "start_taskbar_mirror" : "stop_taskbar_mirror",
-            { sourceKey },
-          );
-        }),
+            .filter(({ sourceKey }) => sourceKey !== "outlook")
+        : [],
+      visibleSourceCount: appsPanelVisible ? visibleSources.length : 0,
+      compactMode: preferences.widthMode === "recommended",
+      slimMode: preferences.widthMode === "slim",
+      verticalOffset:
+        calendarDayPanelOpen && calendarDayPanelPlacement === "above"
+          ? calendarDayPanelOffsetLogicalHeight
+          : 0,
+    })
+      .then(() => clearWidgetNotice("layout"))
+      .catch(() =>
+        showWidgetNotice(
+          "layout",
+          "The app shortcut visuals could not update.",
+        ),
       );
-      await refreshMirrors();
-    })();
   }, [
-    attentionSnapshot,
+    appsPanelVisible,
     calendarDayPanelOpen,
     calendarDayPanelPlacement,
-    preferences,
-    refreshMirrors,
+    calendarDayPanelOffsetLogicalHeight,
+    clearWidgetNotice,
+    preferences.widthMode,
+    showWidgetNotice,
     visibleSources,
   ]);
+
+  useEffect(() => {
+    const desired = new Set<LiveVisualAppKey>(
+      desiredVisualSourcesKey
+        ? (desiredVisualSourcesKey.split("|") as LiveVisualAppKey[])
+        : [],
+    );
+    void Promise.allSettled(
+      VISUAL_SOURCES.map((sourceKey) =>
+        invoke<TaskbarMirrorStatus>(
+          desired.has(sourceKey)
+            ? "start_taskbar_mirror"
+            : "stop_taskbar_mirror",
+          { sourceKey },
+        ),
+      ),
+    );
+  }, [desiredVisualSourcesKey]);
 
   useEffect(() => {
     let disposed = false;
@@ -897,10 +1026,10 @@ export function WidgetView() {
     const poll = async () => {
       await refreshMirrors();
       if (!disposed) {
-        timer = setTimeout(() => void poll(), 1_000);
+        timer = setTimeout(() => void poll(), 2_000);
       }
     };
-    timer = setTimeout(() => void poll(), 1_000);
+    timer = setTimeout(() => void poll(), 2_000);
     return () => {
       disposed = true;
       if (timer) {
@@ -912,6 +1041,7 @@ export function WidgetView() {
   useEffect(() => {
     let disposed = false;
     void (async () => {
+      const initialLayout = widgetInitialLayoutRef.current;
       try {
         const [previousPosition, scaleFactor] = await Promise.all([
           widgetWindow.outerPosition(),
@@ -919,7 +1049,7 @@ export function WidgetView() {
         ]);
         const wasPanelOpen = calendarPanelExpandedRef.current;
         suppressPositionPersistenceRef.current =
-          calendarDayPanelOpen || wasPanelOpen;
+          initialLayout || calendarDayPanelOpen || wasPanelOpen;
         await widgetWindow.setSize(
           new LogicalSize(
             widgetWidth(
@@ -928,10 +1058,13 @@ export function WidgetView() {
               showNextEvent,
               2 + preferences.extraTimeZones.length,
               preferences.clockLayout,
+              appsPanelVisible,
+              clocksPanelVisible,
+              calendarLayoutContentLength,
             ),
               widgetHeight(preferences.widthMode) +
               (calendarDayPanelOpen
-                ? CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT
+                ? calendarDayPanelOffsetLogicalHeight
                 : 0),
           ),
         );
@@ -942,10 +1075,25 @@ export function WidgetView() {
         ]);
         let targetPosition = { x: position.x, y: position.y };
         if (
+          initialLayout &&
+          initialPreferences.x !== null &&
+          initialPreferences.y !== null
+        ) {
+          targetPosition = clampSavedPosition(
+            initialPreferences.x,
+            initialPreferences.y,
+            size.width,
+            size.height,
+            monitors,
+          );
+        } else if (
           calendarDayPanelOpen !== wasPanelOpen &&
           calendarDayPanelPlacement === "above"
         ) {
-          const panelOffset = calendarDayPanelPhysicalOffset(scaleFactor);
+          const panelOffset = calendarDayPanelPhysicalOffset(
+            scaleFactor,
+            calendarDayPanelOffsetLogicalHeight,
+          );
           targetPosition = {
             x: previousPosition.x,
             y: calendarDayPanelOpen
@@ -975,9 +1123,18 @@ export function WidgetView() {
             suppressPositionPersistenceRef.current = false;
           }, 150);
         }
-      } catch (error) {
+        clearWidgetNotice("layout");
+      } catch {
         if (!disposed) {
-          setWidgetError(`Widget resize failed: ${String(error)}`);
+          showWidgetNotice(
+            "layout",
+            "The widget layout could not be updated.",
+          );
+        }
+      } finally {
+        if (initialLayout) {
+          widgetInitialLayoutRef.current = false;
+          await widgetWindow.show().catch(() => undefined);
         }
       }
     })();
@@ -988,9 +1145,18 @@ export function WidgetView() {
     preferences.widthMode,
     preferences.clockLayout,
     preferences.extraTimeZones.length,
+    appsPanelVisible,
+    clocksPanelVisible,
     calendarDayPanelOpen,
     calendarDayPanelPlacement,
+    calendarDayPanelLogicalHeight,
+    calendarDayPanelOffsetLogicalHeight,
+    calendarDaySelectionCount,
     showNextEvent,
+    calendarLayoutContentLength,
+    clearWidgetNotice,
+    initialPreferences,
+    showWidgetNotice,
     visibleSources.length,
     widgetWindow,
   ]);
@@ -1001,54 +1167,82 @@ export function WidgetView() {
     void (async () => {
       try {
         await widgetWindow.setAlwaysOnTop(initialPreferences.pinned);
-        if (initialPreferences.x !== null && initialPreferences.y !== null) {
-          const [size, monitors] = await Promise.all([
-            widgetWindow.outerSize(),
-            availableMonitors(),
-          ]);
-          const position = clampSavedPosition(
-            initialPreferences.x,
-            initialPreferences.y,
-            size.width,
-            size.height,
-            monitors,
-          );
-          await widgetWindow.setPosition(
-            new PhysicalPosition(position.x, position.y),
-          );
-        }
         unlistenMoved = await widgetWindow.onMoved(({ payload }) => {
+          const repositionMirrors = () => {
+            void invoke("reposition_taskbar_mirrors")
+              .then(() => clearWidgetNotice("position"))
+              .catch(() =>
+                showWidgetNotice(
+                  "position",
+                  "App shortcut visuals could not follow the widget move.",
+                ),
+              );
+          };
+          if (mirrorRepositionTimerRef.current === null) {
+            repositionMirrors();
+            mirrorRepositionTimerRef.current = window.setTimeout(() => {
+              mirrorRepositionTimerRef.current = null;
+              repositionMirrors();
+            }, 32);
+          }
           if (suppressPositionPersistenceRef.current) {
             return;
           }
           writeWidgetPreferences({ x: payload.x, y: payload.y });
         });
-      } catch (error) {
+        clearWidgetNotice("position");
+      } catch {
         if (!disposed) {
-          setWidgetError(`Widget restoration failed: ${String(error)}`);
+          showWidgetNotice(
+            "position",
+            "The saved widget position could not be restored.",
+          );
         }
       }
     })();
     return () => {
       disposed = true;
       unlistenMoved?.();
+      if (mirrorRepositionTimerRef.current !== null) {
+        window.clearTimeout(mirrorRepositionTimerRef.current);
+        mirrorRepositionTimerRef.current = null;
+      }
     };
-  }, [initialPreferences, widgetWindow]);
+  }, [clearWidgetNotice, initialPreferences, showWidgetNotice, widgetWindow]);
 
   const togglePinned = async () => {
     const next = !pinned;
     try {
       await widgetWindow.setAlwaysOnTop(next);
       setPreferences(writeWidgetPreferences({ pinned: next }));
-    } catch (error) {
-      setWidgetError(`Pin update failed: ${String(error)}`);
+      clearWidgetNotice("preference");
+    } catch {
+      showWidgetNotice(
+        "preference",
+        "Always-on-top could not be changed.",
+      );
     }
   };
+
+  const updateWidgetPreferences = useCallback(
+    (update: Partial<WidgetPreferences>) => {
+      const next = writeWidgetPreferences(update);
+      setPreferences(next);
+      void emit(WIDGET_PREFERENCES_CHANGED_EVENT, next).catch(() =>
+        showWidgetNotice(
+          "preference",
+          "The setting was saved, but another open window may need to be reopened.",
+        ),
+      );
+    },
+    [showWidgetNotice],
+  );
 
   const openAdvanced = async (focusTarget?: AdvancedFocusTarget) => {
     try {
       const existing = await WebviewWindow.getByLabel("advanced");
       if (existing) {
+        await existing.unminimize();
         await existing.show();
         await existing.setFocus();
         if (focusTarget) {
@@ -1058,6 +1252,7 @@ export function WidgetView() {
             { target: focusTarget },
           );
         }
+        clearWidgetNotice("advanced");
         return;
       }
 
@@ -1070,19 +1265,125 @@ export function WidgetView() {
         minHeight: 560,
         center: true,
       });
-      advanced.once("tauri://error", ({ payload }) => {
-        setWidgetError(`Advanced view failed: ${String(payload)}`);
+      advanced.once("tauri://error", () => {
+        showWidgetNotice("advanced", "Advanced settings could not be opened.");
       });
-    } catch (error) {
-      setWidgetError(`Advanced view failed: ${String(error)}`);
+    } catch {
+      showWidgetNotice("advanced", "Advanced settings could not be opened.");
     }
+  };
+
+  const openWidgetContextMenu = async () => {
+    const sizePresetItems: NonNullable<MenuOptions["items"]> = [
+      {
+        checked: preferences.widthMode === "recommended",
+        text: "Recommended",
+        action: () => updateWidgetPreferences({ widthMode: "recommended" }),
+      },
+      {
+        checked: preferences.widthMode === "larger",
+        text: "Larger",
+        action: () => updateWidgetPreferences({ widthMode: "larger" }),
+      },
+      {
+        checked: preferences.widthMode === "slim",
+        text: "Compact single-line",
+        action: () => updateWidgetPreferences({ widthMode: "slim" }),
+      },
+    ];
+    const visiblePanelItems: NonNullable<MenuOptions["items"]> = [
+      {
+        checked: preferences.showAppsPanel,
+        text: "Show app shortcuts",
+        action: () =>
+          updateWidgetPreferences({
+            showAppsPanel: !preferences.showAppsPanel,
+          }),
+      },
+      {
+        checked: preferences.showClocksPanel,
+        text: "Show clocks",
+        action: () =>
+          updateWidgetPreferences({
+            showClocksPanel: !preferences.showClocksPanel,
+          }),
+      },
+    ];
+    const items: NonNullable<MenuOptions["items"]> = [
+      { text: "Size preset", items: sizePresetItems },
+      { text: "Visible panels", items: visiblePanelItems },
+    ];
+
+    if (preferences.showAppsPanel) {
+      items.push({
+        text: "App shortcuts",
+        items: preferences.appOrder.map((sourceKey) => {
+          const enabled = preferences.monitoredSources.includes(sourceKey);
+          return {
+            checked: enabled,
+            text: ATTENTION_APP_LABELS[sourceKey],
+            action: () =>
+              updateWidgetPreferences({
+                monitoredSources: enabled
+                  ? preferences.monitoredSources.filter(
+                      (candidate) => candidate !== sourceKey,
+                    )
+                  : [...preferences.monitoredSources, sourceKey],
+              }),
+          };
+        }),
+      });
+    }
+
+    if (preferences.showClocksPanel) {
+      items.push({
+        text: "Clock layout",
+        items: [
+          {
+            checked: preferences.clockLayout === "horizontal",
+            text: "Horizontal",
+            action: () =>
+              updateWidgetPreferences({ clockLayout: "horizontal" }),
+          },
+          {
+            checked: preferences.clockLayout === "vertical",
+            text: "Vertical",
+            action: () =>
+              updateWidgetPreferences({ clockLayout: "vertical" }),
+          },
+        ],
+      });
+    }
+
+    items.push({
+      text: "Open Advanced settings…",
+      action: () => void openAdvanced(),
+    });
+
+    if (widgetContextMenuRef.current) {
+      await widgetContextMenuRef.current.close();
+    }
+    const menu = await Menu.new({ items });
+    widgetContextMenuRef.current = menu;
+    await menu.popup(undefined, widgetWindow);
+    clearWidgetNotice("menu");
+  };
+
+  const handleWidgetContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    void openWidgetContextMenu().catch(() =>
+      showWidgetNotice("menu", "The settings menu could not be opened."),
+    );
   };
 
   const openLaterInbox = async () => {
     try {
-      await openLaterInboxWindow((message) => setWidgetError(message));
-    } catch (error) {
-      setWidgetError(`Later Inbox window failed: ${String(error)}`);
+      await openLaterInboxWindow(() =>
+        showWidgetNotice("later", "Later Inbox could not be opened."),
+      );
+      clearWidgetNotice("later");
+    } catch {
+      showWidgetNotice("later", "Later Inbox could not be opened.");
     }
   };
 
@@ -1194,8 +1495,9 @@ export function WidgetView() {
         joinToken: selection.joinToken,
       });
       chooseCalendarEvent(eventKey);
-    } catch (error) {
-      setWidgetError(`Could not open the meeting link: ${String(error)}`);
+      clearWidgetNotice("calendar");
+    } catch {
+      showWidgetNotice("calendar", "The meeting link could not be opened.");
     }
   };
 
@@ -1319,9 +1621,14 @@ export function WidgetView() {
         ...announcedMeetingStartAlertsRef.current,
         alert.key,
       ]);
-      void invoke("play_meeting_start_sound").catch((error) =>
-        setWidgetError(`Meeting-start sound failed: ${String(error)}`),
-      );
+      void invoke("play_meeting_start_sound")
+        .then(() => clearWidgetNotice("sound"))
+        .catch(() =>
+          showWidgetNotice(
+            "sound",
+            "The meeting reminder sound could not be played.",
+          ),
+        );
     };
 
     if (alert.delayMs === 0) {
@@ -1425,6 +1732,15 @@ export function WidgetView() {
     ? clockConversion.split(" ")
     : ["Unavailable", "DST transition"];
   const clockConversionDay = clockConversionDayParts.join(" ");
+  const gridSegments = [
+    appsPanelVisible ? "var(--widget-left-width)" : null,
+    clocksPanelVisible ? "var(--widget-clock-width)" : null,
+    "var(--widget-calendar-width)",
+    preferences.widthMode === "slim"
+      ? "var(--widget-drag-handle-width)"
+      : null,
+    "var(--widget-utility-width)",
+  ].filter((segment): segment is string => segment !== null);
   const panelStyle = {
     ...widgetPanelStyle(preferences),
     "--widget-left-width": `${widgetLeftWidth(visibleSources.length, preferences.widthMode)}px`,
@@ -1437,9 +1753,14 @@ export function WidgetView() {
     "--widget-calendar-width": `${widgetCalendarWidth(
       preferences.widthMode,
       showNextEvent,
+      calendarLayoutContentLength,
     )}px`,
+    "--widget-height": `${widgetHeight(preferences.widthMode)}px`,
+    "--widget-calendar-day-panel-height": `${calendarDayPanelLogicalHeight}px`,
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
-    "--widget-utility-width": `${WIDGET_UTILITY_WIDTH}px`,
+    "--widget-utility-width": `${widgetUtilityWidth(preferences.widthMode)}px`,
+    "--widget-drag-handle-width": `${WIDGET_SLIM_DRAG_HANDLE_WIDTH}px`,
+    "--widget-grid-template": gridSegments.join(" "),
   } as CSSProperties;
   const calendarDaySelections = workCalendar?.daySelections ?? [];
   const calendarDayStart = new Date(now);
@@ -1480,6 +1801,7 @@ export function WidgetView() {
           sourceKey={sourceKey}
           label="Telegram"
           badge={telegramBadge}
+          badgeTone="neutral"
           statusText={telegramStatus}
           health={sourceHealth(telegram, attentionStale, attentionRefreshFailed)}
           status={mirrorStatuses.telegram}
@@ -1552,26 +1874,32 @@ export function WidgetView() {
         calendarDayPanelOpen ? calendarDayPanelPlacement : undefined
       }
       data-width-mode={preferences.widthMode}
+      data-apps-panel={appsPanelVisible || undefined}
+      data-clocks-panel={clocksPanelVisible || undefined}
+      onContextMenu={handleWidgetContextMenu}
       style={panelStyle}
     >
-      <section
-        className="widget-zone widget-left"
-        aria-label="Application attention"
-        data-tauri-drag-region
-      >
-        <div className="widget-apps" data-tauri-drag-region>
-          {visibleSources.map(renderAppSlot)}
-        </div>
-      </section>
+      {appsPanelVisible && (
+        <section
+          className="widget-zone widget-left"
+          aria-label="Application attention"
+          data-tauri-drag-region
+        >
+          <div className="widget-apps" data-tauri-drag-region>
+            {visibleSources.map(renderAppSlot)}
+          </div>
+        </section>
+      )}
 
-      <section
-        className="widget-zone widget-clock"
-        aria-label="Current time"
-        data-clock-count={2 + preferences.extraTimeZones.length}
-        data-clock-layout={preferences.clockLayout}
-        data-clock-mode={clockConversionSource ? "converter" : "live"}
-        data-tauri-drag-region
-      >
+      {clocksPanelVisible && (
+        <section
+          className="widget-zone widget-clock"
+          aria-label="Current time"
+          data-clock-count={2 + preferences.extraTimeZones.length}
+          data-clock-layout={preferences.clockLayout}
+          data-clock-mode={clockConversionSource ? "converter" : "live"}
+          data-tauri-drag-region
+        >
         {clockConversionSource ? (
           <div className="widget-clock-converter">
             <label htmlFor="clock-conversion-time">
@@ -1618,24 +1946,19 @@ export function WidgetView() {
                   aria-label="Primary timezone"
                   className="widget-clock__native-select"
                   title={`${primaryTimeZoneLabel} · ${timeZoneOffsetLabel(primaryTimeZone, now)}`}
-                  value=""
+                  value={preferences.primaryTimeZone ?? "__system"}
                   onChange={(event) => {
                     if (!event.target.value) {
                       return;
                     }
-                    setPreferences(
-                      writeWidgetPreferences({
-                        primaryTimeZone:
-                          event.target.value === "__system"
-                            ? null
-                            : event.target.value,
-                      }),
-                    );
+                    updateWidgetPreferences({
+                      primaryTimeZone:
+                        event.target.value === "__system"
+                          ? null
+                          : event.target.value,
+                    });
                   }}
                 >
-                  <option value="">
-                    {shortTimeZoneLabel(primaryTimeZone)}
-                  </option>
                   <option value="__system">
                     System — {timeZoneOptionLabel(systemTimeZone, now)}
                   </option>
@@ -1671,21 +1994,16 @@ export function WidgetView() {
                   aria-label="Secondary timezone"
                   className="widget-clock__native-select"
                   title={`${secondaryTimeZone} · ${timeZoneOffsetLabel(secondaryTimeZone, now)}`}
-                  value=""
+                  value={secondaryTimeZone}
                   onChange={(event) => {
                     if (!event.target.value) {
                       return;
                     }
-                    setPreferences(
-                      writeWidgetPreferences({
-                        secondaryTimeZone: event.target.value,
-                      }),
-                    );
+                    updateWidgetPreferences({
+                      secondaryTimeZone: event.target.value,
+                    });
                   }}
                 >
-                  <option value="">
-                    {shortTimeZoneLabel(secondaryTimeZone)}
-                  </option>
                   {timeZoneOptions.map((timeZone) => (
                     <option key={timeZone} value={timeZone}>
                       {timeZoneOptionLabel(timeZone, now)}
@@ -1730,9 +2048,20 @@ export function WidgetView() {
             ))}
           </>
         )}
-      </section>
+        </section>
+      )}
 
       <section
+        aria-controls={
+          calendarDaySelections.length > 0
+            ? "calendar-day-summary"
+            : undefined
+        }
+        aria-expanded={
+          calendarDaySelections.length > 0
+            ? calendarDayPanelOpen
+            : undefined
+        }
         className="widget-zone widget-calendar"
         data-calendar-attention={calendarAttentionState}
         data-calendar-setup={calendarNotConfigured || undefined}
@@ -1749,7 +2078,23 @@ export function WidgetView() {
           }
           void toggleCalendarDayPanel();
         }}
-        title="Click the calendar area for today's meetings"
+        onKeyDown={(event) => {
+          if (
+            calendarDaySelections.length === 0 ||
+            event.target !== event.currentTarget ||
+            (event.key !== "Enter" && event.key !== " ")
+          ) {
+            return;
+          }
+          event.preventDefault();
+          void toggleCalendarDayPanel();
+        }}
+        tabIndex={calendarDaySelections.length > 0 ? 0 : undefined}
+        title={
+          calendarDaySelections.length > 0
+            ? "Open today's meeting summary"
+            : undefined
+        }
       >
         <div
           className="widget-calendar__content"
@@ -1958,6 +2303,13 @@ export function WidgetView() {
         </div>
       </section>
 
+      <div
+        aria-hidden="true"
+        className="widget-drag-handle"
+        data-tauri-drag-region
+        title="Drag Attention Hub"
+      />
+
       <aside
         aria-label="Widget controls"
         className="widget-utility"
@@ -1976,16 +2328,6 @@ export function WidgetView() {
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
             </svg>
-          </span>
-        </button>
-        <button
-          aria-label="Close Attention Hub"
-          onClick={() => void invoke("quit_application")}
-          title="Close Attention Hub"
-          type="button"
-        >
-          <span aria-hidden="true" className="widget-utility__surface">
-            ×
           </span>
         </button>
         <button
@@ -2024,12 +2366,24 @@ export function WidgetView() {
           </span>
           <span className="sr-only">Open Advanced view</span>
         </button>
+        <button
+          aria-label="Close Attention Hub"
+          className="widget-close-control"
+          onClick={() => void invoke("quit_application")}
+          title="Close Attention Hub"
+          type="button"
+        >
+          <span aria-hidden="true" className="widget-utility__surface">
+            ×
+          </span>
+        </button>
       </aside>
 
       {calendarDayPanelOpen && (
         <section
           aria-label="Today's meeting summary"
           className="widget-calendar-day-panel"
+          id="calendar-day-summary"
         >
           <header>
             <div>
@@ -2053,19 +2407,30 @@ export function WidgetView() {
             </button>
           </header>
           <ol>
-            {calendarDaySelections.map((selection, index) => (
-              <li key={`${selection.start}|${selection.end}|${index}`}>
-                <time>
-                  {selection.allDay
-                    ? "All day"
-                    : `${formatTime(new Date(selection.start), systemTimeZone)}–${formatTime(
-                        new Date(selection.end),
-                        systemTimeZone,
-                      )}`}
-                </time>
-                <span>{selection.subject}</span>
-              </li>
-            ))}
+            {calendarDaySelections.map((selection, index) => {
+              const endMs = Date.parse(selection.end);
+              const finished =
+                Number.isFinite(endMs) && endMs <= now.getTime();
+              return (
+                <li
+                  data-finished={finished || undefined}
+                  key={`${selection.start}|${selection.end}|${index}`}
+                >
+                  <time>
+                    {selection.allDay
+                      ? "All day"
+                      : `${formatTime(new Date(selection.start), systemTimeZone)}–${formatTime(
+                          new Date(selection.end),
+                          systemTimeZone,
+                        )}`}
+                  </time>
+                  <span>
+                    {finished && <span className="sr-only">Finished: </span>}
+                    {selection.subject}
+                  </span>
+                </li>
+              );
+            })}
           </ol>
         </section>
       )}

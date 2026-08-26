@@ -48,6 +48,7 @@ struct MirrorLayoutState {
     slot_index: AtomicI32,
     visible_source_count: AtomicI32,
     compact_mode: AtomicBool,
+    slim_mode: AtomicBool,
     vertical_offset: AtomicI32,
 }
 
@@ -83,12 +84,26 @@ impl TaskbarMirrorState {
         self.instance(source).stop()
     }
 
+    pub fn reposition_all(&self, owner: isize) -> Result<(), String> {
+        for instance in [
+            &self.teams,
+            &self.telegram,
+            &self.slack,
+            &self.viber,
+            &self.whatsapp,
+        ] {
+            instance.reposition(owner)?;
+        }
+        Ok(())
+    }
+
     pub fn set_layout(
         &self,
         source: TaskbarMirrorSource,
         slot_index: Option<i32>,
         visible_source_count: i32,
         compact_mode: bool,
+        slim_mode: bool,
         vertical_offset: i32,
     ) {
         let instance = self.instance(source);
@@ -106,6 +121,10 @@ impl TaskbarMirrorState {
             .layout
             .compact_mode
             .store(compact_mode, Ordering::Release);
+        instance
+            .layout
+            .slim_mode
+            .store(slim_mode, Ordering::Release);
         instance
             .layout
             .vertical_offset
@@ -151,6 +170,7 @@ impl MirrorInstance {
                 slot_index: AtomicI32::new(source.slot_index()),
                 visible_source_count: AtomicI32::new(6),
                 compact_mode: AtomicBool::new(false),
+                slim_mode: AtomicBool::new(false),
                 vertical_offset: AtomicI32::new(0),
             }),
         }
@@ -162,6 +182,25 @@ impl MirrorInstance {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    fn reposition(&self, owner: isize) -> Result<(), String> {
+        let destination = self.destination.load(Ordering::Acquire);
+        if destination == 0 {
+            return Ok(());
+        }
+        windows_probe::reposition_product_destination(
+            destination,
+            owner,
+            self.source,
+            self.layout.as_ref(),
+        )
+        .map_err(|error| {
+            format!(
+                "Could not reposition the {} visual mirror: {error}",
+                self.source.display_name()
+            )
+        })
     }
 
     fn start(&self, owner: isize) -> Result<TaskbarMirrorStatus, String> {
@@ -414,6 +453,12 @@ mod windows_probe {
     const WIDGET_COMPACT_MIRROR_LOGICAL_INSET: i32 = 3;
     const WIDGET_COMPACT_ICON_GAP: i32 = 4;
     const WIDGET_COMPACT_ICON_TOP: i32 = 14;
+    const WIDGET_SLIM_ICON_LOGICAL_SIZE: i32 = 32;
+    const WIDGET_SLIM_LEFT_PANEL_LOGICAL_PADDING: i32 = 4;
+    const WIDGET_SLIM_MIRROR_LOGICAL_SIZE: i32 = 28;
+    const WIDGET_SLIM_MIRROR_LOGICAL_INSET: i32 = 2;
+    const WIDGET_SLIM_ICON_GAP: i32 = 2;
+    const WIDGET_SLIM_ICON_TOP: i32 = 6;
     const NOTIFICATION_AREA_AUTOMATION_ID: &str = "NotifyItemIcon";
     const REDISCOVERY_INTERVAL: Duration = Duration::from_secs(1);
     const REFLOW_POLL_MILLISECONDS: u32 = 100;
@@ -1338,13 +1383,18 @@ mod windows_probe {
         let dpi = unsafe { GetDpiForWindow(owner) }.max(96) as i32;
         let scale = |value: i32| value.saturating_mul(dpi) / 96;
         let compact = layout.is_some_and(|value| value.compact_mode.load(Ordering::Acquire));
-        let size = scale(if compact {
+        let slim = layout.is_some_and(|value| value.slim_mode.load(Ordering::Acquire));
+        let size = scale(if slim {
+            WIDGET_SLIM_MIRROR_LOGICAL_SIZE
+        } else if compact {
             WIDGET_COMPACT_MIRROR_LOGICAL_SIZE
         } else {
             WIDGET_MIRROR_LOGICAL_SIZE
         })
         .max(1);
-        let inset = scale(if compact {
+        let inset = scale(if slim {
+            WIDGET_SLIM_MIRROR_LOGICAL_INSET
+        } else if compact {
             WIDGET_COMPACT_MIRROR_LOGICAL_INSET
         } else {
             WIDGET_MIRROR_LOGICAL_INSET
@@ -1357,12 +1407,12 @@ mod windows_probe {
             .map(|value| value.visible_source_count.load(Ordering::Acquire))
             .unwrap_or(6)
             .clamp(0, 6);
-        let slot_left = widget_slot_left(slot_index, source_count, compact);
+        let slot_left = widget_slot_left(slot_index, source_count, compact, slim);
         let x = owner_rect.left + scale(slot_left) + inset;
         let vertical_offset = layout
             .map(|value| value.vertical_offset.load(Ordering::Acquire))
             .unwrap_or(0);
-        let icon_top = widget_icon_top(compact, vertical_offset);
+        let icon_top = widget_icon_top(compact, slim, vertical_offset);
         let y = owner_rect.top + scale(icon_top) + inset;
 
         unsafe {
@@ -1379,8 +1429,29 @@ mod windows_probe {
         Ok((size, size))
     }
 
-    fn widget_icon_top(compact: bool, vertical_offset: i32) -> i32 {
-        let base = if compact {
+    pub(super) fn reposition_product_destination(
+        destination: isize,
+        owner: isize,
+        source: TaskbarMirrorSource,
+        layout: &MirrorLayoutState,
+    ) -> Result<()> {
+        let destination = HWND(destination as *mut c_void);
+        if !unsafe { IsWindow(Some(destination)) }.as_bool() {
+            return Ok(());
+        }
+        let size = position_widget_destination(
+            destination,
+            HWND(owner as *mut c_void),
+            source,
+            Some(layout),
+        )?;
+        mask_mirror_window(destination, size)
+    }
+
+    fn widget_icon_top(compact: bool, slim: bool, vertical_offset: i32) -> i32 {
+        let base = if slim {
+            WIDGET_SLIM_ICON_TOP
+        } else if compact {
             WIDGET_COMPACT_ICON_TOP
         } else {
             WIDGET_ICON_TOP
@@ -1388,14 +1459,25 @@ mod windows_probe {
         base.saturating_add(vertical_offset.clamp(0, 512))
     }
 
-    fn widget_slot_left(slot_index: i32, visible_source_count: i32, compact: bool) -> i32 {
+    fn widget_slot_left(
+        slot_index: i32,
+        visible_source_count: i32,
+        compact: bool,
+        slim: bool,
+    ) -> i32 {
         let source_count = visible_source_count.clamp(0, 6);
         let bounded_slot = if source_count > 0 {
             slot_index.clamp(0, source_count - 1)
         } else {
             0
         };
-        let (padding, icon_size, gap) = if compact {
+        let (padding, icon_size, gap) = if slim {
+            (
+                WIDGET_SLIM_LEFT_PANEL_LOGICAL_PADDING,
+                WIDGET_SLIM_ICON_LOGICAL_SIZE,
+                WIDGET_SLIM_ICON_GAP,
+            )
+        } else if compact {
             (
                 WIDGET_COMPACT_LEFT_PANEL_LOGICAL_PADDING,
                 WIDGET_COMPACT_ICON_LOGICAL_SIZE,
@@ -2202,7 +2284,7 @@ mod windows_probe {
         use super::{
             fit_within, source_identity_matches, source_name_matches,
             source_window_candidate_is_usable, square_source_crop, widget_icon_top,
-            widget_slot_left, RECT, WIDGET_COMPACT_ICON_TOP, WIDGET_ICON_TOP,
+            widget_slot_left, RECT, WIDGET_COMPACT_ICON_TOP, WIDGET_ICON_TOP, WIDGET_SLIM_ICON_TOP,
         };
         use crate::teams_mirror::{AttentionAppSource, TaskbarMirrorSource};
 
@@ -2261,17 +2343,22 @@ mod windows_probe {
 
         #[test]
         fn responsive_widget_slots_keep_a_fixed_inner_inset() {
-            assert_eq!(widget_slot_left(0, 6, false), 12);
-            assert_eq!(widget_slot_left(1, 6, false), 68);
-            assert_eq!(widget_slot_left(5, 6, false), 292);
-            assert_eq!(widget_slot_left(0, 1, false), 12);
-            assert_eq!(widget_slot_left(0, 6, true), 8);
-            assert_eq!(widget_slot_left(1, 6, true), 52);
-            assert_eq!(widget_slot_left(5, 6, true), 228);
+            assert_eq!(widget_slot_left(0, 6, false, false), 12);
+            assert_eq!(widget_slot_left(1, 6, false, false), 68);
+            assert_eq!(widget_slot_left(5, 6, false, false), 292);
+            assert_eq!(widget_slot_left(0, 1, false, false), 12);
+            assert_eq!(widget_slot_left(0, 6, true, false), 8);
+            assert_eq!(widget_slot_left(1, 6, true, false), 52);
+            assert_eq!(widget_slot_left(5, 6, true, false), 228);
+            assert_eq!(widget_slot_left(0, 6, false, true), 4);
+            assert_eq!(widget_slot_left(1, 6, false, true), 38);
+            assert_eq!(widget_slot_left(5, 6, false, true), 174);
             assert_eq!(WIDGET_ICON_TOP, 16);
             assert_eq!(WIDGET_COMPACT_ICON_TOP, 14);
-            assert_eq!(widget_icon_top(false, 0), 16);
-            assert_eq!(widget_icon_top(true, 216), 230);
+            assert_eq!(WIDGET_SLIM_ICON_TOP, 6);
+            assert_eq!(widget_icon_top(false, false, 0), 16);
+            assert_eq!(widget_icon_top(true, false, 216), 230);
+            assert_eq!(widget_icon_top(false, true, 216), 222);
         }
 
         #[test]

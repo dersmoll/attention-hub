@@ -4,8 +4,8 @@
 
 Attention Hub is a Windows-only Tauri 2 application. React and TypeScript render
 the WebView surfaces; Rust owns operating-system integration, calendar fetching
-and parsing, secure link activation, local Later Inbox storage, and native
-notifications.
+and parsing, secure link activation, local Later Inbox storage, and the app's
+own local reminders.
 
 The production bundle is one x64 NSIS installer. The primary window is a
 frameless, fixed-height widget with responsive width based on enabled sources
@@ -24,7 +24,10 @@ quiet default, enable the full fixed catalog, or run a one-shot local scan of
 all six sources; disabled sources are never added or polled in the background
 by that scan.
 
-- Telegram can expose a numeric application counter.
+- Telegram can expose a numeric application counter, which the widget shows
+  with a neutral badge. The available accessibility totals include channel
+  activity and cannot reliably prove a private message, so the widget does not
+  infer a red private-message state.
 - Teams can expose bounded activity state without inventing a number.
 - Outlook can expose an Inbox count while its semantic label is fresh; hidden
   or unavailable semantic state produces no stale placeholder badge.
@@ -35,6 +38,11 @@ by that scan.
 
 Native activation selects known main-window classes and supports tray-resident
 applications without area-ranking arbitrary hidden windows.
+
+Semantic attention matching currently depends on English accessibility labels
+exposed by the observed applications. Other UI languages can report a truthful
+`notExposed` state; the app does not infer a count when the expected semantic
+label is unavailable.
 
 ### DWM visual boundary
 
@@ -184,6 +192,11 @@ with no selected event continues to show its ordinary empty state.
 
 No message bodies, notification bodies, calendar publication URLs, Later Inbox
 content, account identifiers, or DWM pixels are written to diagnostics.
+
+Attention Hub does not request Windows Notification Center access, enumerate
+other applications' notifications, or read their notification payloads. The
+meeting sound and Later Inbox notifications are generated locally by Attention
+Hub from its own calendar and reminder state.
 
 ## IPC and security
 

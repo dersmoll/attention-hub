@@ -9,5 +9,6 @@
 - Runtime: only the WAV is bundled, then played locally through the native Windows `PlaySoundW` API
 
 The project owner supplied this generated sound and approved bundling it in the
-public beta. Applicable distribution rights remain the project owner's
-responsibility.
+public beta. It was generated on the ElevenLabs free plan, is restricted to
+non-commercial use with attribution to `elevenlabs.io`, and is not covered by
+the repository's MIT licence. See `THIRD_PARTY_NOTICES.md` before redistribution.
