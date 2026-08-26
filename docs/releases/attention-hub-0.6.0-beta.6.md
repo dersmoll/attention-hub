@@ -1,7 +1,7 @@
 # Attention Hub 0.6.0-beta.6
 
 - Built: 2026-08-26
-- Status: release candidate; branch build, not yet published
+- Status: release candidate; not yet published
 - Platform: Windows x64
 - Format: unsigned NSIS setup executable
 - Intended tag: `v0.6.0-beta.6`
@@ -65,7 +65,7 @@ before installation.
 ## Known limits
 
 This candidate has not been installed over the previous public beta, tagged,
-merged, or published. Attention Hub remains Windows-only and has no
+or published. Attention Hub remains Windows-only and has no
 installer-managed autostart, Hub tray process, updater, telemetry, cloud
 synchronization, attachments, OCR, Microsoft Graph, generalized provider
 framework, or reminders while the app is closed. Semantic app matching still
