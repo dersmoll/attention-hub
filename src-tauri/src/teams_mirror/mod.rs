@@ -194,12 +194,17 @@ impl TaskbarMirrorState {
         self.status(source)
     }
 
+    pub fn reposition_all(&self, _owner: isize) -> Result<(), String> {
+        Ok(())
+    }
+
     pub fn set_layout(
         &self,
         _source: TaskbarMirrorSource,
         _slot_index: Option<i32>,
         _visible_source_count: i32,
         _compact_mode: bool,
+        _slim_mode: bool,
         _vertical_offset: i32,
     ) {
     }

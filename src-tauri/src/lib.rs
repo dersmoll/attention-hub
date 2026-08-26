@@ -1,6 +1,5 @@
 mod attention_signals;
 mod later_inbox;
-mod notifications;
 mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
@@ -8,9 +7,6 @@ mod work_calendar;
 
 use attention_signals::AttentionSignalSnapshot;
 use later_inbox::{LaterInboxInput, LaterInboxSnapshot, LaterInboxState};
-use notifications::{
-    ListenerStartReport, NotificationAccessReport, NotificationListenerState, NotificationSnapshot,
-};
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use teams_mirror::{
@@ -91,105 +87,8 @@ fn open_work_calendar_join_url(
 }
 
 #[tauri::command]
-async fn get_notification_access_status(app: tauri::AppHandle) -> NotificationAccessReport {
-    let report = notifications::get_access_status(app).await;
-    eprintln!("notification access status: {report:?}");
-    report
-}
-
-#[tauri::command]
-async fn request_notification_access(app: tauri::AppHandle) -> NotificationAccessReport {
-    let report = notifications::request_access(app).await;
-    eprintln!("notification access request result: {report:?}");
-    report
-}
-
-#[tauri::command]
-async fn get_notification_snapshot(app: tauri::AppHandle) -> NotificationSnapshot {
-    let snapshot = notifications::get_snapshot(app).await;
-    eprintln!(
-        "notification snapshot: status={:?}, count={}, diagnostics={:?}",
-        snapshot.access_status,
-        snapshot.notifications.len(),
-        snapshot.diagnostics
-    );
-    snapshot
-}
-
-#[tauri::command]
-async fn start_notification_listener(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, NotificationListenerState>,
-) -> Result<ListenerStartReport, String> {
-    let report = notifications::start_listener(app, state.inner()).await;
-    eprintln!("notification listener start: {report:?}");
-    Ok(report)
-}
-
-#[tauri::command]
 fn get_teams_mirror_status(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
     state.status(TaskbarMirrorSource::Teams)
-}
-
-#[tauri::command]
-fn start_teams_mirror(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, TaskbarMirrorState>,
-) -> Result<TaskbarMirrorStatus, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let window = app
-            .get_webview_window("main")
-            .ok_or_else(|| "Attention Hub main window is unavailable.".to_owned())?;
-        let owner = window
-            .hwnd()
-            .map_err(|error| format!("Could not access the Attention Hub window: {error}"))?;
-        state.start(TaskbarMirrorSource::Teams, owner.0 as isize)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = app;
-        state.start(TaskbarMirrorSource::Teams, 0)
-    }
-}
-
-#[tauri::command]
-fn stop_teams_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
-    state.stop(TaskbarMirrorSource::Teams)
-}
-
-#[tauri::command]
-fn get_telegram_mirror_status(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
-    state.status(TaskbarMirrorSource::Telegram)
-}
-
-#[tauri::command]
-fn start_telegram_mirror(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, TaskbarMirrorState>,
-) -> Result<TaskbarMirrorStatus, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let window = app
-            .get_webview_window("main")
-            .ok_or_else(|| "Attention Hub widget window is unavailable.".to_owned())?;
-        let owner = window
-            .hwnd()
-            .map_err(|error| format!("Could not access the Attention Hub widget: {error}"))?;
-        state.start(TaskbarMirrorSource::Telegram, owner.0 as isize)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = app;
-        state.start(TaskbarMirrorSource::Telegram, 0)
-    }
-}
-
-#[tauri::command]
-fn stop_telegram_mirror(state: tauri::State<'_, TaskbarMirrorState>) -> TaskbarMirrorStatus {
-    state.stop(TaskbarMirrorSource::Telegram)
 }
 
 #[tauri::command]
@@ -238,6 +137,29 @@ fn stop_taskbar_mirror(
     Ok(state.stop(source))
 }
 
+#[tauri::command]
+fn reposition_taskbar_mirrors(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, TaskbarMirrorState>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "Attention Hub widget window is unavailable.".to_owned())?;
+        let owner = window
+            .hwnd()
+            .map_err(|error| format!("Could not access the Attention Hub widget: {error}"))?;
+        state.reposition_all(owner.0 as isize)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        state.reposition_all(0)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskbarMirrorSlot {
@@ -251,6 +173,7 @@ fn set_fixed_taskbar_mirror_layout(
     source_slots: Vec<TaskbarMirrorSlot>,
     visible_source_count: i32,
     compact_mode: bool,
+    slim_mode: bool,
     vertical_offset: i32,
 ) -> Result<(), String> {
     if !(0..=6).contains(&visible_source_count) {
@@ -278,45 +201,10 @@ fn set_fixed_taskbar_mirror_layout(
             Some(item.slot),
             visible_source_count,
             compact_mode,
+            slim_mode,
             vertical_offset,
         );
     }
-    Ok(())
-}
-
-#[tauri::command]
-fn set_taskbar_mirror_layout(
-    state: tauri::State<'_, TaskbarMirrorState>,
-    teams_slot: Option<i32>,
-    telegram_slot: Option<i32>,
-    visible_source_count: i32,
-) -> Result<(), String> {
-    let valid_slot = |slot: i32| (0..=2).contains(&slot);
-    if !(0..=3).contains(&visible_source_count)
-        || teams_slot.is_some_and(|slot| !valid_slot(slot))
-        || telegram_slot.is_some_and(|slot| !valid_slot(slot))
-        || teams_slot.is_some_and(|slot| slot >= visible_source_count)
-        || telegram_slot.is_some_and(|slot| slot >= visible_source_count)
-        || teams_slot.is_some() && teams_slot == telegram_slot
-    {
-        return Err(
-            "Visible taskbar mirror slots must be distinct app positions from 0 through 2.".into(),
-        );
-    }
-    state.set_layout(
-        TaskbarMirrorSource::Teams,
-        teams_slot,
-        visible_source_count,
-        false,
-        0,
-    );
-    state.set_layout(
-        TaskbarMirrorSource::Telegram,
-        telegram_slot,
-        visible_source_count,
-        false,
-        0,
-    );
     Ok(())
 }
 
@@ -493,7 +381,6 @@ fn open_later_inbox_note_url(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .manage(NotificationListenerState::new())
         .manage(LaterInboxState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
@@ -504,21 +391,12 @@ pub fn run() {
             get_work_calendar_snapshot,
             remove_work_calendar_source,
             open_work_calendar_join_url,
-            get_notification_access_status,
-            request_notification_access,
-            get_notification_snapshot,
-            start_notification_listener,
             get_teams_mirror_status,
-            start_teams_mirror,
-            stop_teams_mirror,
-            get_telegram_mirror_status,
-            start_telegram_mirror,
-            stop_telegram_mirror,
             get_taskbar_mirror_status,
             start_taskbar_mirror,
             stop_taskbar_mirror,
+            reposition_taskbar_mirrors,
             set_fixed_taskbar_mirror_layout,
-            set_taskbar_mirror_layout,
             activate_attention_source,
             get_later_inbox_snapshot,
             create_later_inbox_item,

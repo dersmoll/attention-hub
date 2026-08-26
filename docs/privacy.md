@@ -29,6 +29,10 @@ project-operated service because no such service exists.
 - Later Inbox content in diagnostics or release evidence.
 - Usage analytics, device fingerprints, or crash telemetry.
 
+Attention Hub does not request access to Windows Notification Center or inspect
+notifications created by other applications. Meeting sounds and Later Inbox
+notifications are generated locally from data already held by Attention Hub.
+
 ## Local deletion and backup expectations
 
 Users can remove the saved calendar from Advanced settings and delete Later

@@ -12,6 +12,7 @@ node_modules
 dist
 dist-ssr
 *.local
+Attention-Hub_*_x64-setup.exe
 
 # Rust build output
 src-tauri/target

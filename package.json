@@ -1,9 +1,11 @@
 {
   "name": "attention-hub",
   "private": true,
-  "version": "0.6.0-beta.5",
+  "version": "0.6.0-beta.6",
+  "license": "MIT",
   "type": "module",
   "scripts": {
+    "test": "pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:later-inbox && pnpm run test:preferences && pnpm run test:time-zone && pnpm run test:widget-layout && pnpm run test:work-calendar",
     "test:advanced-focus": "node scripts/test-advanced-focus.mjs",
     "dev": "vite",
     "build": "tsc && vite build",

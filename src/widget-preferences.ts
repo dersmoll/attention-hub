@@ -10,7 +10,7 @@ export type AttentionAppKey =
   | "viber"
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
-export type WidgetWidthMode = "recommended" | "larger";
+export type WidgetWidthMode = "recommended" | "larger" | "slim";
 export type ClockLayout = "horizontal" | "vertical";
 
 export interface WidgetPreferences {
@@ -21,6 +21,8 @@ export interface WidgetPreferences {
   extraTimeZones: string[];
   clockLayout: ClockLayout;
   meetingStartSoundEnabled: boolean;
+  showAppsPanel: boolean;
+  showClocksPanel: boolean;
   x: number | null;
   y: number | null;
   panelColor: string;
@@ -63,6 +65,8 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  showAppsPanel: true,
+  showClocksPanel: true,
   x: null,
   y: null,
   panelColor: "#f8fafc",
@@ -91,6 +95,9 @@ function normalizeWidthMode(value: unknown): WidgetWidthMode {
   }
   if (value === "larger" || value === "wide") {
     return "larger";
+  }
+  if (value === "slim") {
+    return "slim";
   }
   return DEFAULT_WIDGET_PREFERENCES.widthMode;
 }
@@ -248,6 +255,14 @@ export function normalizeWidgetPreferences(
       typeof value?.meetingStartSoundEnabled === "boolean"
         ? value.meetingStartSoundEnabled
         : DEFAULT_WIDGET_PREFERENCES.meetingStartSoundEnabled,
+    showAppsPanel:
+      typeof value?.showAppsPanel === "boolean"
+        ? value.showAppsPanel
+        : DEFAULT_WIDGET_PREFERENCES.showAppsPanel,
+    showClocksPanel:
+      typeof value?.showClocksPanel === "boolean"
+        ? value.showClocksPanel
+        : DEFAULT_WIDGET_PREFERENCES.showClocksPanel,
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
     panelColor: normalizeColor(value?.panelColor),

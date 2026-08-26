@@ -297,7 +297,8 @@ export function AttentionPanel({
           sourceCards
         ) : (
           <p className="source-grid__empty">
-            No source is monitored. Use Source monitoring above to enable one.
+            No source is monitored. Use Source monitoring on the Apps page to
+            enable one.
           </p>
         )}
       </div>

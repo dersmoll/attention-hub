@@ -37,6 +37,8 @@ assert.deepEqual(legacy, {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  showAppsPanel: true,
+  showClocksPanel: true,
   x: 120,
   y: -46,
   panelColor: "#f8fafc",
@@ -71,6 +73,8 @@ assert.deepEqual(malformed, {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  showAppsPanel: true,
+  showClocksPanel: true,
   x: null,
   y: null,
   panelColor: "#f8fafc",
@@ -119,6 +123,24 @@ assert.equal(fresh.widthMode, "recommended");
 assert.deepEqual(fresh.extraTimeZones, []);
 assert.equal(fresh.clockLayout, "horizontal");
 assert.equal(fresh.meetingStartSoundEnabled, true);
+assert.equal(fresh.showAppsPanel, true);
+assert.equal(fresh.showClocksPanel, true);
+
+const hiddenPanels = preferences.normalizeWidgetPreferences({
+  sourceCatalogVersion: 2,
+  showAppsPanel: false,
+  showClocksPanel: false,
+});
+assert.equal(hiddenPanels.showAppsPanel, false);
+assert.equal(hiddenPanels.showClocksPanel, false);
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    showAppsPanel: "no",
+    showClocksPanel: null,
+  }).showAppsPanel,
+  true,
+);
 
 const meetingSound = preferences.normalizeWidgetPreferences({
   sourceCatalogVersion: 2,
@@ -175,6 +197,10 @@ assert.equal(
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "larger" }).widthMode,
   "larger",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ widthMode: "slim" }).widthMode,
+  "slim",
 );
 
 const primaryTimeZoneOverride = preferences.normalizeWidgetPreferences({
@@ -247,6 +273,8 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  showAppsPanel: true,
+  showClocksPanel: true,
   x: 10,
   y: 20,
   panelColor: "#f8fafc",

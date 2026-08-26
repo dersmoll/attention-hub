@@ -1,5 +1,9 @@
 # Attention Hub
 
+Attention Hub source code is available under the [MIT License](LICENSE).
+The bundled meeting sound has separate non-commercial terms documented in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 Attention Hub is a local-first Windows desktop widget for communication
 attention, two-zone time, work-calendar context, and a small Later Inbox.
 It observes source applications without replacing them or collecting account
@@ -20,7 +24,11 @@ page publishes the exact installer checksum for verification.
   Viber, and WhatsApp surfaces with truthful source-specific availability.
   Fresh installs start with Teams and Outlook shown; the other regional
   messengers remain available as explicit choices in Advanced.
+  Semantic attention matching currently depends on English accessibility
+  labels from those applications. Other application UI languages can return a
+  truthful unavailable state instead of an inferred or stale count.
 - Displays two to five clocks in a horizontal or compact vertical layout. The
+  entire clock segment can be hidden without losing its configuration. The
   widget uses short city labels and a compact set of human-readable UTC/city
   groups; Advanced can search the full IANA catalog.
   The legacy `Europe/Kiev` alias is normalized to `Europe/Kyiv`. The primary
@@ -50,6 +58,9 @@ page publishes the exact installer checksum for verification.
   delete actions.
 - Keeps pin, close, reminders, and Advanced in a compact right-side utility
   rail, separate from communication sources and calendar content.
+- The app-shortcut segment can be hidden without changing source order,
+  monitoring choices, or privacy semantics. Native visual mirrors pause while
+  that segment is hidden.
 - Uses the **Recommended** widget size by default: a 68px window with 60px
   panels, 40px source buttons, 34px visual surfaces, 4px source gaps, and a
   208px two-zone clock. Its calendar is 272px wide for one event and expands to
@@ -57,7 +68,10 @@ page publishes the exact installer checksum for verification.
   uses an 80px window, 48px source buttons, a 240px clock, and a fixed 416px
   calendar. Legacy Compact and old-default Auto preferences migrate to
   Recommended; an explicitly selected legacy Wide preference migrates to
-  Larger. The Compact name is reserved for a future one-line mode.
+  Larger. **Compact single-line** uses a 44px unified horizontal rail with
+  smaller app surfaces, inline time-and-city pairs, a one-line calendar, and
+  four horizontal utility controls. Its persisted value is `slim` so legacy
+  Compact preferences continue to migrate safely to Recommended.
   Native DWM mirrors remain synchronized with the selected geometry.
 - Organizes Advanced into a PowerToys-inspired two-column layout with a fixed
   navigation sidebar and focused General, Clocks, Apps, Calendar, Reminders,
@@ -69,16 +83,22 @@ page publishes the exact installer checksum for verification.
 
 - DWM thumbnails are visual-only. Attention Hub does not read their pixels or
   infer counts from them.
-- Telegram may expose a numeric application counter. Teams exposes bounded
-  activity state. Outlook shows an Inbox number only while Windows exposes a
-  fresh semantic label. Slack, Viber, and WhatsApp remain presence, activation,
-  and optional visual surfaces without invented unread counts.
+- Telegram may expose a numeric application counter, which uses a neutral badge.
+  Telegram's current accessibility totals do not distinguish private messages
+  reliably, so Attention Hub does not infer a red private-message state. Teams
+  exposes bounded activity state. Outlook shows an Inbox number only while
+  Windows exposes a fresh semantic label. Slack, Viber, and WhatsApp remain
+  presence, activation, and optional visual surfaces without invented unread
+  counts.
 - The calendar publication URL is stored in Windows Credential Manager and is
   never written to the WebView, logs, fixtures, or documentation.
 - Meeting URLs remain in Rust process memory behind short-lived tokens and open
   only after the user clicks **Join**.
 - There is no telemetry, cloud backend, account aggregation, OCR, or Graph
   integration.
+- Attention Hub does not request access to Windows Notification Center and does
+  not read message or notification bodies. Its own Later Inbox and meeting
+  reminders are local app-generated notifications and sounds.
 
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
