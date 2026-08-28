@@ -20,6 +20,18 @@ export interface WorkCalendarDaySelection {
   start: string;
   end: string;
   allDay: boolean;
+  cancelled: boolean;
+  recurring: boolean;
+  eventToken: string | null;
+  eventWorkspace: WorkCalendarEventWorkspaceSummary | null;
+}
+
+export interface WorkCalendarEventWorkspaceSummary {
+  projectId: string | null;
+  projectName: string | null;
+  notesPresent: boolean;
+  linkUrlPresent: boolean;
+  linkUrl: string | null;
 }
 
 export interface WorkCalendarSnapshot {
@@ -61,7 +73,7 @@ export function workCalendarOccupiedMinutes(
   const startBoundary = dayStart.getTime();
   const endBoundary = dayEnd.getTime();
   const intervals = selections
-    .filter((selection) => !selection.allDay)
+    .filter((selection) => !selection.allDay && !selection.cancelled)
     .map((selection) => [
       Math.max(startBoundary, Date.parse(selection.start)),
       Math.min(endBoundary, Date.parse(selection.end)),

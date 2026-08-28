@@ -1,5 +1,6 @@
 mod attention_signals;
 mod later_inbox;
+mod meeting_workspace;
 mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
@@ -7,6 +8,10 @@ mod work_calendar;
 
 use attention_signals::AttentionSignalSnapshot;
 use later_inbox::{LaterInboxInput, LaterInboxSnapshot, LaterInboxState};
+use meeting_workspace::{
+    MeetingWorkspaceInput, MeetingWorkspaceSnapshot, MeetingWorkspaceState, ProjectStashInput,
+    ProjectStashSnapshot,
+};
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use teams_mirror::{
@@ -48,11 +53,13 @@ fn get_work_calendar_configuration() -> WorkCalendarConfiguration {
 async fn save_work_calendar_source(
     app: tauri::AppHandle,
     state: tauri::State<'_, WorkCalendarState>,
+    meeting_state: tauri::State<'_, MeetingWorkspaceState>,
     published_url: String,
     title_capability_confirmed: bool,
 ) -> Result<WorkCalendarSnapshot, ()> {
-    let snapshot =
+    let mut snapshot =
         work_calendar::save_source(state.inner(), published_url, title_capability_confirmed).await;
+    let _ = meeting_workspace::enrich_calendar_snapshot(&app, meeting_state.inner(), &mut snapshot);
     work_calendar::log_snapshot("save", &snapshot);
     let _ = app.emit("work-calendar-changed", ());
     Ok(snapshot)
@@ -60,9 +67,18 @@ async fn save_work_calendar_source(
 
 #[tauri::command]
 async fn get_work_calendar_snapshot(
+    app: tauri::AppHandle,
     state: tauri::State<'_, WorkCalendarState>,
+    meeting_state: tauri::State<'_, MeetingWorkspaceState>,
 ) -> Result<WorkCalendarSnapshot, ()> {
-    let snapshot = work_calendar::get_snapshot(state.inner()).await;
+    let mut snapshot = work_calendar::get_snapshot(state.inner()).await;
+    if let Err(error) =
+        meeting_workspace::enrich_calendar_snapshot(&app, meeting_state.inner(), &mut snapshot)
+    {
+        snapshot
+            .diagnostics
+            .push(format!("Meeting workspace unavailable: {error}"));
+    }
     work_calendar::log_snapshot("refresh", &snapshot);
     Ok(snapshot)
 }
@@ -84,6 +100,98 @@ fn open_work_calendar_join_url(
 ) -> Result<(), String> {
     let url = work_calendar::join_url(state.inner(), &join_token)?;
     later_inbox::open_external_url(&url)
+}
+
+#[tauri::command]
+fn get_meeting_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    event_token: String,
+) -> Result<MeetingWorkspaceSnapshot, String> {
+    meeting_workspace::get_snapshot(&app, state.inner(), &event_token)
+}
+
+fn emit_meeting_workspace_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("meeting-workspace-changed", ());
+    let _ = app.emit("work-calendar-changed", ());
+}
+
+#[tauri::command]
+fn save_meeting_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    event_token: String,
+    input: MeetingWorkspaceInput,
+) -> Result<MeetingWorkspaceSnapshot, String> {
+    let snapshot = meeting_workspace::save(&app, state.inner(), &event_token, input)?;
+    emit_meeting_workspace_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn unlink_meeting_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    event_token: String,
+) -> Result<MeetingWorkspaceSnapshot, String> {
+    let snapshot = meeting_workspace::unlink(&app, state.inner(), &event_token)?;
+    emit_meeting_workspace_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn delete_meeting_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    event_token: String,
+    project_id: String,
+) -> Result<MeetingWorkspaceSnapshot, String> {
+    let snapshot =
+        meeting_workspace::delete_project(&app, state.inner(), &event_token, &project_id)?;
+    emit_meeting_workspace_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn open_event_workspace_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    event_token: String,
+) -> Result<(), String> {
+    let url = meeting_workspace::link_url(&app, state.inner(), &event_token)?;
+    later_inbox::open_external_url(&url)
+}
+
+#[tauri::command]
+fn open_project_stash_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    project_id: String,
+    url: String,
+) -> Result<(), String> {
+    let url = meeting_workspace::note_url(&app, state.inner(), &project_id, &url)?;
+    later_inbox::open_external_url(&url)
+}
+
+#[tauri::command]
+fn get_project_stash(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    project_id: String,
+) -> Result<ProjectStashSnapshot, String> {
+    meeting_workspace::get_project_stash(&app, state.inner(), &project_id)
+}
+
+#[tauri::command]
+fn save_project_stash(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MeetingWorkspaceState>,
+    project_id: String,
+    input: ProjectStashInput,
+) -> Result<ProjectStashSnapshot, String> {
+    let snapshot = meeting_workspace::save_project_stash(&app, state.inner(), &project_id, input)?;
+    emit_meeting_workspace_changed(&app);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -383,6 +491,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(LaterInboxState::new())
+        .manage(MeetingWorkspaceState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
@@ -392,6 +501,14 @@ pub fn run() {
             get_work_calendar_snapshot,
             remove_work_calendar_source,
             open_work_calendar_join_url,
+            get_meeting_workspace,
+            save_meeting_workspace,
+            unlink_meeting_workspace,
+            delete_meeting_project,
+            open_event_workspace_link,
+            open_project_stash_note_url,
+            get_project_stash,
+            save_project_stash,
             get_teams_mirror_status,
             get_taskbar_mirror_status,
             start_taskbar_mirror,

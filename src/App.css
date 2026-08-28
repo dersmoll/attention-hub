@@ -1857,6 +1857,16 @@ body[data-window="main"] #root {
   background: transparent;
 }
 
+html[data-window="today"],
+body[data-window="today"],
+body[data-window="today"] #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
 .widget-shell {
   position: relative;
   display: grid;
@@ -1875,48 +1885,12 @@ body[data-window="main"] #root {
   user-select: none;
 }
 
-.widget-shell[data-day-panel-placement="below"] {
-  align-items: start;
-  grid-template-rows:
-    68px calc(var(--widget-calendar-day-panel-height, 216px) + 5px);
-  row-gap: 0;
-}
-
-.widget-shell[data-day-panel-placement="below"][data-width-mode="larger"] {
-  grid-template-rows:
-    80px calc(var(--widget-calendar-day-panel-height, 216px) + 5px);
-}
-
-.widget-shell[data-day-panel-placement="above"] {
-  align-items: start;
-  grid-template-rows:
-    calc(var(--widget-calendar-day-panel-height, 216px) + 5px) 68px;
-  row-gap: 0;
-}
-
-.widget-shell[data-day-panel-placement="above"][data-width-mode="larger"] {
-  grid-template-rows:
-    calc(var(--widget-calendar-day-panel-height, 216px) + 5px) 80px;
-}
-
-.widget-shell[data-day-panel-placement="below"] > .widget-zone,
-.widget-shell[data-day-panel-placement="below"] > .widget-utility,
-.widget-shell[data-day-panel-placement="below"] > .widget-drag-handle {
-  grid-row: 1;
-}
-
-.widget-shell[data-day-panel-placement="above"] > .widget-zone,
-.widget-shell[data-day-panel-placement="above"] > .widget-utility,
-.widget-shell[data-day-panel-placement="above"] > .widget-drag-handle {
-  grid-row: 2;
-}
-
 .widget-zone {
   min-width: 0;
   height: 72px;
   margin: 0;
   border: 1px solid var(--widget-panel-border, #64748b);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--widget-panel-foreground, #111827);
   background: var(--widget-panel-background, #f8fafc);
   box-shadow: 0 2px 4px rgb(15 23 42 / 16%);
@@ -2480,16 +2454,42 @@ body[data-window="main"] #root {
   display: grid;
   width: var(--widget-calendar-width, 320px);
   height: var(--widget-calendar-day-panel-height, 216px);
-  grid-template-rows: auto auto;
-  gap: 6px;
-  padding: 10px 12px;
+  grid-template-rows: auto 1fr;
+  gap: 4px;
+  padding: 7px 8px;
   border: 1px solid var(--widget-panel-border, #64748b);
-  border-radius: 12px;
+  border-radius: 8px;
   color: var(--widget-panel-foreground, #111827);
   background: var(--widget-panel-solid, #f8fafc);
   box-shadow: 0 12px 28px rgb(15 23 42 / 28%);
-  overflow: hidden;
+  overflow: visible;
   user-select: text;
+}
+
+.today-popup-shell.widget-calendar-day-panel {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.today-popup-shell__error {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  left: 8px;
+  padding: 2px 5px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  color: #991b1b;
+  background: #fff;
+  font-size: 9px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .widget-shell[data-day-panel-placement="below"][data-width-mode="larger"]
@@ -2503,14 +2503,16 @@ body[data-window="main"] #root {
 }
 
 .widget-calendar-day-panel header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 6px;
 }
 
 .widget-calendar-day-panel header > div {
   display: grid;
+  padding-right: 22px;
   gap: 2px;
 }
 
@@ -2524,24 +2526,29 @@ body[data-window="main"] #root {
 }
 
 .widget-calendar-day-panel header button {
+  position: absolute;
+  top: 0;
+  right: 0;
   display: grid;
   width: 24px;
   min-width: 24px;
   height: 24px;
   min-height: 24px;
   padding: 0;
+  border-radius: 6px;
   border-color: var(--widget-panel-border, #64748b);
   color: var(--widget-panel-foreground, #111827);
   background: transparent;
   place-items: center;
 }
 
-.widget-calendar-day-panel header button > svg {
+.hub-close-icon {
   width: 12px;
   height: 12px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
+  stroke-linejoin: round;
   stroke-width: 2;
 }
 
@@ -2556,6 +2563,7 @@ body[data-window="main"] #root {
   display: grid;
   align-content: start;
   gap: 0;
+  min-height: 0;
   padding: 0;
   margin: 0;
   overflow: visible;
@@ -2564,10 +2572,10 @@ body[data-window="main"] #root {
 
 .widget-calendar-day-panel li {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  min-height: 21px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  min-height: 22px;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   padding: 0;
   border-top: 1px solid color-mix(
     in srgb,
@@ -2580,25 +2588,67 @@ body[data-window="main"] #root {
   margin-top: 0;
 }
 
-.widget-calendar-day-panel li[data-finished] {
+.widget-calendar-day-panel li[data-finished] > time,
+.widget-calendar-day-panel
+  li[data-finished]
+  > .widget-calendar-day-panel__subject {
   color: var(--widget-panel-muted, #475569);
   opacity: 0.68;
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }
 
-.widget-calendar-day-panel li[data-finished] time {
+.widget-calendar-day-panel li[data-finished] > time {
   color: inherit;
+}
+
+.widget-calendar-day-panel li[data-cancelled] > time,
+.widget-calendar-day-panel
+  li[data-cancelled]
+  > .widget-calendar-day-panel__subject {
+  color: #64748b;
+  opacity: 0.62;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.widget-calendar-day-panel
+  li[data-cancelled]
+  > .widget-calendar-day-panel__subject::before {
+  color: #94a3b8;
+  content: "Cancelled · ";
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.widget-calendar-day-panel li[data-live] > time,
+.widget-calendar-day-panel li[data-live] > .widget-calendar-day-panel__subject {
+  color: #166534;
+}
+
+.widget-calendar-day-panel li[data-live] > .widget-calendar-day-panel__subject::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 4px 1px 0;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgb(22 163 74 / 16%);
+  content: "";
+  vertical-align: middle;
 }
 
 .widget-calendar-day-panel li time {
   color: var(--widget-panel-muted, #475569);
+  font-family: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI", sans-serif;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
+  white-space: nowrap;
 }
 
-.widget-calendar-day-panel li span {
+.widget-calendar-day-panel li > .widget-calendar-day-panel__subject {
   overflow: hidden;
   font-size: 12px;
   line-height: 1.15;
@@ -2606,8 +2656,640 @@ body[data-window="main"] #root {
   white-space: nowrap;
 }
 
+.widget-calendar-day-panel__actions {
+  display: flex;
+  min-width: 18px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 0.3;
+  transition: opacity 120ms ease;
+}
+
+.widget-calendar-day-panel__actions button {
+  display: grid;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--widget-panel-muted, #475569);
+  background: transparent;
+  place-items: center;
+}
+
+.widget-calendar-day-panel li:hover .widget-calendar-day-panel__actions,
+.widget-calendar-day-panel li:focus-within .widget-calendar-day-panel__actions {
+  opacity: 0.78;
+}
+
+.widget-calendar-day-panel__actions button:hover:not(:disabled),
+.widget-calendar-day-panel__actions button:focus-visible {
+  border-color: color-mix(
+    in srgb,
+    var(--widget-panel-foreground, #111827) 45%,
+    transparent
+  );
+  color: var(--widget-panel-foreground, #111827);
+  background: color-mix(
+    in srgb,
+    var(--widget-panel-foreground, #111827) 10%,
+    transparent
+  );
+  opacity: 1;
+}
+
+.widget-calendar-day-panel__actions svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.widget-calendar-day-panel__actions
+  .widget-calendar-day-panel__project {
+  width: auto;
+  max-width: 72px;
+  padding: 0 6px;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-calendar-day-panel__project [data-project-short] {
+  display: none;
+}
+
+.widget-shell[data-width-mode="slim"]
+  .widget-calendar-day-panel__project
+  [data-project-full] {
+  display: none;
+}
+
+.widget-shell[data-width-mode="slim"]
+  .widget-calendar-day-panel__project
+  [data-project-short] {
+  display: inline;
+}
+
+.widget-shell[data-width-mode="slim"]
+  .widget-calendar-day-panel__actions
+  .widget-calendar-day-panel__project {
+  width: 28px;
+  padding: 0 3px;
+}
+
 .widget-calendar__event {
   position: relative;
+}
+
+html[data-window="meeting-workspace"],
+body[data-window="meeting-workspace"],
+body[data-window="meeting-workspace"] #root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  overflow: auto;
+}
+
+body[data-window="meeting-workspace"] {
+  color: #172033;
+  background: #eef2f7;
+}
+
+.meeting-workspace-shell {
+  display: grid;
+  min-height: 100vh;
+  align-content: start;
+  gap: 14px;
+  padding: 20px;
+}
+
+.meeting-workspace-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.meeting-workspace-header > div {
+  min-width: 0;
+}
+
+.meeting-workspace-header span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.meeting-workspace-header h1 {
+  margin: 3px 0 2px;
+  overflow: hidden;
+  font-size: 21px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meeting-workspace-header p,
+.meeting-workspace-delete p {
+  margin: 0;
+}
+
+.meeting-workspace-header p {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.meeting-workspace-shell button,
+.meeting-workspace-shell input,
+.meeting-workspace-shell select {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  font: inherit;
+}
+
+.meeting-workspace-shell button {
+  padding: 7px 12px;
+  color: #1e293b;
+  background: #fff;
+  cursor: pointer;
+}
+
+.meeting-workspace-shell button:hover:not(:disabled),
+.meeting-workspace-shell button:focus-visible {
+  border-color: #334155;
+  background: #f8fafc;
+}
+
+.meeting-workspace-shell button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.meeting-workspace-form {
+  display: grid;
+  gap: 12px;
+}
+
+.meeting-workspace-form section {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid #d7dee8;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 6%);
+}
+
+.meeting-workspace-form h2 {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.meeting-workspace-form label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.meeting-workspace-form input,
+.meeting-workspace-form select {
+  width: 100%;
+  padding: 7px 9px;
+  color: #172033;
+  background: #fff;
+}
+
+.meeting-workspace-form input:focus-visible,
+.meeting-workspace-form select:focus-visible,
+.meeting-workspace-notes:focus-visible {
+  border-color: #2563eb;
+  outline: 3px solid rgb(37 99 235 / 18%);
+  outline-offset: 1px;
+}
+
+.meeting-workspace-form small,
+.meeting-workspace-status,
+.meeting-workspace-shell footer {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.meeting-workspace-notes-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meeting-workspace-notes-heading button {
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.meeting-workspace-notes {
+  min-height: 132px;
+  max-height: 240px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  color: #172033;
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.meeting-workspace-notes:empty::before {
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.meeting-workspace-notes a {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.meeting-workspace-note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.meeting-workspace-note-links button {
+  max-width: 100%;
+  min-height: 30px;
+  padding: 4px 9px;
+  overflow: hidden;
+  color: #1d4ed8;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meeting-workspace-actions,
+.meeting-workspace-delete > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.meeting-workspace-actions button:first-child {
+  border-color: #1d4ed8;
+  color: #fff;
+  background: #1d4ed8;
+}
+
+.meeting-workspace-actions button:first-child:hover:not(:disabled),
+.meeting-workspace-actions button:first-child:focus-visible {
+  border-color: #1e40af;
+  background: #1e40af;
+}
+
+.meeting-workspace-delete {
+  padding-top: 4px;
+  border-top: 1px solid #d7dee8;
+}
+
+.meeting-workspace-delete > button,
+.meeting-workspace-delete > div button:first-of-type {
+  color: #b42318;
+}
+
+.meeting-workspace-delete p {
+  flex-basis: 100%;
+  color: #475569;
+  font-size: 12px;
+}
+
+.meeting-workspace-loading,
+.meeting-workspace-recovery,
+.meeting-workspace-shell > .error,
+.meeting-workspace-status {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 9px;
+}
+
+.meeting-workspace-recovery {
+  color: #854d0e;
+  background: #fef9c3;
+}
+
+.meeting-workspace-shell > .error {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.meeting-workspace-status {
+  min-height: 32px;
+  background: rgb(255 255 255 / 68%);
+}
+
+.meeting-workspace-shell footer {
+  padding-bottom: 8px;
+  text-align: center;
+}
+
+@media (max-width: 439px) {
+  .meeting-workspace-shell {
+    padding: 14px;
+  }
+
+  .meeting-workspace-header {
+    display: grid;
+  }
+
+  .meeting-workspace-header > button {
+    justify-self: start;
+  }
+}
+
+html[data-window="event-settings"],
+html[data-window="project-stash"],
+body[data-window="event-settings"],
+body[data-window="project-stash"],
+body[data-window="event-settings"] #root,
+body[data-window="project-stash"] #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body[data-window="event-settings"],
+body[data-window="project-stash"] {
+  color: var(--widget-panel-foreground, #172033);
+  background: transparent;
+}
+
+.event-settings-shell,
+.project-stash-shell {
+  box-sizing: border-box;
+  display: grid;
+  width: 100%;
+  min-height: 100%;
+  align-content: start;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--widget-panel-border, #94a3b8);
+  border-radius: 8px;
+  color: var(--widget-panel-foreground, #172033);
+  background: var(--widget-panel-solid, #f8fafc);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 24%);
+  overflow: hidden;
+}
+
+.event-settings-shell {
+  min-height: 0;
+}
+
+.event-settings-shell header,
+.project-stash-shell header {
+  display: flex;
+  min-width: 0;
+  align-items: start;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.event-settings-shell header,
+.project-stash-shell header {
+  cursor: grab;
+  user-select: none;
+}
+
+.event-settings-shell header:active,
+.project-stash-shell header:active {
+  cursor: grabbing;
+}
+
+.event-settings-shell header > div:first-child,
+.project-stash-shell header > div:first-child {
+  min-width: 0;
+}
+
+.event-settings-shell header span,
+.project-stash-shell header span {
+  color: var(--widget-panel-muted, #64748b);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.event-settings-shell h1,
+.project-stash-shell h1 {
+  margin: 1px 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-settings-shell header p {
+  margin: 0;
+  color: var(--widget-panel-muted, #64748b);
+  font-size: 10px;
+}
+
+.event-settings-shell button,
+.event-settings-shell input,
+.event-settings-shell select,
+.project-stash-shell button {
+  min-height: 24px;
+  border: 1px solid var(--widget-panel-border, #cbd5e1);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.event-settings-shell button,
+.project-stash-shell button {
+  padding: 2px 6px;
+  color: var(--widget-panel-foreground, #334155);
+  background: color-mix(
+    in srgb,
+    var(--widget-panel-solid, #f8fafc) 90%,
+    var(--widget-panel-foreground, #111827) 10%
+  );
+  cursor: pointer;
+}
+
+.event-settings-shell header > button,
+.project-stash-shell header button {
+  display: grid;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  place-items: center;
+  border-radius: 6px;
+}
+
+.event-settings-shell form {
+  display: grid;
+  gap: 4px;
+}
+
+.event-settings-actions button,
+.event-settings-delete button {
+  font-size: 11px;
+}
+
+.event-settings-shell label {
+  color: var(--widget-panel-muted, #475569);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.event-settings-shell label em {
+  color: var(--widget-panel-muted, #94a3b8);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.event-settings-shell input,
+.event-settings-shell select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border-color: var(--widget-panel-border, #cbd5e1);
+  color: var(--widget-panel-foreground, #172033);
+  background: color-mix(
+    in srgb,
+    var(--widget-panel-solid, #f8fafc) 94%,
+    var(--widget-panel-foreground, #111827) 6%
+  );
+  font-size: 12px;
+}
+
+.event-settings-shell input:focus-visible,
+.event-settings-shell select:focus-visible,
+.project-stash-notes:focus-visible {
+  border-color: #2563eb;
+  outline: 2px solid rgb(37 99 235 / 20%);
+  outline-offset: 1px;
+}
+
+.event-settings-help,
+.project-stash-help,
+.event-settings-status,
+.project-stash-status,
+.event-settings-loading,
+.project-stash-loading {
+  margin: 0;
+  color: var(--widget-panel-muted, #64748b);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.event-settings-actions,
+.event-settings-delete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-settings-actions button:first-child {
+  border-color: #1d4ed8;
+  color: #fff;
+  background: #1d4ed8;
+}
+
+.event-settings-delete {
+  color: #991b1b;
+  font-size: 10px;
+}
+
+.event-settings-delete > button,
+.event-settings-delete button:first-of-type {
+  color: #991b1b;
+}
+
+.event-settings-error,
+.project-stash-error,
+.project-stash-recovery {
+  margin: 0;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.event-settings-error,
+.project-stash-error {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.project-stash-recovery {
+  color: #854d0e;
+  background: #fef9c3;
+}
+
+.project-stash-shell {
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+
+.project-stash-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-stash-toolbar button {
+  color: var(--widget-panel-muted, #475569);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.project-stash-notes {
+  min-height: 0;
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--widget-panel-border, #cbd5e1);
+  border-radius: 7px;
+  color: var(--widget-panel-foreground, #172033);
+  background: color-mix(
+    in srgb,
+    var(--widget-panel-solid, #f8fafc) 94%,
+    var(--widget-panel-foreground, #111827) 6%
+  );
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.project-stash-notes:empty::before {
+  color: var(--widget-panel-muted, #94a3b8);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.project-stash-notes a {
+  color: #1d4ed8;
+  text-decoration: underline;
 }
 
 .widget-calendar__event-header {
@@ -3163,6 +3845,16 @@ body[data-window="main"] #root {
   fill: currentColor;
 }
 
+.widget-utility .hub-close-icon {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .widget-utility .widget-reminder-control svg {
   fill: none;
   stroke: currentColor;
@@ -3386,19 +4078,21 @@ body[data-window="main"] #root {
 .widget-shell[data-width-mode="slim"]
   .widget-clock[data-clock-layout][data-clock-mode="live"]
   > div {
-  display: flex;
+  display: grid;
   min-width: 0;
   height: 34px;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
+  grid-template-rows: 21px 10px;
+  align-content: center;
+  justify-items: stretch;
+  gap: 0;
+  padding: 1px 4px 0;
   line-height: 1;
 }
 
 .widget-shell[data-width-mode="slim"]
   .widget-clock[data-clock-layout][data-clock-mode="live"]
   > div + div {
-  padding-left: 6px;
+  padding-left: 4px;
   border-left: 1px solid color-mix(
     in srgb,
     var(--widget-panel-border, #64748b) 45%,
@@ -3409,45 +4103,47 @@ body[data-window="main"] #root {
 .widget-shell[data-width-mode="slim"]
   .widget-clock[data-clock-layout][data-clock-mode="live"]
   > div:first-child {
-  padding-right: 6px;
+  padding-right: 4px;
 }
 
 .widget-shell[data-width-mode="slim"] .widget-clock__label {
-  order: 2;
-  width: auto;
-  height: 30px;
+  grid-row: 2;
+  width: 100%;
+  height: 10px;
   min-width: 0;
-  min-height: 30px;
-  flex: 1 1 auto;
-  justify-content: flex-start;
+  min-height: 10px;
+  justify-content: center;
   font-size: 9px;
-  text-align: left;
+  text-align: center;
+  transform: translateY(-1px);
 }
 
 .widget-shell[data-width-mode="slim"] .widget-clock__short-label {
-  padding-inline: 0 10px;
+  width: 100%;
+  padding-inline: 8px;
   font-size: 9px;
 }
 
 .widget-shell[data-width-mode="slim"] .widget-clock__label--select > svg {
-  right: 0;
+  right: 1px;
   width: 8px;
   height: 6px;
 }
 
 .widget-shell[data-width-mode="slim"] .widget-clock__time-button,
 .widget-shell[data-width-mode="slim"] .widget-clock__time-display {
-  order: 1;
+  grid-row: 1;
   display: grid;
-  min-width: 38px;
-  min-height: 30px;
-  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 20px;
   place-items: center;
-  text-align: right;
+  text-align: center;
+  transform: translateY(2px);
 }
 
 .widget-shell[data-width-mode="slim"] .widget-clock time {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 650;
 }
 
@@ -3671,16 +4367,6 @@ body[data-window="main"] #root {
   right: -2px;
 }
 
-.widget-shell[data-day-panel-placement="below"][data-width-mode="slim"] {
-  grid-template-rows:
-    44px calc(var(--widget-calendar-day-panel-height, 216px) + 5px);
-}
-
-.widget-shell[data-day-panel-placement="above"][data-width-mode="slim"] {
-  grid-template-rows:
-    calc(var(--widget-calendar-day-panel-height, 216px) + 5px) 44px;
-}
-
 .widget-shell[data-day-panel-placement="below"][data-width-mode="slim"]
   .widget-calendar-day-panel {
   top: calc(var(--widget-height, 44px) + 5px);
@@ -3696,4 +4382,9 @@ body[data-window="main"] #root {
     var(--widget-utility-width, 112px) +
       var(--widget-drag-handle-width, 18px)
   );
+}
+
+.widget-shell[data-width-mode="slim"] .widget-calendar-day-panel {
+  padding-right: 6px;
+  padding-left: 6px;
 }

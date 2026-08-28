@@ -23,6 +23,7 @@ assert.equal(
       { start: "2026-08-24T09:00:00Z", end: "2026-08-24T10:00:00Z", allDay: false },
       { start: "2026-08-24T09:30:00Z", end: "2026-08-24T11:00:00Z", allDay: false },
       { start: "2026-08-24T12:00:00Z", end: "2026-08-24T12:30:00Z", allDay: false },
+      { start: "2026-08-24T13:00:00Z", end: "2026-08-24T14:00:00Z", allDay: false, cancelled: true },
       { start: "2026-08-24T00:00:00Z", end: "2026-08-25T00:00:00Z", allDay: true },
     ],
     new Date("2026-08-24T00:00:00Z"),

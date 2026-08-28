@@ -44,6 +44,13 @@ pub struct DayEventSelection {
     pub start: String,
     pub end: String,
     pub all_day: bool,
+    pub cancelled: bool,
+    #[serde(skip_serializing)]
+    pub series_uid: String,
+    #[serde(skip_serializing)]
+    pub recurring: bool,
+    #[serde(skip_serializing)]
+    pub private: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,11 +135,13 @@ struct Candidate {
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     all_day: bool,
+    cancelled: bool,
     subject: String,
     private: bool,
     meeting_link_present: bool,
     meeting_url: Option<String>,
     source_order: u32,
+    recurring: bool,
 }
 
 #[derive(Default)]
@@ -248,7 +257,9 @@ pub fn extract_current_or_next(
     });
     day_selections.truncate(24);
 
-    candidates.retain(|candidate| candidate.end > now && candidate.start < window_end);
+    candidates.retain(|candidate| {
+        !candidate.cancelled && candidate.end > now && candidate.start < window_end
+    });
     let active_candidate_count = candidates
         .iter()
         .filter(|candidate| candidate.start <= now && candidate.end > now)
@@ -345,6 +356,10 @@ fn day_selection_from_candidate(candidate: Candidate) -> DayEventSelection {
         start: candidate.start.to_rfc3339(),
         end: candidate.end.to_rfc3339(),
         all_day: candidate.all_day,
+        cancelled: candidate.cancelled,
+        series_uid: candidate.uid,
+        recurring: candidate.recurring,
+        private: candidate.private,
     }
 }
 
@@ -672,6 +687,13 @@ fn expand_series(
     }
     let mut overrides = selected_overrides;
 
+    let recurring = master.as_ref().is_some_and(|event| {
+        event.rrule.is_some()
+            || !event.rdates.is_empty()
+            || !event.exdates.is_empty()
+            || !overrides.is_empty()
+    });
+
     if let Some(master) = master {
         for override_event in &mut overrides {
             if override_event.subject.is_none() {
@@ -683,7 +705,14 @@ fn expand_series(
                 override_event.meeting_url.clone_from(&master.meeting_url);
             }
         }
-        if !master.cancelled {
+        if master.cancelled {
+            push_candidate(
+                &master,
+                master.start.with_timezone(&Utc),
+                recurring,
+                candidates,
+            );
+        } else {
             if let Some(rule) = &master.rrule {
                 let mut set = recurrence_set(&master, rule)?;
                 let recurrence_timezone = RRuleTz::from(master.start.timezone());
@@ -710,10 +739,15 @@ fn expand_series(
                             "The calendar exceeded the fixed expanded-occurrence limit.",
                         ));
                     }
-                    push_candidate(&master, start.with_timezone(&Utc), candidates);
+                    push_candidate(&master, start.with_timezone(&Utc), recurring, candidates);
                 }
             } else {
-                push_candidate(&master, master.start.with_timezone(&Utc), candidates);
+                push_candidate(
+                    &master,
+                    master.start.with_timezone(&Utc),
+                    recurring,
+                    candidates,
+                );
             }
         }
     } else if overrides.iter().any(|event| {
@@ -728,13 +762,12 @@ fn expand_series(
     }
 
     for override_event in overrides {
-        if !override_event.cancelled {
-            push_candidate(
-                &override_event,
-                override_event.start.with_timezone(&Utc),
-                candidates,
-            );
-        }
+        push_candidate(
+            &override_event,
+            override_event.start.with_timezone(&Utc),
+            recurring,
+            candidates,
+        );
     }
     Ok(())
 }
@@ -777,6 +810,7 @@ fn recurrence_set(event: &NormalizedEvent, rule: &str) -> Result<RRuleSet, Seman
 fn push_candidate(
     event: &NormalizedEvent,
     occurrence_start: DateTime<Utc>,
+    recurring: bool,
     candidates: &mut Vec<Candidate>,
 ) {
     let duration = event.end.with_timezone(&Utc) - event.start.with_timezone(&Utc);
@@ -786,6 +820,7 @@ fn push_candidate(
         start,
         end: start + duration,
         all_day: event.all_day,
+        cancelled: event.cancelled,
         subject: event
             .subject
             .clone()
@@ -794,6 +829,7 @@ fn push_candidate(
         meeting_link_present: event.meeting_link_present,
         meeting_url: event.meeting_url.clone(),
         source_order: event.source_order,
+        recurring,
     });
 }
 
@@ -1268,6 +1304,16 @@ mod tests {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:series\r\nDTSTART:20260804T130000Z\r\nDTEND:20260804T140000Z\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:Weekly sync\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:series\r\nRECURRENCE-ID:20260811T130000Z\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.selection.start, "2026-08-18T13:00:00+00:00");
         assert_eq!(result.selection.subject, "Weekly sync");
+        assert_eq!(result.day_selections.len(), 1);
+        assert!(result.day_selections[0].cancelled);
+        assert_eq!(result.day_selections[0].subject, "Weekly sync");
+    }
+
+    #[test]
+    fn marks_today_occurrences_with_their_native_recurring_series() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:daily-series\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:Daily sync\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+        assert!(result.day_selections[0].recurring);
+        assert_eq!(result.day_selections[0].series_uid, "daily-series");
     }
 
     #[test]

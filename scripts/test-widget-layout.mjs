@@ -19,11 +19,11 @@ assert.equal(layout.widgetHeight("larger"), 80);
 assert.equal(layout.widgetHeight("slim"), 44);
 assert.equal(layout.CALENDAR_DAY_PANEL_ROW_HEIGHT, 216);
 assert.equal(layout.CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT, 224);
-assert.equal(layout.calendarDayPanelHeight(1), 85);
-assert.equal(layout.calendarDayPanelHeight(8), 232);
-assert.equal(layout.calendarDayPanelHeight(24), 568);
-assert.equal(layout.calendarDayPanelHeight(99), 568);
-assert.equal(layout.calendarDayPanelWindowExtraHeight(8), 237);
+assert.equal(layout.calendarDayPanelHeight(1), 76);
+assert.equal(layout.calendarDayPanelHeight(8), 230);
+assert.equal(layout.calendarDayPanelHeight(24), 582);
+assert.equal(layout.calendarDayPanelHeight(99), 582);
+assert.equal(layout.calendarDayPanelWindowExtraHeight(8), 235);
 assert.equal(layout.calendarDayPanelDirection(40, 68, 0, 1080), "below");
 assert.equal(layout.calendarDayPanelDirection(980, 68, 0, 1080), "above");
 assert.equal(layout.calendarDayPanelPhysicalOffset(1), 216);
@@ -32,12 +32,12 @@ assert.equal(layout.calendarDayPanelPhysicalOffset(1.5), 324);
 assert.equal(layout.calendarDayPanelPhysicalOffset(1.25, 248), 310);
 assert.equal(layout.widgetClockWidth("recommended"), 208);
 assert.equal(layout.widgetClockWidth("larger"), 240);
-assert.equal(layout.widgetClockWidth("slim"), 176);
+assert.equal(layout.widgetClockWidth("slim"), 152);
 assert.equal(layout.widgetClockPanelWidth("recommended", 5, "horizontal"), 520);
 assert.equal(layout.widgetClockPanelWidth("recommended", 5, "vertical"), 208);
 assert.equal(layout.widgetClockPanelWidth("larger", 5, "horizontal"), 600);
-assert.equal(layout.widgetClockPanelWidth("slim", 5, "horizontal"), 440);
-assert.equal(layout.widgetClockPanelWidth("slim", 5, "vertical"), 440);
+assert.equal(layout.widgetClockPanelWidth("slim", 5, "horizontal"), 380);
+assert.equal(layout.widgetClockPanelWidth("slim", 5, "vertical"), 380);
 assert.equal(layout.widgetZoneGap("recommended"), 6);
 assert.equal(layout.widgetZoneGap("larger"), 8);
 assert.equal(layout.widgetZoneGap("slim"), 0);
@@ -76,10 +76,10 @@ assert.equal(layout.widgetWidth(6, "larger"), 1100);
 assert.equal(layout.widgetWidth(99, "larger"), 1100);
 assert.equal(layout.widgetWidth(2, "recommended", false, 5, "horizontal"), 978);
 assert.equal(layout.widgetWidth(2, "recommended", false, 5, "vertical"), 666);
-assert.equal(layout.widgetWidth(2, "slim"), 640);
-assert.equal(layout.widgetWidth(2, "slim", true), 900);
-assert.equal(layout.widgetWidth(2, "slim", false, 5, "horizontal"), 904);
-assert.equal(layout.widgetWidth(2, "slim", false, 5, "vertical"), 904);
+assert.equal(layout.widgetWidth(2, "slim"), 616);
+assert.equal(layout.widgetWidth(2, "slim", true), 876);
+assert.equal(layout.widgetWidth(2, "slim", false, 5, "horizontal"), 844);
+assert.equal(layout.widgetWidth(2, "slim", false, 5, "vertical"), 844);
 assert.equal(
   layout.widgetWidth(2, "recommended", false, 2, "horizontal", false, true),
   560,
@@ -98,14 +98,26 @@ assert.equal(
 );
 assert.equal(
   layout.widgetWidth(2, "slim", false, 2, "horizontal", true, true, 68),
-  800,
+  776,
 );
 
-const [appSource, widgetSource, cssSource, tauriConfigSource, rustSource] = await Promise.all([
+const [
+  appSource,
+  widgetSource,
+  todayPopupSource,
+  todayPopupWindowSource,
+  cssSource,
+  tauriConfigSource,
+  capabilitiesSource,
+  rustSource,
+] = await Promise.all([
   readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/WidgetView.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/TodayPopupView.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/today-popup-window.ts", import.meta.url), "utf8"),
   readFile(new URL("../src/App.css", import.meta.url), "utf8"),
   readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+  readFile(new URL("../src-tauri/capabilities/default.json", import.meta.url), "utf8"),
   readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
 ]);
 assert.match(appSource, /value="slim">Compact single-line/);
@@ -124,8 +136,13 @@ assert.match(widgetSource, /text: "Visible panels"/);
 assert.match(widgetSource, /text: "App shortcuts"/);
 assert.match(widgetSource, /text: "Clock layout"/);
 assert.match(widgetSource, /await existing\.unminimize\(\)/);
-assert.match(widgetSource, /\? "calendar-day-summary"/);
 assert.match(widgetSource, /\? calendarDayPanelOpen/);
+assert.match(widgetSource, /createTodayPopupWindow\(/);
+assert.doesNotMatch(widgetSource, /calendarDayPanelOffsetLogicalHeight/);
+assert.match(todayPopupSource, /className="today-popup-shell widget-calendar-day-panel"/);
+assert.match(todayPopupWindowSource, /new WebviewWindow\(TODAY_POPUP_WINDOW_LABEL/);
+assert.match(capabilitiesSource, /"today"/);
+assert.doesNotMatch(rustSource, /transition_widget_panel_at_upper_edge/);
 assert.match(widgetSource, /event\.key !== "Enter" && event\.key !== " "/);
 assert.match(widgetSource, /WIDGET_NOTICE_MS = 4_500/);
 assert.doesNotMatch(widgetSource, /findSignal\(telegram, "unreadChats"\)/);
@@ -147,6 +164,9 @@ assert.ok(
   "Close must remain the last utility control",
 );
 assert.match(cssSource, /data-width-mode="slim"/);
+assert.match(cssSource, /grid-template-rows: 21px 10px/);
+assert.match(cssSource, /transform: translateY\(2px\)/);
+assert.match(cssSource, /\.widget-clock time \{\s*font-size: 18px/);
 assert.match(cssSource, /grid-template-columns: repeat\(4, 26px\)/);
 assert.match(cssSource, /--widget-calendar-surface: #fef2f2/);
 assert.match(cssSource, /transform: translateY\(-50%\)/);
@@ -156,8 +176,23 @@ assert.match(cssSource, /widget-app-badge\[data-tone="attention"\]/);
 assert.match(cssSource, /var\(--widget-calendar-day-panel-height, 216px\)/);
 assert.match(cssSource, /widget-calendar-day-panel ol \{[\s\S]*align-content: start/);
 assert.match(cssSource, /widget-calendar-day-panel li \+ li \{\s*margin-top: 0/);
-assert.match(widgetSource, /data-finished=\{finished \|\| undefined\}/);
+assert.match(todayPopupSource, /data-finished=\{finished \|\| undefined\}/);
+assert.match(todayPopupSource, /data-live=\{live \|\| undefined\}/);
+assert.match(todayPopupSource, /data-cancelled=\{selection\.cancelled \|\| undefined\}/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-finished\]/);
+assert.match(cssSource, /widget-calendar-day-panel li\[data-cancelled\]/);
+assert.match(cssSource, /grid-template-columns: 64px minmax\(0, 1fr\) auto/);
+assert.match(cssSource, /widget-calendar-day-panel li\[data-live\]/);
+assert.match(cssSource, /widget-calendar-day-panel__actions/);
+assert.match(cssSource, /white-space: nowrap/);
+assert.match(cssSource, /overflow: visible/);
+assert.match(todayPopupSource, /open_event_workspace_link/);
+assert.match(todayPopupSource, /widget-calendar-day-panel__settings/);
+assert.ok(
+  todayPopupSource.indexOf('widget-calendar-day-panel__link') <
+    todayPopupSource.indexOf('widget-calendar-day-panel__settings'),
+  "Event settings must remain last after the direct actions",
+);
 assert.match(
   cssSource,
   /top: calc\(var\(--widget-height, 68px\) \+ 5px\)/,

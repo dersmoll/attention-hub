@@ -6,6 +6,7 @@ use crate::published_ics::{
     PublishedIcsSemanticProbe, PublishedIcsStopReason,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::Mutex as StdMutex,
@@ -46,7 +47,7 @@ pub struct WorkCalendarSnapshot {
     pub selection: Option<WorkCalendarSelection>,
     pub overlapping_selections: Vec<WorkCalendarSelection>,
     pub next_selection: Option<WorkCalendarSelection>,
-    pub day_selections: Vec<DayEventSelection>,
+    pub day_selections: Vec<WorkCalendarDaySelection>,
     pub stop_reason: Option<PublishedIcsStopReason>,
     pub request_ms: u64,
     pub parse_ms: u64,
@@ -63,6 +64,31 @@ pub struct WorkCalendarSelection {
     pub classification: EventClassification,
     pub meeting_link_present: Option<bool>,
     pub join_token: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkCalendarDaySelection {
+    pub subject: String,
+    pub start: String,
+    pub end: String,
+    pub all_day: bool,
+    pub cancelled: bool,
+    pub recurring: bool,
+    pub event_token: Option<String>,
+    pub event_workspace: Option<EventWorkspaceSummary>,
+    #[serde(skip_serializing)]
+    pub(crate) workspace_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventWorkspaceSummary {
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub notes_present: bool,
+    pub link_url_present: bool,
+    pub link_url: Option<String>,
 }
 
 #[derive(Default)]
@@ -179,6 +205,7 @@ pub async fn save_source(
     title_capability_confirmed: bool,
 ) -> WorkCalendarSnapshot {
     let _guard = state.request_gate.lock().await;
+    let source_scope = calendar_source_scope(&published_url);
     let probe = published_ics::get_semantic_probe_with_deadline(
         published_url.clone(),
         title_capability_confirmed,
@@ -190,13 +217,18 @@ pub async fn save_source(
         || probe.selection.is_none()
     {
         zero_string(&mut published_url);
-        return snapshot_from_probe(state, probe, get_configuration().configured);
+        return snapshot_from_probe(
+            state,
+            probe,
+            get_configuration().configured,
+            Some(&source_scope),
+        );
     }
 
     let write_result = credential_store::write(&published_url);
     zero_string(&mut published_url);
     match write_result {
-        Ok(()) => snapshot_from_probe(state, probe, true),
+        Ok(()) => snapshot_from_probe(state, probe, true, Some(&source_scope)),
         Err(_) => {
             state.clear_join_targets();
             WorkCalendarSnapshot {
@@ -292,9 +324,10 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
         }
     };
 
+    let source_scope = calendar_source_scope(&published_url);
     let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
     drop(guard);
-    snapshot_from_probe(state, probe, true)
+    snapshot_from_probe(state, probe, true, Some(&source_scope))
 }
 
 pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfiguration {
@@ -352,6 +385,7 @@ fn snapshot_from_probe(
     state: &WorkCalendarState,
     mut probe: PublishedIcsSemanticProbe,
     configured: bool,
+    source_scope: Option<&str>,
 ) -> WorkCalendarSnapshot {
     let status = match probe.status {
         PublishedIcsProbeStatus::Observed
@@ -373,6 +407,11 @@ fn snapshot_from_probe(
         probe.overlapping_selections,
         probe.next_selection,
     );
+    let day_selections = probe
+        .day_selections
+        .into_iter()
+        .map(|event| day_selection(event, source_scope))
+        .collect();
     WorkCalendarSnapshot {
         status,
         configured,
@@ -382,12 +421,74 @@ fn snapshot_from_probe(
         selection,
         overlapping_selections,
         next_selection,
-        day_selections: probe.day_selections,
+        day_selections,
         stop_reason: probe.stop_reason,
         request_ms: probe.request_ms,
         parse_ms: probe.parse_ms,
         diagnostics: probe.diagnostics,
     }
+}
+
+fn day_selection(event: DayEventSelection, source_scope: Option<&str>) -> WorkCalendarDaySelection {
+    let workspace_key = (!event.private && !event.cancelled)
+        .then(|| {
+            source_scope.map(|scope| {
+                if event.recurring {
+                    recurring_series_key(scope, &event.series_uid)
+                } else {
+                    single_event_key(scope, &event.series_uid)
+                }
+            })
+        })
+        .flatten();
+    WorkCalendarDaySelection {
+        subject: event.subject,
+        start: event.start,
+        end: event.end,
+        all_day: event.all_day,
+        cancelled: event.cancelled,
+        recurring: event.recurring,
+        event_token: None,
+        event_workspace: None,
+        workspace_key,
+    }
+}
+
+fn calendar_source_scope(published_url: &str) -> String {
+    hex_digest([
+        b"attention-hub-calendar-source-v1\0".as_slice(),
+        published_url.as_bytes(),
+    ])
+}
+
+fn recurring_series_key(source_scope: &str, series_uid: &str) -> String {
+    hex_digest([
+        b"attention-hub-recurring-series-v1\0".as_slice(),
+        source_scope.as_bytes(),
+        b"\0".as_slice(),
+        series_uid.as_bytes(),
+    ])
+}
+
+fn single_event_key(source_scope: &str, event_uid: &str) -> String {
+    hex_digest([
+        b"attention-hub-calendar-event-v1\0".as_slice(),
+        source_scope.as_bytes(),
+        b"\0".as_slice(),
+        event_uid.as_bytes(),
+    ])
+}
+
+fn hex_digest<const N: usize>(parts: [&[u8]; N]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update(part);
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn now_unix_ms() -> u64 {
@@ -430,7 +531,7 @@ mod tests {
     fn unavailable_probe_never_exposes_a_selection() {
         let state = WorkCalendarState::new();
         let probe = PublishedIcsSemanticProbe::command_deadline(true);
-        let snapshot = snapshot_from_probe(&state, probe, true);
+        let snapshot = snapshot_from_probe(&state, probe, true, None);
 
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
@@ -465,7 +566,7 @@ mod tests {
             stop_reason: None,
             diagnostics: Vec::new(),
         };
-        let snapshot = snapshot_from_probe(&state, probe, true);
+        let snapshot = snapshot_from_probe(&state, probe, true, None);
 
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
@@ -519,5 +620,71 @@ mod tests {
         assert!(overlapping_serialized.contains(overlapping_token));
         assert!(!overlapping_serialized.contains("meetup-join"));
         assert!(!overlapping_serialized.contains("second-opaque-token"));
+    }
+
+    #[test]
+    fn recurring_workspace_identity_is_source_scoped_and_private_safe() {
+        let recurring = DayEventSelection {
+            subject: "Weekly sync".into(),
+            start: "2026-08-18T13:00:00Z".into(),
+            end: "2026-08-18T14:00:00Z".into(),
+            all_day: false,
+            cancelled: false,
+            series_uid: "series-uid".into(),
+            recurring: true,
+            private: false,
+        };
+        let first = day_selection(recurring.clone(), Some("source-a"));
+        let same = day_selection(recurring.clone(), Some("source-a"));
+        let other_source = day_selection(recurring, Some("source-b"));
+        assert_eq!(first.workspace_key, same.workspace_key);
+        assert_ne!(first.workspace_key, other_source.workspace_key);
+        assert_eq!(first.workspace_key.as_deref().unwrap().len(), 64);
+
+        let private = day_selection(
+            DayEventSelection {
+                subject: "Private event".into(),
+                start: "2026-08-18T13:00:00Z".into(),
+                end: "2026-08-18T14:00:00Z".into(),
+                all_day: false,
+                cancelled: false,
+                series_uid: "private-series".into(),
+                recurring: true,
+                private: true,
+            },
+            Some("source-a"),
+        );
+        assert!(private.workspace_key.is_none());
+
+        let one_off = day_selection(
+            DayEventSelection {
+                subject: "One-off".into(),
+                start: "2026-08-18T15:00:00Z".into(),
+                end: "2026-08-18T16:00:00Z".into(),
+                all_day: false,
+                cancelled: false,
+                series_uid: "one-off-uid".into(),
+                recurring: false,
+                private: false,
+            },
+            Some("source-a"),
+        );
+        assert!(one_off.workspace_key.is_some());
+        assert_ne!(one_off.workspace_key, first.workspace_key);
+
+        let cancelled = day_selection(
+            DayEventSelection {
+                subject: "Cancelled one-off".into(),
+                start: "2026-08-18T16:00:00Z".into(),
+                end: "2026-08-18T17:00:00Z".into(),
+                all_day: false,
+                cancelled: true,
+                series_uid: "cancelled-one-off".into(),
+                recurring: false,
+                private: false,
+            },
+            Some("source-a"),
+        );
+        assert!(cancelled.workspace_key.is_none());
     }
 }

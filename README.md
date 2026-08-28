@@ -50,6 +50,12 @@ page publishes the exact installer checksum for verification.
   An unconfigured widget shows a compact **Set up** action that opens Advanced
   at the masked Published ICS field; configured calendars with no current or
   upcoming event retain the ordinary empty state.
+- Any non-private event in the **Today** summary can keep optional local event
+  settings: a project stash, an HTTP(S) work link, or both. Recurring events
+  share settings across their series; one-off events retain their own link.
+  Multiple events may share the same bounded text, bullet, and link-aware
+  project notes. Attention Hub opens saved links in the default browser; it
+  does not authenticate with or submit time to an external service.
 - Provides a compact local Later Inbox with Work/Private grouping, link-aware
   notes, optional follow-up times, and notifications while the app is running.
   The widget reminder control opens its list-first view; **Add new reminder**
@@ -94,6 +100,9 @@ page publishes the exact installer checksum for verification.
   never written to the WebView, logs, fixtures, or documentation.
 - Meeting URLs remain in Rust process memory behind short-lived tokens and open
   only after the user clicks **Join**.
+- Raw calendar recurrence UIDs remain native. The Today summary receives only
+  an opaque workspace token and user-created project summary for eligible
+  recurring, non-private timed events.
 - There is no telemetry, cloud backend, account aggregation, OCR, or Graph
   integration.
 - Attention Hub does not request access to Windows Notification Center and does
