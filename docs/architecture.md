@@ -74,8 +74,10 @@ an application-owned Windows Credential Manager target. Rust performs bounded
 fetching, calendar structure validation, recurrence expansion, timezone
 mapping, privacy redaction, and active/next selection.
 
-Only event subject, time, classification, all-day state, and meeting-link
-presence cross serialized IPC. The bounded selection contains one primary
+Only event subject, time, classification, all-day state, meeting-link presence,
+and bounded Today-workspace metadata cross serialized IPC. Raw recurrence UIDs
+stay native; eligible recurring non-private timed events receive source-scoped
+SHA-256 identities and opaque process tokens. The bounded selection contains one primary
 active-or-next event, at most one separately redacted timed event with the same
 upcoming start or an overlapping active time, and at most one later upcoming
 companion. Allowlisted Teams, Zoom, Google Meet, and Webex URLs remain in a
@@ -86,6 +88,22 @@ room URLs are canonicalized without account-specific query or fragment data.
 The provider never controls Outlook. AppointmentStore, Outlook My Day UI
 Automation, Microsoft Graph, OCR, and generalized calendar providers are not
 part of the production command surface.
+
+### Event settings and project stashes
+
+The Today summary may associate any non-private event with an optional local
+project stash, an optional user-supplied HTTP(S) event link, or both. Recurring
+events use source-scoped series identity; one-off events use source-scoped event
+identity. Different events can map to the same project while retaining separate
+links. Project stashes contain a bounded name, link-aware text segments,
+timestamps, and no arbitrary HTML or attachments.
+
+The native store is versioned, validated, limited to 1 MiB, and committed with
+the same pending-file and bounded-backup pattern as Later Inbox. Removing a
+binding or project uses a destructive write so removed links and notes are not
+retained in the backup. HTTP(S) event and note links are resolved from the saved
+store and revalidated before Windows opens them. Attention Hub holds no external
+service credentials and makes no external service API request.
 
 ### Later Inbox
 
@@ -186,12 +204,14 @@ with no selected event continues to show its ordinary empty state.
 
 - WebView local storage: widget preferences, appearance, source order, calendar
   acknowledgement, and Later Inbox UI preferences.
-- Tauri application-data directory: Later Inbox JSON and bounded backup.
+- Tauri application-data directory: Later Inbox JSON plus meeting-workspace
+  JSON, each with one bounded backup.
 - Windows Credential Manager: the single Published ICS source URL.
 - Process memory only: current meeting URLs and ephemeral join tokens.
 
-No message bodies, notification bodies, calendar publication URLs, Later Inbox
-content, account identifiers, or DWM pixels are written to diagnostics.
+No message bodies, notification bodies, calendar publication URLs, raw
+recurrence UIDs, Later Inbox content, meeting-project content, account
+identifiers, or DWM pixels are written to diagnostics.
 
 Attention Hub does not request Windows Notification Center access, enumerate
 other applications' notifications, or read their notification payloads. The

@@ -6,6 +6,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
 import { LaterInboxDataPanel } from "./LaterInboxDataPanel";
 import { LaterInboxView } from "./LaterInboxView";
+import { EventSettingsView } from "./EventSettingsView";
+import { ProjectStashView } from "./ProjectStashView";
+import { TodayPopupView } from "./TodayPopupView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
 import {
@@ -1432,6 +1435,15 @@ function App() {
   }
   if (windowLabel === "update") {
     return <AppUpdatePanel variant="dialog" />;
+  }
+  if (windowLabel === "event-settings") {
+    return <EventSettingsView />;
+  }
+  if (windowLabel === "project-stash") {
+    return <ProjectStashView />;
+  }
+  if (windowLabel === "today") {
+    return <TodayPopupView />;
   }
   return <WidgetView />;
 }
