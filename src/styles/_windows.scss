@@ -1,0 +1,60 @@
+@use "mixins" as *;
+
+/* Per-window document shells. Each Tauri webview sets `data-window` on
+ * <html>/<body>, and every window shares one bundle, so the frame-level
+ * sizing lives here rather than being scattered across the components. */
+
+/* Frameless overlays: the widget panel and the today popup. */
+@include window-shell("main", "today") {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+@include window-shell("today") {
+  min-width: 0;
+}
+
+/* Chromed utility windows: advanced settings and the updater dialog. */
+@include window-shell("advanced", "update") {
+  height: 100%;
+  background: var(--color-canvas-sunken);
+}
+
+@include window-shell("advanced") {
+  min-width: 0;
+}
+
+@include window-shell("update") {
+  width: 100%;
+}
+
+@include window-body("advanced", "update") {
+  overflow: hidden;
+  color: var(--color-text-chrome);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Scrolling document windows. */
+@include window-shell("later") {
+  min-width: 0;
+  min-height: 100%;
+  background: var(--color-canvas);
+}
+
+/* Themed satellite panels that inherit the widget's panel colours. */
+@include window-shell("event-settings", "project-stash") {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+@include window-body("event-settings", "project-stash") {
+  color: var(--widget-panel-foreground);
+  background: transparent;
+}

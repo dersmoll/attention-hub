@@ -158,7 +158,11 @@ export function TodayPopupView() {
         </button>
       </header>
       <ol>
-        {payload.selections.map((selection, index) => {
+        {payload.selections.length === 0 ? (
+          <li className="widget-calendar-day-panel__empty">
+            No meetings today.
+          </li>
+        ) : payload.selections.map((selection, index) => {
           const startMs = Date.parse(selection.start);
           const endMs = Date.parse(selection.end);
           const finished = Number.isFinite(endMs) && endMs <= now.getTime();

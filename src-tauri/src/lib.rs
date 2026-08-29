@@ -329,6 +329,21 @@ fn quit_application(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn open_main_panel_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        window.open_devtools();
+        Ok(())
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = window;
+        Err("Developer tools are only available in development builds.".to_string())
+    }
+}
+
+#[tauri::command]
 fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -528,6 +543,7 @@ pub fn run() {
             open_later_inbox_item_url,
             open_later_inbox_note_url,
             play_meeting_start_sound,
+            open_main_panel_devtools,
             quit_application
         ])
         .run(tauri::generate_context!())

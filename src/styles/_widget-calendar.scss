@@ -1,0 +1,653 @@
+@use "mixins" as *;
+
+/* Calendar band inside the widget rail, plus the "today" day panel it opens
+ * (rendered inline in the widget and as a detached popup window). */
+
+.widget-calendar {
+  /* Captured so modifier blocks below can still address their own elements. */
+  $block: &;
+
+  --widget-calendar-surface: var(--widget-panel-solid);
+  --widget-calendar-focus-outline: 3px solid var(--color-focus-strong);
+  --widget-calendar-focus-offset: 1px;
+
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  padding: 8px;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+
+  &[data-day-summary] {
+    cursor: pointer;
+
+    &:focus-visible {
+      z-index: 6;
+      outline: var(--widget-calendar-focus-outline);
+      outline-offset: var(--widget-calendar-focus-offset);
+    }
+  }
+
+  strong {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.2;
+
+    @include truncate;
+  }
+
+  small {
+    display: block;
+    color: var(--widget-panel-muted);
+    font-size: 12px;
+    line-height: 1.2;
+
+    @include truncate;
+  }
+
+  /* Descendant on purpose: the extra class keeps the countdown's size when
+   * `__event` and `__next` restyle their own children. */
+  .widget-calendar__countdown {
+    flex: 0 0 auto;
+    overflow: visible;
+    color: var(--color-focus);
+    font-size: 13px;
+    font-weight: 750;
+    font-family: system-ui;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  /* Layout ---------------------------------------------------------------- */
+
+  &__content,
+  &__event {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    align-content: center;
+    gap: 2px;
+  }
+
+  &__content {
+    &[data-has-next] {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+      gap: 10px;
+    }
+  }
+
+  &__event {
+    position: relative;
+  }
+
+  &__event-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__detail {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 3px;
+  }
+
+  &__separator {
+    min-width: 10px;
+    color: var(--widget-panel-muted);
+    display: inline-block;
+    text-align: center;
+  }
+
+  &__metadata {
+    min-width: 0;
+
+    @include truncate;
+  }
+
+  &__state {
+    padding: 2px 4px;
+    border: 1px solid var(--color-focus);
+    border-radius: var(--radius-pill);
+    background: panel-border-wash(10%);
+    font-weight: 700;
+    font-family: system-ui;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+
+    @include uppercase-label(8px, 0.02em);
+
+    &[data-calendar-status="observed"] {
+      color: var(--color-focus);
+    }
+
+    &[data-calendar-progress] {
+      color: var(--color-success);
+    }
+
+    &[data-calendar-started] {
+      color: var(--color-danger-strong);
+    }
+  }
+
+  &__progress {
+    width: 100%;
+    height: 3px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: panel-border-wash(24%);
+
+    > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--widget-panel-border);
+    }
+  }
+
+  /* "Up next" column ------------------------------------------------------ */
+
+  &__next {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 0 10px;
+    border-left: 1px solid var(--widget-panel-border);
+    gap: 2px;
+
+    strong {
+      font-size: 12px;
+    }
+
+    small {
+      font-size: 10px;
+    }
+  }
+
+  &__next > span,
+  &__next-header > span {
+    color: var(--widget-panel-muted);
+    line-height: 1.15;
+
+    @include uppercase-label(10px, 0.06em);
+  }
+
+  &__next-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+
+    > span[data-calendar-progress] {
+      color: var(--color-success);
+    }
+  }
+
+  /* Event actions --------------------------------------------------------- */
+
+  &__ack {
+    --calendar-alert: var(--color-danger-strong);
+    --calendar-alert-hover: #7f1d1d;
+
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px 8px;
+    border-color: var(--calendar-alert);
+    border-radius: var(--radius-pill);
+    color: var(--color-surface);
+    background: var(--calendar-alert);
+    font-size: 10px;
+    line-height: 1.1;
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      border-color: var(--calendar-alert-hover);
+      color: var(--color-surface);
+      background: var(--color-danger);
+    }
+  }
+
+  &__join,
+  &__finish {
+    min-width: 34px;
+    min-height: 22px;
+    padding: 2px 7px;
+    border-color: var(--widget-panel-border);
+    border-radius: var(--radius-pill);
+    color: var(--widget-panel-foreground);
+    background: transparent;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  &__join {
+    &:hover:not(:disabled),
+    &:focus-visible {
+      border-color: var(--widget-panel-foreground);
+      color: var(--widget-panel-interactive-foreground);
+      background: var(--widget-panel-foreground);
+    }
+  }
+
+  &__finish {
+    border-color: #15803d;
+    color: var(--color-success);
+    background: #f0fdf4;
+  }
+
+  &__setup {
+    width: 100%;
+    align-items: center;
+
+    #{$block}__metadata {
+      flex: 1 1 auto;
+    }
+  }
+
+  &__setup-button {
+    flex: 0 0 auto;
+    min-height: 24px;
+    padding: 2px 8px;
+    border-color: var(--widget-panel-border);
+    border-radius: var(--radius-pill);
+    color: var(--widget-panel-foreground);
+    background: color-mix(in srgb, var(--widget-panel-background) 86%, white);
+    font-size: 10px;
+    font-weight: 750;
+    line-height: 1.1;
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      color: var(--widget-panel-background);
+      background: var(--widget-panel-foreground);
+    }
+  }
+
+  &__title--compact {
+    display: none;
+  }
+
+  /* Before the calendar is connected there is only a title and a CTA. */
+  &[data-calendar-setup] {
+    #{$block}__title--compact {
+      display: block;
+      min-width: 0;
+      flex: 1 1 auto;
+      font-size: 13px;
+    }
+
+    #{$block}__title--standard {
+      display: none;
+    }
+  }
+
+  &__hover-actions {
+    position: absolute;
+    z-index: 6;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    gap: 4px;
+    padding-left: 12px;
+    opacity: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--widget-calendar-surface) 12px
+    );
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  &__event:hover > #{$block}__hover-actions,
+  &__event:focus-within > #{$block}__hover-actions,
+  &__next:hover > #{$block}__hover-actions,
+  &__next:focus-within > #{$block}__hover-actions,
+  &:hover #{$block}__hover-actions,
+  &:focus-within #{$block}__hover-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Attention escalation --------------------------------------------------- */
+
+  &[data-calendar-attention="soon"],
+  &[data-calendar-attention="imminent"],
+  &[data-calendar-attention="started"] {
+    --widget-panel-foreground: var(--color-text-strong);
+    --widget-panel-muted: #475569;
+    --widget-panel-interactive-foreground: #fff;
+
+    #{$block}__state {
+      color: var(--color-warning-text);
+    }
+  }
+
+  &[data-calendar-attention="soon"] {
+    --widget-calendar-surface: #fffbeb;
+    --widget-panel-border: var(--color-warning);
+
+    border-color: var(--color-warning);
+    background: #fffbeb;
+    box-shadow: 0 2px 4px rgb(180 83 9 / 24%);
+  }
+
+  &[data-calendar-attention="imminent"] {
+    --widget-calendar-surface: #fff7d6;
+    --widget-panel-border: var(--color-warning);
+
+    border-color: var(--color-warning);
+    background: #fff7d6;
+    animation: widget-calendar-imminent 1.6s ease-in-out infinite;
+  }
+
+  &[data-calendar-attention="started"] {
+    --widget-calendar-surface: #fef2f2;
+    --widget-panel-border: var(--color-danger-strong);
+
+    border-color: var(--color-danger-strong);
+    background: #fef2f2;
+    animation: widget-calendar-alert 1.35s ease-in-out infinite;
+
+    #{$block}__state {
+      color: var(--color-danger-strong);
+    }
+  }
+
+  @include reduced-motion {
+    &[data-calendar-attention="imminent"],
+    &[data-calendar-attention="started"] {
+      animation: none;
+      box-shadow: 0 0 0 3px rgb(185 28 28 / 28%);
+    }
+
+    /* Amber ring for the pre-start state, red is reserved for "started". */
+    &[data-calendar-attention="imminent"] {
+      box-shadow: 0 0 0 3px rgb(245 158 11 / 32%);
+    }
+  }
+}
+
+@keyframes widget-calendar-imminent {
+  0%,
+  100% {
+    box-shadow: 0 2px 4px rgb(180 83 9 / 20%);
+  }
+
+  50% {
+    box-shadow: 0 0 0 3px rgb(245 158 11 / 32%);
+  }
+}
+
+@keyframes widget-calendar-alert {
+  0%,
+  100% {
+    box-shadow: 0 2px 4px rgb(185 28 28 / 22%);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 3px rgb(185 28 28 / 24%),
+      0 3px 6px rgb(185 28 28 / 34%);
+  }
+}
+
+/* Day panel --------------------------------------------------------------- */
+
+.widget-calendar-day-panel {
+  $block: &;
+
+  position: absolute;
+  z-index: 8;
+  top: calc(var(--widget-height, 68px) + 5px);
+  right: calc(var(--widget-utility-width, 68px) + var(--widget-zone-gap, 8px));
+  display: grid;
+  width: var(--widget-calendar-width, 320px);
+  height: var(--widget-calendar-day-panel-height, 216px);
+  grid-template-rows: auto 1fr;
+  gap: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--widget-panel-border);
+  border-radius: var(--radius-panel);
+  color: var(--widget-panel-foreground);
+  background: var(--widget-panel-solid);
+  box-shadow: var(--shadow-popover);
+  overflow: visible;
+  user-select: text;
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+
+    > div {
+      display: grid;
+      padding-right: 22px;
+      gap: 2px;
+    }
+
+    strong {
+      font-size: 14px;
+    }
+
+    span {
+      color: var(--widget-panel-muted);
+      font-size: 11px;
+    }
+
+    button {
+      position: absolute;
+      top: 0;
+      right: 0;
+
+      @include icon-button(24px, var(--radius-chrome));
+
+      border: none;
+      color: var(--widget-panel-foreground);
+      background: transparent;
+
+      &:hover:not(:disabled),
+      &:focus-visible {
+        border-color: var(--widget-panel-foreground);
+        color: var(--color-focus);
+        background: rgba(var(--color-focus-rgb), 0.1);
+      }
+    }
+  }
+
+  ol {
+    display: grid;
+    align-content: start;
+    gap: 0;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    list-style: none;
+  }
+
+  li {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    min-height: 22px;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border-top: 1px solid panel-border-wash(35%);
+
+    + li {
+      margin-top: 0;
+    }
+
+    &#{$block}__empty {
+      display: block;
+      min-height: 0;
+      padding-top: 6px;
+      color: var(--widget-panel-muted);
+      font-size: 12px;
+    }
+
+    time {
+      color: var(--widget-panel-muted);
+      font-family: var(--font-numeric);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+
+    > #{$block}__subject {
+      font-size: 12px;
+      line-height: 1.15;
+
+      @include truncate;
+    }
+
+    &[data-finished] {
+      > time,
+      > #{$block}__subject {
+        color: var(--widget-panel-muted);
+        opacity: 0.68;
+        text-decoration: line-through;
+        text-decoration-thickness: 1px;
+      }
+
+      > time {
+        color: inherit;
+      }
+    }
+
+    &[data-cancelled] {
+      > time,
+      > #{$block}__subject {
+        color: var(--color-text-subtle);
+        opacity: 0.62;
+        text-decoration: line-through;
+        text-decoration-thickness: 1px;
+      }
+
+      > #{$block}__subject::before {
+        color: var(--color-text-placeholder);
+        content: "Cancelled · ";
+        font-size: 10px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    }
+
+    &[data-live] {
+      > time,
+      > #{$block}__subject {
+        color: var(--color-success);
+      }
+
+      /* Live indicator dot. */
+      > #{$block}__subject::before {
+        display: inline-block;
+        @include square(5px);
+
+        margin: 0 4px 1px 0;
+        border-radius: 50%;
+        background: #16a34a;
+        box-shadow: 0 0 0 2px rgb(22 163 74 / 16%);
+        content: "";
+        vertical-align: middle;
+      }
+    }
+
+    &:hover #{$block}__actions,
+    &:focus-within #{$block}__actions {
+      opacity: 0.78;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    min-width: 18px;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    opacity: 0.3;
+    transition: opacity 120ms ease;
+
+    button {
+      @include icon-button(18px, 5px);
+
+      border: 1px solid transparent;
+      color: var(--widget-panel-muted);
+      background: transparent;
+
+      &:hover:not(:disabled),
+      &:focus-visible {
+        border-color: panel-foreground-wash(45%);
+        color: var(--widget-panel-foreground);
+        background: panel-foreground-wash(10%);
+        opacity: 1;
+      }
+    }
+
+    svg {
+      @include stroke-icon(13px, 1.7);
+    }
+
+    #{$block}__project {
+      width: auto;
+      max-width: 72px;
+      padding: 0 6px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+
+      @include truncate;
+    }
+  }
+
+  &__project [data-project-short] {
+    display: none;
+  }
+}
+
+.widget-shell[data-day-panel-placement="above"] .widget-calendar-day-panel {
+  top: auto;
+  bottom: calc(var(--widget-height, 68px) + 5px);
+}
+
+/* Detached "today" popup window reuses the day panel markup. */
+.today-popup-shell {
+  &.widget-calendar-day-panel {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+
+  &__error {
+    position: absolute;
+    right: 8px;
+    bottom: 4px;
+    left: 8px;
+    padding: 2px 5px;
+    margin: 0;
+    border-radius: 4px;
+    color: var(--color-danger);
+    background: var(--color-surface);
+    font-size: 9px;
+    line-height: 1.2;
+
+    @include truncate;
+  }
+}

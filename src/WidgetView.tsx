@@ -113,6 +113,7 @@ const MIAMI_TIME_ZONE = "America/New_York";
 type ClockConversionSource = "local" | "secondary";
 type WidgetNoticeScope =
   | "attention"
+  | "inspect"
   | "later"
   | "layout"
   | "position"
@@ -145,6 +146,31 @@ function formatTime(now: Date, timeZone?: string) {
     hourCycle: "h23",
     timeZone,
   }).format(now);
+}
+
+function formatClockDay(now: Date, timeZone?: string) {
+  return new Intl.DateTimeFormat([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone,
+  }).format(now);
+}
+
+const COMPACT_TIME_ZONE_LABELS: Record<string, string> = {
+  "America/Anchorage": "ANC",
+  "America/Chicago": "CHI",
+  "America/Denver": "DEN",
+  "America/Los_Angeles": "LA",
+  "America/New_York": "NY",
+  "America/Sao_Paulo": "SP",
+  "Europe/London": "LDN",
+  "Pacific/Honolulu": "HNL",
+};
+
+function compactTimeZoneLabel(timeZone: string) {
+  const canonical = canonicalTimeZone(timeZone);
+  return COMPACT_TIME_ZONE_LABELS[canonical] ?? shortTimeZoneLabel(canonical);
 }
 
 function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
@@ -1211,7 +1237,6 @@ export function WidgetView() {
     let unlistenMoved: (() => void) | undefined;
     void (async () => {
       try {
-        await widgetWindow.setAlwaysOnTop(initialPreferences.pinned);
         unlistenMoved = await widgetWindow.onMoved(({ payload }) => {
           const repositionMirrors = () => {
             void invoke("reposition_taskbar_mirrors")
@@ -1255,19 +1280,14 @@ export function WidgetView() {
     };
   }, [clearWidgetNotice, initialPreferences, showWidgetNotice, widgetWindow]);
 
-  const togglePinned = async () => {
-    const next = !pinned;
-    try {
-      await widgetWindow.setAlwaysOnTop(next);
-      setPreferences(writeWidgetPreferences({ pinned: next }));
-      clearWidgetNotice("preference");
-    } catch {
-      showWidgetNotice(
-        "preference",
-        "Always-on-top could not be changed.",
+  useEffect(() => {
+    void widgetWindow
+      .setAlwaysOnTop(pinned)
+      .then(() => clearWidgetNotice("preference"))
+      .catch(() =>
+        showWidgetNotice("preference", "Always-on-top could not be changed."),
       );
-    }
-  };
+  }, [clearWidgetNotice, pinned, showWidgetNotice, widgetWindow]);
 
   const updateWidgetPreferences = useCallback(
     (update: Partial<WidgetPreferences>) => {
@@ -1326,11 +1346,6 @@ export function WidgetView() {
         action: () => updateWidgetPreferences({ widthMode: "recommended" }),
       },
       {
-        checked: preferences.widthMode === "larger",
-        text: "Larger",
-        action: () => updateWidgetPreferences({ widthMode: "larger" }),
-      },
-      {
         checked: preferences.widthMode === "slim",
         text: "Compact single-line",
         action: () => updateWidgetPreferences({ widthMode: "slim" }),
@@ -1354,9 +1369,35 @@ export function WidgetView() {
           }),
       },
     ];
+    const panelSurfaceItems: NonNullable<MenuOptions["items"]> = [
+      {
+        checked: preferences.panelSurface === "light",
+        text: "Light",
+        action: () => updateWidgetPreferences({ panelSurface: "light" }),
+      },
+      {
+        checked: preferences.panelSurface === "dark",
+        text: "Dark",
+        action: () => updateWidgetPreferences({ panelSurface: "dark" }),
+      },
+      {
+        checked: preferences.panelSurface === "custom",
+        text: "Custom colors…",
+        action: () => {
+          updateWidgetPreferences({ panelSurface: "custom" });
+          void openAdvanced();
+        },
+      },
+      {
+        checked: pinned,
+        text: "Keep above other windows",
+        action: () => updateWidgetPreferences({ pinned: !pinned }),
+      },
+    ];
     const items: NonNullable<MenuOptions["items"]> = [
       { text: "Size preset", items: sizePresetItems },
       { text: "Visible panels", items: visiblePanelItems },
+      { text: "Appearance", items: panelSurfaceItems },
     ];
 
     if (preferences.showAppsPanel) {
@@ -1404,6 +1445,16 @@ export function WidgetView() {
       text: "Open Advanced settings…",
       action: () => void openAdvanced(),
     });
+
+    if (import.meta.env.DEV) {
+      items.push({
+        text: "Inspect",
+        action: () =>
+          void invoke("open_main_panel_devtools").catch(() =>
+            showWidgetNotice("inspect", "Developer tools could not be opened."),
+          ),
+      });
+    }
 
     if (widgetContextMenuRef.current) {
       await widgetContextMenuRef.current.close();
@@ -1809,6 +1860,10 @@ export function WidgetView() {
     ? preferences.primaryTimeZone
     : `System (${systemTimeZone})`;
   const secondaryTimeZoneLabel = secondaryTimeZone;
+  const liveClockLabel = (timeZone: string) =>
+    preferences.widthMode === "slim"
+      ? compactTimeZoneLabel(timeZone)
+      : shortTimeZoneLabel(timeZone);
   const conversionSourceTimeZone =
     clockConversionSource === "local" ? primaryTimeZone : secondaryTimeZone;
   const conversionTargetTimeZone =
@@ -1989,7 +2044,6 @@ export function WidgetView() {
   return (
     <main
       className="widget-shell"
-      data-tauri-drag-region
       data-day-panel={calendarDayPanelOpen || undefined}
       data-day-panel-placement={calendarDayPanelPlacement}
       data-width-mode={preferences.widthMode}
@@ -2017,9 +2071,11 @@ export function WidgetView() {
           data-clock-count={2 + preferences.extraTimeZones.length}
           data-clock-layout={preferences.clockLayout}
           data-clock-mode={clockConversionSource ? "converter" : "live"}
+          data-clock-conversion-source={clockConversionSource ?? undefined}
           data-tauri-drag-region
         >
         {clockConversionSource ? (
+          <>
           <div className="widget-clock-converter">
             <label htmlFor="clock-conversion-time">
               {shortTimeZoneLabel(conversionSourceTimeZone)}
@@ -2032,6 +2088,9 @@ export function WidgetView() {
               type="time"
               value={conversionTime}
             />
+            <span className="widget-clock-converter__source-day">
+              {formatClockDay(now, conversionSourceTimeZone)}
+            </span>
             <output
               aria-label={`${conversionTargetTimeZoneLabel} converted time ${clockConversion}`}
               aria-live="polite"
@@ -2048,15 +2107,17 @@ export function WidgetView() {
                 </span>
               </strong>
             </output>
-            <button
-              aria-label="Return to live clocks"
-              onClick={() => setClockConversionSource(null)}
-              title="Return to live clocks"
-              type="button"
-            >
-              ×
-            </button>
           </div>
+          <button
+            aria-label="Return to live clocks"
+            className="widget-clock-converter__close"
+            onClick={() => setClockConversionSource(null)}
+            title="Return to live clocks"
+            type="button"
+          >
+            ×
+          </button>
+          </>
         ) : (
           <>
             <div data-tauri-drag-region>
@@ -2088,7 +2149,7 @@ export function WidgetView() {
                   ))}
                 </select>
                 <span aria-hidden="true" className="widget-clock__short-label">
-                  {shortTimeZoneLabel(primaryTimeZone)}
+                  {liveClockLabel(primaryTimeZone)}
                 </span>
                 <svg aria-hidden="true" viewBox="0 0 12 8">
                   <path d="m1 1.5 5 5 5-5" />
@@ -2106,6 +2167,9 @@ export function WidgetView() {
               >
                 <time>{formatTime(now, primaryTimeZone)}</time>
               </button>
+              <span className="widget-clock__day">
+                {formatClockDay(now, primaryTimeZone)}
+              </span>
             </div>
             <div data-tauri-drag-region>
               <span className="widget-clock__label widget-clock__label--select">
@@ -2130,7 +2194,7 @@ export function WidgetView() {
                   ))}
                 </select>
                 <span aria-hidden="true" className="widget-clock__short-label">
-                  {shortTimeZoneLabel(secondaryTimeZone)}
+                  {liveClockLabel(secondaryTimeZone)}
                 </span>
                 <svg aria-hidden="true" viewBox="0 0 12 8">
                   <path d="m1 1.5 5 5 5-5" />
@@ -2148,6 +2212,9 @@ export function WidgetView() {
               >
                 <time>{formatTime(now, secondaryTimeZone)}</time>
               </button>
+              <span className="widget-clock__day">
+                {formatClockDay(now, secondaryTimeZone)}
+              </span>
             </div>
             {preferences.extraTimeZones.map((timeZone) => (
               <div data-tauri-drag-region key={timeZone}>
@@ -2155,13 +2222,16 @@ export function WidgetView() {
                   className="widget-clock__label"
                   title={`${timeZone} · ${timeZoneOffsetLabel(timeZone, now)}`}
                 >
-                  {shortTimeZoneLabel(timeZone)}
+                  {liveClockLabel(timeZone)}
                 </span>
                 <span
                   aria-label={`${timeZone} time ${formatTime(now, timeZone)}`}
                   className="widget-clock__time-display"
                 >
                   <time>{formatTime(now, timeZone)}</time>
+                </span>
+                <span className="widget-clock__day">
+                  {formatClockDay(now, timeZone)}
                 </span>
               </div>
             ))}
@@ -2172,19 +2242,28 @@ export function WidgetView() {
 
       <section
         aria-expanded={
-          calendarDaySelections.length > 0
+          workCalendar?.configured
             ? calendarDayPanelOpen
             : undefined
         }
         className="widget-zone widget-calendar"
         data-calendar-attention={calendarAttentionState}
         data-calendar-setup={calendarNotConfigured || undefined}
-        data-day-summary={calendarDaySelections.length > 0 || undefined}
+        data-day-summary={workCalendar?.configured || undefined}
         aria-label="Work calendar"
         ref={calendarDayPanelRef}
+        onPointerDownCapture={(event) => {
+          if (
+            !(event.target as HTMLElement).closest(
+              "button, a, input, select, textarea, [role='button']",
+            )
+          ) {
+            event.stopPropagation();
+          }
+        }}
         onClick={(event) => {
           if (
-            calendarDaySelections.length === 0 ||
+            !workCalendar?.configured ||
             (event.target as HTMLElement).closest(
               "button, a, input, select, textarea, [role='button']",
             )
@@ -2195,7 +2274,7 @@ export function WidgetView() {
         }}
         onKeyDown={(event) => {
           if (
-            calendarDaySelections.length === 0 ||
+            !workCalendar?.configured ||
             event.target !== event.currentTarget ||
             (event.key !== "Enter" && event.key !== " ")
           ) {
@@ -2204,9 +2283,9 @@ export function WidgetView() {
           event.preventDefault();
           void toggleCalendarDayPanel();
         }}
-        tabIndex={calendarDaySelections.length > 0 ? 0 : undefined}
+        tabIndex={workCalendar?.configured ? 0 : undefined}
         title={
-          calendarDaySelections.length > 0
+          workCalendar?.configured
             ? "Open today's meeting summary"
             : undefined
         }
@@ -2431,18 +2510,14 @@ export function WidgetView() {
         data-tauri-drag-region
       >
         <button
-          aria-label={
-            pinned ? "Unpin Attention Hub" : "Pin Attention Hub always on top"
-          }
-          aria-pressed={pinned}
-          onClick={() => void togglePinned()}
-          title={pinned ? "Unpin from always on top" : "Pin always on top"}
+          aria-label="Close Attention Hub"
+          className="widget-close-control"
+          onClick={() => void invoke("quit_application")}
+          title="Close Attention Hub"
           type="button"
         >
-          <span className="widget-utility__surface">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M8.2 3.8h7.6l-1.5 5 3.2 3.2v1.6h-4.7V20l-.8 1.2-.8-1.2v-6.4H6.5V12l3.2-3.2-1.5-5Z" />
-            </svg>
+          <span aria-hidden="true" className="widget-utility__surface">
+            <HubCloseIcon />
           </span>
         </button>
         <button
@@ -2480,17 +2555,6 @@ export function WidgetView() {
             </svg>
           </span>
           <span className="sr-only">Open Advanced view</span>
-        </button>
-        <button
-          aria-label="Close Attention Hub"
-          className="widget-close-control"
-          onClick={() => void invoke("quit_application")}
-          title="Close Attention Hub"
-          type="button"
-        >
-          <span aria-hidden="true" className="widget-utility__surface">
-            <HubCloseIcon />
-          </span>
         </button>
       </aside>
 

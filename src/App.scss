@@ -1,0 +1,20 @@
+// Foundations
+@use "styles/tokens";
+@use "styles/base";
+@use "styles/windows";
+
+// Document windows
+@use "styles/app-main";
+@use "styles/preferences";
+@use "styles/app-update";
+@use "styles/advanced-settings";
+@use "styles/later-inbox";
+
+// Widget rail and its satellite panels
+@use "styles/widget-core";
+@use "styles/widget-calendar";
+@use "styles/event-panels";
+
+// Width-mode overrides, loaded last so they win on source order
+@use "styles/widget-standard";
+@use "styles/widget-slim";

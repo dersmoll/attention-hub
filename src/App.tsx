@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -24,6 +31,7 @@ import type {
 import {
   type AttentionAppKey,
   type LiveVisualAppKey,
+  type PanelSurfaceMode,
   DEFAULT_APP_ORDER,
   DEFAULT_LIVE_VISUAL_SOURCES,
   DEFAULT_MONITORED_SOURCES,
@@ -31,6 +39,7 @@ import {
   LIVE_VISUAL_APP_KEYS,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
+  panelTextContrastRatio,
   readWidgetPreferences,
   writeWidgetPreferences,
 } from "./widget-preferences";
@@ -44,7 +53,7 @@ import {
   readAdvancedFocusTarget,
   type AdvancedFocusRequest,
 } from "./advanced-focus";
-import "./App.css";
+import "./App.scss";
 
 type AdvancedPage =
   | "general"
@@ -257,6 +266,13 @@ function AdvancedView() {
       );
     },
     [showFrontendNotice],
+  );
+
+  const selectPanelSurface = useCallback(
+    (panelSurface: PanelSurfaceMode) => {
+      applyWidgetPreferences({ panelSurface });
+    },
+    [applyWidgetPreferences],
   );
 
   const moveApp = useCallback(
@@ -642,21 +658,84 @@ function AdvancedView() {
             className="widget-preference-card"
             hidden={activePage !== "general"}
           >
-            <legend>Panel surface</legend>
-            <label htmlFor="widget-panel-color">Background color</label>
-            <div className="widget-color-control">
-              <input
-                id="widget-panel-color"
-                onChange={(event) =>
-                  applyWidgetPreferences({ panelColor: event.target.value })
-                }
-                type="color"
-                value={widgetPreferences.panelColor}
-              />
-              <output htmlFor="widget-panel-color">
-                {widgetPreferences.panelColor.toUpperCase()}
-              </output>
+            <legend>Appearance</legend>
+            <div className="panel-surface-options">
+              {([
+                ["light", "Light", "#F8FAFC", "#111827"],
+                ["dark", "Dark", "#111827", "#F8FAFC"],
+                ["custom", "Custom colors", widgetPreferences.panelColor, widgetPreferences.panelTextColor],
+              ] as const).map(([value, label, background, text]) => (
+                <label
+                  className="panel-surface-option"
+                  data-selected={widgetPreferences.panelSurface === value}
+                  key={value}
+                  style={{
+                    "--panel-surface-preview-background": background,
+                    "--panel-surface-preview-text": text,
+                  } as CSSProperties}
+                >
+                  <input
+                    checked={widgetPreferences.panelSurface === value}
+                    name="widget-panel-surface"
+                    onChange={() => selectPanelSurface(value)}
+                    type="radio"
+                    value={value}
+                  />
+                  <span className="panel-surface-option__preview" aria-hidden="true">
+                    Aa
+                  </span>
+                  <span>{label}</span>
+                </label>
+              ))}
             </div>
+
+            {widgetPreferences.panelSurface === "custom" && (
+              <div className="panel-surface-colors">
+                <div>
+                  <label htmlFor="widget-panel-color">Background color</label>
+                  <div className="widget-color-control">
+                    <input
+                      id="widget-panel-color"
+                      onChange={(event) =>
+                        applyWidgetPreferences({ panelColor: event.target.value })
+                      }
+                      type="color"
+                      value={widgetPreferences.panelColor}
+                    />
+                    <output htmlFor="widget-panel-color">
+                      {widgetPreferences.panelColor.toUpperCase()}
+                    </output>
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="widget-panel-text-color">Text color</label>
+                  <div className="widget-color-control">
+                    <input
+                      id="widget-panel-text-color"
+                      onChange={(event) =>
+                        applyWidgetPreferences({ panelTextColor: event.target.value })
+                      }
+                      type="color"
+                      value={widgetPreferences.panelTextColor}
+                    />
+                    <output htmlFor="widget-panel-text-color">
+                      {widgetPreferences.panelTextColor.toUpperCase()}
+                    </output>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <label className="widget-appearance-pin">
+              <input
+                checked={widgetPreferences.pinned}
+                onChange={(event) =>
+                  applyWidgetPreferences({ pinned: event.target.checked })
+                }
+                type="checkbox"
+              />
+              Keep Attention Hub above other windows
+            </label>
 
             <label htmlFor="widget-panel-opacity">
               Background opacity
@@ -678,9 +757,16 @@ function AdvancedView() {
               value={widgetPreferences.panelOpacity}
             />
             <small>
-              Text and borders adapt to the selected color. The desktop behind
-              translucent panels can still reduce readability.
+              Text, borders, and controls use this two-color surface. The
+              desktop behind translucent panels can still reduce readability.
             </small>
+            {widgetPreferences.panelSurface === "custom" &&
+              panelTextContrastRatio(widgetPreferences) < 4.5 && (
+                <small className="widget-preference-warning" role="status">
+                  These custom colors have low contrast. Choose colors that are
+                  easier to read together.
+                </small>
+              )}
             {widgetPreferences.panelOpacity < 60 && (
               <small className="widget-preference-warning" role="status">
                 Low opacity may make text and controls difficult to read over a
@@ -690,7 +776,9 @@ function AdvancedView() {
             <button
               onClick={() =>
                 applyWidgetPreferences({
+                  panelSurface: DEFAULT_WIDGET_PREFERENCES.panelSurface,
                   panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
+                  panelTextColor: DEFAULT_WIDGET_PREFERENCES.panelTextColor,
                   panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
                 })
               }
@@ -712,20 +800,17 @@ function AdvancedView() {
                 applyWidgetPreferences({
                   widthMode: event.target.value as
                     | "recommended"
-                    | "larger"
                     | "slim",
                 })
               }
               value={widgetPreferences.widthMode}
             >
               <option value="recommended">Recommended</option>
-              <option value="larger">Larger</option>
               <option value="slim">Compact single-line</option>
             </select>
             <small>
-              Recommended uses the current dense 68 px layout. Larger uses an
-              80 px layout with a fixed 416 px calendar area. Compact
-              single-line uses a unified 44 px horizontal rail.
+              Recommended uses the dense two-line layout. Compact single-line
+              uses a unified horizontal rail.
             </small>
           </fieldset>
 

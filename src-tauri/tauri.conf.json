@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Attention Hub",
-        "width": 666,
-        "height": 68,
+        "width": 548,
+        "height": 60,
         "resizable": false,
         "decorations": false,
         "transparent": true,

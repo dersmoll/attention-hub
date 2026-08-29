@@ -1,0 +1,341 @@
+@use "mixins" as *;
+
+/* Attention dashboard: the summary card, per-source cards and the technical
+ * detail disclosure rendered in the main and advanced windows. */
+
+.app-header {
+  margin-bottom: 1.25rem;
+
+  h1,
+  p {
+    margin: 0;
+  }
+
+  h1 {
+    font-size: clamp(1.75rem, 5vw, 2.4rem);
+    letter-spacing: -0.035em;
+  }
+
+  > p:last-child {
+    margin-top: 0.15rem;
+    color: var(--color-text-muted);
+  }
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--color-text-faint);
+
+  @include uppercase-label(0.75rem, 0.09em, 750);
+}
+
+.section-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+
+  h2,
+  p {
+    margin-top: 0;
+  }
+
+  > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  @include stack-on-narrow {
+    > button {
+      width: 100%;
+    }
+  }
+}
+
+.attention-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.attention-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+
+  @include surface-card(1rem, var(--radius-card-lg), var(--color-border-muted));
+
+  border-left-width: 0.35rem;
+  box-shadow: 0 0.2rem 0.7rem rgb(38 50 70 / 8%);
+
+  /* Left edge carries the overall verdict. */
+  &[data-summary-kind="needsAttention"] {
+    border-left-color: #ba5b00;
+  }
+
+  &[data-summary-kind="allClear"] {
+    border-left-color: #277a48;
+  }
+
+  &[data-summary-kind="failed"],
+  &[data-freshness="stale"] {
+    border-left-color: #aa2d2d;
+  }
+
+  &[data-freshness="retrying"] {
+    border-left-color: #8b6400;
+  }
+
+  h2,
+  p {
+    margin: 0;
+  }
+
+  h2 {
+    margin-top: 0.1rem;
+    font-size: 1.35rem;
+    line-height: 1.2;
+
+    + p {
+      margin-top: 0.3rem;
+      color: var(--color-text-muted);
+    }
+  }
+
+  time {
+    display: block;
+    margin-top: 0.45rem;
+    color: var(--color-text-faint);
+    font-size: 0.82rem;
+  }
+
+  > button {
+    flex: 0 0 auto;
+  }
+
+  @include stack-on-narrow {
+    > button {
+      width: 100%;
+    }
+  }
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem;
+
+  &__empty {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 1rem;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+  }
+
+  @include narrow-viewport {
+    grid-template-columns: 1fr;
+  }
+}
+
+.source-card {
+  min-width: 0;
+
+  @include surface-card(1rem, var(--radius-card-lg), var(--color-border-muted));
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+
+    h3 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+  }
+
+  &__meaning {
+    margin: 0.7rem 0 0;
+    color: var(--color-text-faint);
+    font-size: 0.78rem;
+  }
+
+  &__error {
+    margin: 0.7rem 0 0;
+    color: #991f1f;
+    font-size: 0.82rem;
+  }
+}
+
+.source-state {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  background: #edf0f4;
+  font-size: 0.72rem;
+  font-weight: 750;
+
+  &[data-source-state="needsAttention"] {
+    color: #743500;
+    background: #fff0dc;
+  }
+
+  &[data-source-state="observed"] {
+    color: #176038;
+    background: #e3f4e9;
+  }
+
+  &[data-source-state="error"] {
+    color: #8a1f1f;
+    background: #fde8e8;
+  }
+}
+
+.attention-metrics {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.9rem;
+}
+
+.attention-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.25rem;
+  border-bottom: 1px solid #edf0f3;
+
+  span {
+    color: var(--color-text-muted);
+  }
+
+  strong {
+    text-align: right;
+  }
+}
+
+.mirror-control {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid #dfe4ea;
+
+  strong,
+  small {
+    display: block;
+  }
+
+  small {
+    margin-top: 0.12rem;
+    color: var(--color-text-faint);
+  }
+
+  button {
+    width: 100%;
+  }
+}
+
+.technical-details {
+  margin-top: 1rem;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 0.75rem;
+  background: #f9fafb;
+
+  > summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    cursor: pointer;
+    font-weight: 700;
+    list-style-position: inside;
+
+    /* Disclosure caret; rotates when the details element opens. */
+    &::before {
+      content: "›";
+      flex: 0 0 auto;
+      color: var(--color-text-muted);
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+
+    small {
+      color: var(--color-text-faint);
+      font-weight: 400;
+      text-align: right;
+    }
+
+    @include stack-on-narrow {
+      small {
+        text-align: left;
+      }
+    }
+  }
+
+  &[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  &__content {
+    padding: 0 1rem 1rem;
+    border-top: 1px solid var(--color-border-subtle);
+
+    > p:first-child {
+      margin-top: 1rem;
+    }
+  }
+}
+
+.secret-probe-form {
+  display: grid;
+  gap: 0.45rem;
+  margin-block: 1rem;
+
+  > label {
+    font-weight: 700;
+
+    &:has(input[type="checkbox"]) {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+      margin-top: 0.35rem;
+      font-weight: 600;
+
+      input {
+        margin-top: 0.2rem;
+      }
+    }
+  }
+
+  > small {
+    color: var(--color-text-faint);
+  }
+
+  &__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.65rem;
+
+    input {
+      min-width: 0;
+      flex: 1 1 auto;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-control);
+      color: var(--color-text);
+      background: var(--color-surface);
+      font: inherit;
+    }
+
+    @include stack-on-narrow;
+  }
+}

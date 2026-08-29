@@ -67,17 +67,12 @@ page publishes the exact installer checksum for verification.
 - The app-shortcut segment can be hidden without changing source order,
   monitoring choices, or privacy semantics. Native visual mirrors pause while
   that segment is hidden.
-- Uses the **Recommended** widget size by default: a 68px window with 60px
-  panels, 40px source buttons, 34px visual surfaces, 4px source gaps, and a
-  208px two-zone clock. Its calendar is 272px wide for one event and expands to
-  392px while current and next events are both visible. The **Larger** option
-  uses an 80px window, 48px source buttons, a 240px clock, and a fixed 416px
-  calendar. Legacy Compact and old-default Auto preferences migrate to
-  Recommended; an explicitly selected legacy Wide preference migrates to
-  Larger. **Compact single-line** uses a 44px unified horizontal rail with
-  smaller app surfaces, inline time-and-city pairs, a one-line calendar, and
-  four horizontal utility controls. Its persisted value is `slim` so legacy
-  Compact preferences continue to migrate safely to Recommended.
+- Uses the **Recommended** widget size by default: the dense two-line layout
+  with a calendar that expands when current and next events are both visible.
+  **Compact single-line** uses a unified horizontal rail with smaller app
+  surfaces, inline time-and-city pairs, a one-line calendar, and horizontal
+  utility controls. Its persisted value is `slim`. Legacy Compact, Auto, Wide,
+  and Larger preferences all migrate safely to Recommended.
   Native DWM mirrors remain synchronized with the selected geometry.
 - Organizes Advanced into a PowerToys-inspired two-column layout with a fixed
   navigation sidebar and focused General, Clocks, Apps, Calendar, Reminders,

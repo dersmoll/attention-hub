@@ -1,0 +1,248 @@
+@use "mixins" as *;
+
+/* Detached, draggable panels that hang off a calendar event: the event
+ * settings editor and the project stash. Both inherit the widget's panel
+ * colours so they read as part of the rail. */
+
+@mixin event-control {
+  min-height: var(--event-control-height);
+  border: 1px solid var(--widget-panel-border);
+  border-radius: var(--event-control-radius);
+  font: inherit;
+}
+
+@mixin event-control-surface {
+  padding: 2px 6px;
+  color: var(--widget-panel-foreground);
+  background: panel-tint(10%);
+  cursor: pointer;
+}
+
+@mixin event-icon-button {
+  @include icon-button(24px, var(--event-control-radius), var(--event-control-height));
+}
+
+.event-settings-shell,
+.project-stash-shell {
+  --event-control-height: 24px;
+  --event-control-radius: var(--radius-chrome);
+  --event-accent: var(--color-info-strong);
+  --event-focus: var(--color-info);
+
+  box-sizing: border-box;
+  display: grid;
+  width: 100%;
+  min-height: 100%;
+  align-content: start;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--widget-panel-border);
+  border-radius: var(--radius-panel);
+  color: var(--widget-panel-foreground);
+  background: var(--widget-panel-solid);
+  box-shadow: var(--shadow-floating);
+  overflow: hidden;
+
+  header {
+    display: flex;
+    min-width: 0;
+    align-items: start;
+    justify-content: space-between;
+    gap: 5px;
+    cursor: grab;
+    user-select: none;
+
+    &:active {
+      cursor: grabbing;
+    }
+
+    > div:first-child {
+      min-width: 0;
+    }
+
+    span {
+      color: var(--widget-panel-muted);
+
+      @include uppercase-label(9px, 0.08em, 750);
+    }
+  }
+
+  h1 {
+    margin: 1px 0;
+    font-size: 14px;
+    line-height: 1.2;
+
+    @include truncate;
+  }
+}
+
+/* Event settings -------------------------------------------------------- */
+
+.event-settings-shell {
+  min-height: 0;
+
+  header p {
+    margin: 0;
+    color: var(--widget-panel-muted);
+    font-size: 10px;
+  }
+
+  button,
+  input,
+  select {
+    @include event-control;
+  }
+
+  button {
+    @include event-control-surface;
+  }
+
+  header > button {
+    @include event-icon-button;
+  }
+
+  form {
+    display: grid;
+    gap: 4px;
+  }
+
+  label {
+    color: var(--widget-panel-muted);
+    font-size: 10px;
+    font-weight: 700;
+
+    em {
+      color: var(--widget-panel-muted);
+      font-style: normal;
+      font-weight: 500;
+    }
+  }
+
+  input,
+  select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 3px 6px;
+    border-color: var(--widget-panel-border);
+    color: var(--widget-panel-foreground);
+    background: panel-tint(6%);
+    font-size: 12px;
+  }
+}
+
+.event-settings-shell input:focus-visible,
+.event-settings-shell select:focus-visible,
+.project-stash-notes:focus-visible {
+  border-color: var(--event-focus);
+  outline: 2px solid rgb(37 99 235 / 20%);
+  outline-offset: 1px;
+}
+
+.event-settings-actions,
+.event-settings-delete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+
+  button {
+    font-size: 11px;
+  }
+}
+
+.event-settings-actions button:first-child {
+  border-color: var(--event-accent);
+  color: #fff;
+  background: var(--event-accent);
+}
+
+.event-settings-delete {
+  color: var(--color-danger);
+  font-size: 10px;
+
+  > button,
+  button:first-of-type {
+    color: var(--color-danger);
+  }
+}
+
+/* Project stash --------------------------------------------------------- */
+
+.project-stash-shell {
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+
+  button {
+    @include event-control;
+    @include event-control-surface;
+  }
+
+  header button {
+    @include event-icon-button;
+  }
+}
+
+.project-stash-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  button {
+    color: var(--widget-panel-muted);
+    font-size: 10px;
+    font-weight: 700;
+  }
+}
+
+.project-stash-notes {
+  min-height: 0;
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--widget-panel-border);
+  border-radius: 7px;
+  color: var(--widget-panel-foreground);
+  background: panel-tint(6%);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+
+  @include empty-placeholder(var(--widget-panel-muted));
+
+  a {
+    color: var(--color-info-strong);
+    text-decoration: underline;
+  }
+}
+
+/* Shared status text and notices ----------------------------------------- */
+
+.event-settings-help,
+.project-stash-help,
+.event-settings-status,
+.project-stash-status,
+.event-settings-loading,
+.project-stash-loading {
+  margin: 0;
+  color: var(--widget-panel-muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.event-settings-error,
+.project-stash-error,
+.project-stash-recovery {
+  margin: 0;
+  padding: 5px 6px;
+  border-radius: var(--event-control-radius);
+  font-size: 10px;
+}
+
+.event-settings-error,
+.project-stash-error {
+  color: var(--color-danger);
+  background: var(--color-danger-surface);
+}
+
+.project-stash-recovery {
+  color: var(--color-caution-text);
+  background: var(--color-caution-surface);
+}

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
+import { compileAppStyles } from "./app-styles.mjs";
 
 const modelUrl = new URL("../src/event-workspace-model.ts", import.meta.url);
 const modelSource = await readFile(modelUrl, "utf8");
@@ -51,7 +52,7 @@ const [
     readFile(new URL("../src-tauri/src/meeting_workspace.rs", import.meta.url), "utf8"),
     readFile(new URL("../src-tauri/src/work_calendar/mod.rs", import.meta.url), "utf8"),
     readFile(new URL("../src-tauri/capabilities/default.json", import.meta.url), "utf8"),
-    readFile(new URL("../src/App.css", import.meta.url), "utf8"),
+    Promise.resolve(compileAppStyles()),
     readFile(new URL("../src/use-widget-panel-style.ts", import.meta.url), "utf8"),
   ]);
 
@@ -93,13 +94,20 @@ assert.match(css, /white-space: nowrap/);
 assert.match(css, /opacity: 0\.3/);
 assert.match(css, /Bahnschrift SemiCondensed/);
 assert.match(css, /widget-calendar-day-panel li\[data-live\]/);
-assert.match(css, /\.widget-calendar-day-panel \{[\s\S]*border-radius: 8px/);
-assert.match(css, /\.event-settings-shell,[\s\S]*border-radius: 8px/);
+assert.match(css, /--radius-panel: 3px/);
+assert.match(
+  css,
+  /\.widget-calendar-day-panel \{[\s\S]*?border-radius: var\(--radius-panel\)/,
+);
+assert.match(
+  css,
+  /\.event-settings-shell,[\s\S]*?border-radius: var\(--radius-panel\)/,
+);
 assert.match(today, /<HubCloseIcon \/>/);
 assert.match(settings, /<HubCloseIcon \/>/);
 assert.match(stash, /<HubCloseIcon \/>/);
 assert.match(css, /html\[data-window="event-settings"\]/);
 assert.match(css, /background: transparent/);
-assert.match(css, /background: var\(--widget-panel-solid, #f8fafc\)/);
+assert.match(css, /background: var\(--widget-panel-solid\)/);
 
 console.log("event workspace contract tests passed");

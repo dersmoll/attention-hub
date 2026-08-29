@@ -148,11 +148,9 @@ state while unacknowledged started-event attention remains red. The native DWM
 destination uses the same density flag and geometry, so visual mirrors stay
 aligned with React.
 
-Recommended mode uses a 208 px two-zone clock; Larger uses 240 px. Its three
-inter-zone gaps use 6 px rather than Larger's 8 px. Larger uses an 80 px window,
-48 px source buttons, and a fixed 416 px calendar for either one or two events.
-Dual calendar cards align at their top edges. Join and local Finish actions do
-not reserve title width: they overlay the card only on hover or keyboard focus.
+Recommended mode is the standard two-line clock layout. Dual calendar cards
+align at their top edges. Join and local Finish actions do not reserve title
+width: they overlay the card only on hover or keyboard focus.
 When two timed events overlap, both active cards take the two bounded columns
 and the future event waits until a column becomes available. Finish is a
 session-only display suppression until the scheduled event end; it is neither
@@ -174,12 +172,9 @@ the selected event and removes I'm in. Hover actions sit 4 px from the calendar
 panel's top-right edge. Recommended utility surfaces are 26 px with 14 px glyphs
 inside unchanged 28 px controls.
 
-Recommended is the fresh preference default and reuses the previously shipped
-Compact geometry. Preference normalization maps legacy `compact` and the old
-default `auto` to `recommended`; only an explicitly selected legacy `wide`
-maps to `larger`. Larger intentionally uses the former fixed-Wide geometry. The
-Compact product name is reserved for a future one-line mode and is not exposed
-in this milestone.
+Recommended is the fresh preference default. Preference normalization maps
+legacy `compact`, `auto`, `wide`, and `larger` values to `recommended`.
+Compact single-line is the only alternate size preset.
 
 ### Advanced settings
 

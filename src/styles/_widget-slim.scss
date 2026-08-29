@@ -1,0 +1,429 @@
+@use "mixins" as *;
+
+/* "Slim" width mode: every active segment collapses into one continuous rail. */
+
+.widget-shell[data-width-mode="slim"] {
+  --widget-slim-rail-height: 34px;
+  --widget-slim-control-size: 20px;
+  --widget-slim-surface: var(--widget-panel-background);
+
+  /* Icon chain: re-point the tokens, the rules live in `_widget-core`. */
+  --widget-app-slot-size: 26px;
+  --widget-app-slot-radius: 3px;
+  --widget-app-surface-size: 28px;
+  --widget-app-surface-radius: 5px;
+  --widget-app-icon-size: 20px;
+  --widget-utility-surface-size: 18px;
+  --widget-utility-icon-size: 12px;
+
+  gap: 0;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+
+  /* Rail segments ------------------------------------------------------- */
+
+  > .widget-zone,
+  > .widget-utility,
+  > .widget-drag-handle {
+    height: var(--widget-slim-rail-height);
+    margin: 0;
+    border: 1px solid var(--widget-panel-border);
+    border-radius: 0;
+    color: var(--widget-panel-foreground);
+    background: var(--widget-slim-surface);
+    box-shadow: none;
+  }
+
+  > .widget-zone {
+    &:not(:first-child) {
+      border-left: 0;
+    }
+
+    &:first-child {
+      border-radius: var(--radius-panel) 0 0 var(--radius-panel);
+    }
+  }
+
+  > .widget-utility {
+    border-radius: 0 var(--radius-panel) var(--radius-panel) 0;
+
+    &:not(:first-child) {
+      border-left: 0;
+    }
+  }
+
+  > .widget-calendar {
+    border-right: 0;
+  }
+
+  > .widget-drag-handle {
+    position: relative;
+    display: grid;
+    width: var(--widget-drag-handle-width, 18px);
+    border-right: 0;
+    border-left: 0;
+    cursor: grab;
+    place-items: center;
+
+    &:active {
+      cursor: grabbing;
+    }
+
+    /* Dotted grip. */
+    &::before {
+      width: 8px;
+      height: 20px;
+      opacity: 0.62;
+      background-image: radial-gradient(
+        circle,
+        var(--widget-panel-muted) 1.15px,
+        transparent 1.3px
+      );
+      background-position: center;
+      background-size: 4px 4px;
+      content: "";
+      pointer-events: none;
+    }
+  }
+
+  /* App shortcuts ------------------------------------------------------- */
+
+  .widget-apps {
+    top: 2px;
+    left: 4px;
+    gap: 2px;
+  }
+
+  .widget-app-badge {
+    top: -3px;
+    right: -3px;
+    min-width: 14px;
+    height: 14px;
+    padding-inline: 2px;
+    border-width: 1px;
+    font-size: 8px;
+  }
+
+  /* Clocks -------------------------------------------------------------- */
+
+  .widget-clock {
+    grid-template-columns: repeat(var(--widget-clock-count, 2), minmax(0, 1fr));
+    padding: 0;
+
+    time {
+      font-size: 20px;
+      font-weight: 650;
+    }
+
+    &[data-clock-layout][data-clock-mode="live"] > div {
+      display: grid;
+      min-width: 0;
+      height: 34px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: 34px;
+      align-content: center;
+      justify-items: stretch;
+      gap: 2px;
+      padding: 0 4px;
+      line-height: 1;
+
+      + div {
+        padding-left: 4px;
+        border-left: 1px solid panel-border-wash(45%);
+      }
+
+      &:first-child {
+        padding-right: 4px;
+      }
+    }
+
+    &__label {
+      grid-column: 2;
+      grid-row: 1;
+      width: auto;
+      max-width: 30px;
+      height: 34px;
+      min-width: 0;
+      min-height: 34px;
+      justify-content: flex-end;
+      font-size: 9px;
+      text-align: right;
+      transform: none;
+
+      &--select > svg {
+        display: none;
+      }
+    }
+
+    &__short-label {
+      width: auto;
+      padding: 0;
+      font-size: 9px;
+    }
+
+    &__time-button,
+    &__time-display {
+      grid-column: 1;
+      grid-row: 1;
+      display: grid;
+      width: 100%;
+      min-width: 0;
+      min-height: 34px;
+      place-items: center start;
+      text-align: left;
+      transform: none;
+    }
+  }
+
+  /* Time-zone converter -------------------------------------------------- */
+
+  .widget-clock-converter {
+    height: 34px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 34px;
+    gap: 0;
+
+    &::after {
+      top: 3px;
+      bottom: 3px;
+    }
+
+    /* Only the two times fit on one line. */
+    label,
+    output > span,
+    &__day,
+    &__source-day {
+      display: none;
+    }
+
+    input {
+      grid-column: 1;
+      grid-row: 1;
+      height: 32px;
+      padding: 0 8px;
+      font-size: 14px;
+      position: relative;
+
+      &::-webkit-calendar-picker-indicator {
+        position: absolute;
+        top: 0;
+        right: 0;
+      }
+    }
+
+    output {
+      display: grid;
+      grid-column: 2;
+      grid-row: 1;
+      height: 32px;
+      grid-template-rows: 32px;
+      place-items: center;
+    }
+
+    &__result {
+      display: block;
+      grid-row: 1;
+
+      .widget-clock-converter__time {
+        font-size: 14px;
+        line-height: 32px;
+      }
+    }
+
+    &__close {
+      right: 1px;
+
+      @include fixed-size(16px);
+
+      font-size: 14px;
+    }
+  }
+
+  /* Calendar band ------------------------------------------------------- */
+
+  > .widget-calendar[data-calendar-attention="soon"] {
+    --widget-calendar-surface: #fffbeb;
+
+    background: #fffbeb;
+  }
+
+  > .widget-calendar[data-calendar-attention="imminent"] {
+    --widget-calendar-surface: #fff7d6;
+
+    background: #fff7d6;
+  }
+
+  > .widget-calendar[data-calendar-attention="started"] {
+    --widget-calendar-surface: #fef2f2;
+
+    background: #fef2f2;
+  }
+
+  .widget-calendar {
+    padding: 3px 7px;
+
+    small {
+      font-size: 10px;
+    }
+
+    .widget-calendar__countdown {
+      font-size: 11px;
+    }
+
+    &__content {
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      gap: 8px;
+    }
+
+    &__event,
+    &__next {
+      display: grid;
+      grid-template-columns: auto minmax(72px, 1fr) minmax(72px, 156px);
+      height: 100%;
+      min-width: 0;
+      align-items: center;
+      align-content: center;
+      gap: 5px;
+    }
+
+    &__next {
+      padding-left: 8px;
+    }
+
+    /* The headers dissolve so their children join the single-row grid. */
+    &__event-header,
+    &__next-header {
+      display: contents;
+    }
+
+    &__state,
+    &__next-header > span {
+
+    }
+
+    &__state[data-calendar-progress],
+    &__next-header > span[data-calendar-progress] {
+      border-color: #4ade80;
+      color: #14532d;
+      background: var(--color-success-surface);
+    }
+
+    &__title--compact {
+      display: block;
+      min-width: 0;
+      font-size: 12px;
+    }
+
+    &__title--standard {
+      display: none;
+    }
+
+    &__detail {
+      max-width: 156px;
+      gap: 2px;
+    }
+
+    /* Progress becomes a hairline underlining the whole segment. */
+    &__progress {
+      position: absolute;
+      right: 0;
+      bottom: -3px;
+      left: 0;
+      width: auto;
+      height: 2px;
+    }
+
+    &__hover-actions {
+      top: 50%;
+      right: 0;
+      align-items: center;
+      transform: translateY(-50%);
+    }
+
+    &__ack,
+    &__join,
+    &__finish,
+    &__setup-button {
+      display: grid;
+      min-height: 24px;
+      padding: 1px 6px;
+      place-items: center;
+      font-size: 9px;
+    }
+  }
+
+  /* Day panel ------------------------------------------------------------ */
+
+  .widget-calendar-day-panel {
+    padding-right: 6px;
+    padding-left: 6px;
+
+    /* Project chips fall back to their short label. */
+    &__project [data-project-full] {
+      display: none;
+    }
+
+    &__project [data-project-short] {
+      display: inline;
+    }
+
+    &__actions .widget-calendar-day-panel__project {
+      width: 28px;
+      padding: 0 3px;
+    }
+  }
+
+  /* Utility column ------------------------------------------------------- */
+
+  /* The rail turns the utility column into a single row of three controls. */
+  .widget-utility {
+    grid-template-columns: repeat(3, var(--widget-slim-control-size));
+    grid-template-rows: var(--widget-slim-control-size);
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1px;
+    padding: 6px 2px;
+
+    button {
+      @include fixed-size(var(--widget-slim-control-size));
+    }
+  }
+
+  .widget-reminder-control {
+    order: 1;
+  }
+
+  .widget-advanced-control {
+    order: 2;
+  }
+
+  .widget-close-control {
+    order: 3;
+  }
+
+  .widget-reminder__badge {
+    top: -2px;
+    right: -2px;
+  }
+}
+
+/* Day panel placement has to account for the drag handle in slim mode. */
+.widget-shell[data-day-panel-placement="below"][data-width-mode="slim"]
+  .widget-calendar-day-panel {
+  top: calc(var(--widget-height, 44px) + 5px);
+  right: calc(
+    var(--widget-utility-width, 112px) + var(--widget-drag-handle-width, 18px)
+  );
+}
+
+.widget-shell[data-day-panel-placement="above"][data-width-mode="slim"]
+  .widget-calendar-day-panel {
+  right: calc(
+    var(--widget-utility-width, 112px) + var(--widget-drag-handle-width, 18px)
+  );
+}
