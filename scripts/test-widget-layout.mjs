@@ -52,9 +52,9 @@ assert.equal(layout.widgetLeftWidth(2, "slim"), 64);
 assert.equal(layout.widgetLeftWidth(6, "slim"), 192);
 assert.equal(layout.widgetCalendarWidth("recommended", false), 260);
 assert.equal(layout.widgetCalendarWidth("recommended", true), 392);
-assert.equal(layout.widgetCalendarWidth("slim", false), 260);
+assert.equal(layout.widgetCalendarWidth("slim", false), 320);
 assert.equal(layout.widgetCalendarWidth("slim", true), 520);
-assert.equal(layout.widgetCalendarWidth("slim", false, 68), 420);
+assert.equal(layout.widgetCalendarWidth("slim", false, 68), 480);
 assert.equal(layout.widgetCalendarWidth("slim", false, 200), 600);
 assert.equal(layout.widgetCalendarWidth("slim", true, 100), 616);
 assert.equal(layout.widgetCalendarWidth("slim", true, 200), 800);
@@ -69,10 +69,10 @@ assert.equal(layout.widgetWidth(6, "recommended", true), 784);
 assert.equal(layout.widgetWidth(2), 508);
 assert.equal(layout.widgetWidth(2, "recommended", false, 5, "horizontal"), 724);
 assert.equal(layout.widgetWidth(2, "recommended", false, 5, "vertical"), 508);
-assert.equal(layout.widgetWidth(2, "slim"), 574);
+assert.equal(layout.widgetWidth(2, "slim"), 634);
 assert.equal(layout.widgetWidth(2, "slim", true), 834);
-assert.equal(layout.widgetWidth(2, "slim", false, 5, "horizontal"), 826);
-assert.equal(layout.widgetWidth(2, "slim", false, 5, "vertical"), 826);
+assert.equal(layout.widgetWidth(2, "slim", false, 5, "horizontal"), 886);
+assert.equal(layout.widgetWidth(2, "slim", false, 5, "vertical"), 886);
 assert.equal(
   layout.widgetWidth(2, "recommended", false, 2, "horizontal", false, true),
   424,
@@ -87,17 +87,18 @@ assert.equal(
 );
 assert.equal(
   layout.widgetWidth(2, "slim", false, 2, "horizontal", false, false),
-  342,
+  402,
 );
 assert.equal(
   layout.widgetWidth(2, "slim", false, 2, "horizontal", true, true, 68),
-  734,
+  794,
 );
 
 const [
   appSource,
   widgetSource,
   todayPopupSource,
+  eventWorkspaceActionsSource,
   todayPopupWindowSource,
   styleEntrySource,
   tauriConfigSource,
@@ -107,6 +108,7 @@ const [
   readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/WidgetView.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/TodayPopupView.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/EventWorkspaceActions.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/today-popup-window.ts", import.meta.url), "utf8"),
   readFile(new URL("../src/App.scss", import.meta.url), "utf8"),
   readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
@@ -132,6 +134,11 @@ assert.doesNotMatch(
 );
 assert.match(widgetSource, /onPointerDownCapture=\{\(event\) => \{/);
 assert.match(widgetSource, /reposition_taskbar_mirrors/);
+assert.match(widgetSource, /set_taskbar_mirror_layout/);
+assert.match(widgetSource, /getBoundingClientRect\(\)/);
+assert.match(widgetSource, /new ResizeObserver\(updateLayout\)/);
+assert.match(widgetSource, /VITE_ATTENTION_HUB_TEST_VISUAL_SOURCE/);
+assert.doesNotMatch(widgetSource, /set_fixed_taskbar_mirror_layout/);
 assert.match(widgetSource, /Menu\.new\(\{ items \}\)/);
 assert.match(widgetSource, /onContextMenu=\{handleWidgetContextMenu\}/);
 assert.match(widgetSource, /text: "Size preset"/);
@@ -145,6 +152,10 @@ assert.match(widgetSource, /import\.meta\.env\.DEV/);
 assert.match(widgetSource, /text: "Inspect"/);
 assert.match(widgetSource, /invoke\("open_main_panel_devtools"\)/);
 assert.match(widgetSource, /function formatClockDay\(now: Date, timeZone\?: string\)/);
+assert.match(widgetSource, /function MeetingProviderGlyph\(/);
+assert.match(widgetSource, /data-meeting-provider=\{provider\}/);
+assert.match(widgetSource, /provider === "teams"/);
+assert.doesNotMatch(widgetSource, /provider === "googleMeet"/);
 assert.match(widgetSource, /className="widget-clock__day"/);
 assert.match(widgetSource, /className="widget-clock-converter__close"/);
 assert.match(
@@ -164,6 +175,8 @@ assert.match(capabilitiesSource, /"today"/);
 assert.doesNotMatch(rustSource, /transition_widget_panel_at_upper_edge/);
 assert.match(rustSource, /fn open_main_panel_devtools\(window: tauri::WebviewWindow\)/);
 assert.match(rustSource, /window\.open_devtools\(\)/);
+assert.match(rustSource, /fn set_taskbar_mirror_layout\(/);
+assert.doesNotMatch(rustSource, /set_fixed_taskbar_mirror_layout/);
 assert.match(widgetSource, /event\.key !== "Enter" && event\.key !== " "/);
 assert.match(widgetSource, /WIDGET_NOTICE_MS = 4_500/);
 assert.doesNotMatch(widgetSource, /findSignal\(telegram, "unreadChats"\)/);
@@ -221,6 +234,7 @@ assert.match(
 assert.match(cssSource, /\.widget-calendar:hover \.widget-calendar__hover-actions/);
 assert.match(cssSource, /\.widget-calendar__hover-actions \{\s*position: absolute;\s*z-index: 6;/);
 assert.match(cssSource, /--widget-calendar-surface: #fef2f2/);
+assert.match(cssSource, /widget-calendar__meeting-provider/);
 assert.match(cssSource, /transform: translateY\(-50%\)/);
 assert.match(cssSource, /background-image: radial-gradient/);
 assert.match(cssSource, /widget-visible-panels > label/);
@@ -241,12 +255,17 @@ assert.match(cssSource, /widget-calendar-day-panel__actions/);
 assert.match(cssSource, /white-space: nowrap/);
 assert.match(cssSource, /overflow: visible/);
 assert.match(todayPopupSource, /open_event_workspace_link/);
-assert.match(todayPopupSource, /widget-calendar-day-panel__settings/);
+assert.match(todayPopupSource, /className="widget-calendar-day-panel__actions"/);
 assert.ok(
-  todayPopupSource.indexOf('widget-calendar-day-panel__link') <
-    todayPopupSource.indexOf('widget-calendar-day-panel__settings'),
+  eventWorkspaceActionsSource.indexOf('event-workspace-actions__link') <
+    eventWorkspaceActionsSource.indexOf('event-workspace-actions__settings'),
   "Event settings must remain last after the direct actions",
 );
+assert.match(widgetSource, /className="widget-calendar__workspace-actions"/);
+assert.match(widgetSource, /openCalendarEventSettings/);
+assert.match(widgetSource, /openCalendarProjectStash/);
+assert.match(cssSource, /grid-template-rows: repeat\(3, 14px\)/);
+assert.match(cssSource, /grid-template-columns: repeat\(3, 16px\)/);
 assert.match(
   cssSource,
   /top: calc\(var\(--widget-height, 68px\) \+ 5px\)/,

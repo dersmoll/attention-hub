@@ -20,6 +20,16 @@
 
 @mixin event-icon-button {
   @include icon-button(24px, var(--event-control-radius), var(--event-control-height));
+  border: none;
+  background: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+
+  &:hover {
+    background: none;
+    color: var(--color-focus);
+  }
 }
 
 .event-settings-shell,
@@ -138,6 +148,10 @@
   outline-offset: 1px;
 }
 
+.event-settings-actions {
+  padding-top: 10px;
+}
+
 .event-settings-actions,
 .event-settings-delete {
   display: flex;
@@ -147,6 +161,7 @@
 
   button {
     font-size: 11px;
+    background-color: transparent;
   }
 }
 
@@ -159,10 +174,12 @@
 .event-settings-delete {
   color: var(--color-danger);
   font-size: 10px;
+  background-color: transparent;
 
   > button,
   button:first-of-type {
     color: var(--color-danger);
+    background-color: transparent;
   }
 }
 
@@ -173,11 +190,21 @@
 
   button {
     @include event-control;
-    @include event-control-surface;
+    background: none;
+    border: none;
   }
 
   header button {
     @include event-icon-button;
+    color: var(--widget-panel-foreground);
+    position: absolute;
+    top: 0;
+    right: 0;
+
+    &:hover {
+      background: none;
+      color: var(--color-focus);
+    }
   }
 }
 

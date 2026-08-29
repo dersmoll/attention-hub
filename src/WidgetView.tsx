@@ -3,6 +3,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,6 +64,7 @@ import {
   type AttentionAppKey,
   type LiveVisualAppKey,
   type WidgetPreferences,
+  LIVE_VISUAL_APP_KEYS,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
   readWidgetPreferences,
@@ -83,6 +85,10 @@ import {
 import { openLaterInboxWindow } from "./later-inbox-window";
 import type { PopupAnchor } from "./event-workspace-model";
 import {
+  openEventSettingsWindow,
+  openProjectStashWindow,
+} from "./event-workspace-window";
+import {
   TODAY_POPUP_CLOSED_EVENT,
   TODAY_POPUP_OPEN_EVENT,
   TODAY_POPUP_READY_EVENT,
@@ -91,6 +97,7 @@ import {
 } from "./today-popup-model";
 import { createTodayPopupWindow } from "./today-popup-window";
 import { HubCloseIcon } from "./HubCloseIcon";
+import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import {
   ADVANCED_FOCUS_EVENT,
   advancedWindowUrl,
@@ -110,7 +117,20 @@ const SOURCE_ACTIVATION_NOTICE_MS = 4_000;
 const WIDGET_NOTICE_MS = 4_500;
 const LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const MIAMI_TIME_ZONE = "America/New_York";
+const FORCED_DEV_VISUAL_SOURCE = import.meta.env.DEV
+  ? LIVE_VISUAL_APP_KEYS.find(
+      (sourceKey) =>
+        sourceKey === import.meta.env.VITE_ATTENTION_HUB_TEST_VISUAL_SOURCE,
+    ) ?? null
+  : null;
 type ClockConversionSource = "local" | "secondary";
+type TaskbarMirrorLayoutRect = {
+  sourceKey: LiveVisualAppKey;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 type WidgetNoticeScope =
   | "attention"
   | "inspect"
@@ -243,6 +263,39 @@ function formatCalendarDetail(selection: WorkCalendarSelection, now: Date) {
     .join(" · ");
 }
 
+function MeetingProviderGlyph({
+  provider,
+}: {
+  provider: WorkCalendarSelection["meetingProvider"];
+}) {
+  if (!provider) return null;
+  const label = provider === "teams" ? "Microsoft Teams meeting" : "Zoom meeting";
+  return (
+    <span
+      aria-label={label}
+      className="widget-calendar__meeting-provider"
+      data-meeting-provider={provider}
+      role="img"
+      title={label}
+    >
+      {provider === "teams" ? (
+        <svg aria-hidden="true" viewBox="0 0 16 16">
+          <rect x="5" y="4.5" width="10" height="9" rx="2" fill="#6264a7" />
+          <circle cx="12" cy="3" r="2" fill="#8b8cc7" />
+          <rect x="1" y="4.5" width="9" height="9" rx="1.5" fill="#4f52b2" />
+          <path d="M3 7h5v1.4H6.2V12H4.8V8.4H3Z" fill="#fff" />
+        </svg>
+      ) : (
+        <svg aria-hidden="true" viewBox="0 0 16 16">
+          <rect width="16" height="16" rx="3" fill="#2d8cff" />
+          <rect x="2.5" y="5" width="7.5" height="6" rx="1.5" fill="#fff" />
+          <path d="m10.5 6.5 3-1.5v6l-3-1.5Z" fill="#fff" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 function CalendarEventDetail({
   selection,
   now,
@@ -322,6 +375,9 @@ function mirrorLabel(status: TaskbarMirrorStatus | null) {
     return status.taskbarCount > 1
       ? "Live taskbar visual from the selected display"
       : "Live taskbar visual";
+  }
+  if (status?.diagnostic) {
+    return `Live visual unavailable: ${status.diagnostic}`;
   }
   if (status?.lifecycle === "starting") {
     return "Starting live visual";
@@ -738,7 +794,8 @@ export function WidgetView() {
         ? VISUAL_SOURCES.filter(
             (sourceKey) =>
               preferences.monitoredSources.includes(sourceKey) &&
-              preferences.liveVisualSources.includes(sourceKey),
+              (preferences.liveVisualSources.includes(sourceKey) ||
+                sourceKey === FORCED_DEV_VISUAL_SOURCE),
           )
         : [],
     [
@@ -1076,29 +1133,68 @@ export function WidgetView() {
     };
   }, []);
 
-  useEffect(() => {
-    void invoke("set_fixed_taskbar_mirror_layout", {
-      sourceSlots: appsPanelVisible
-        ? visibleSources
-            .map((sourceKey, slot) => ({ sourceKey, slot }))
-            .filter(({ sourceKey }) => sourceKey !== "outlook")
-        : [],
-      visibleSourceCount: appsPanelVisible ? visibleSources.length : 0,
-      compactMode: preferences.widthMode === "recommended",
-      slimMode: preferences.widthMode === "slim",
-      verticalOffset: 0,
-    })
-      .then(() => clearWidgetNotice("layout"))
-      .catch(() =>
-        showWidgetNotice(
-          "layout",
-          "The app shortcut visuals could not update.",
-        ),
-      );
+  useLayoutEffect(() => {
+    const shell = document.querySelector<HTMLElement>(".widget-shell");
+    if (!shell || !appsPanelVisible) {
+      void invoke("set_taskbar_mirror_layout", { sourceRects: [] });
+      return;
+    }
+
+    let disposed = false;
+    let frame = 0;
+    const updateLayout = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (disposed) return;
+        const shellRect = shell.getBoundingClientRect();
+        const sourceRects: TaskbarMirrorLayoutRect[] = visibleSources.flatMap(
+          (sourceKey) => {
+            if (sourceKey === "outlook") return [];
+            const surface = shell.querySelector<HTMLElement>(
+              `.widget-app-slot[data-source="${sourceKey}"] .widget-app-surface`,
+            );
+            if (!surface) return [];
+            const rect = surface.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return [];
+            return [{
+              sourceKey,
+              left: Math.round(rect.left - shellRect.left),
+              top: Math.round(rect.top - shellRect.top),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            }];
+          },
+        );
+        void invoke("set_taskbar_mirror_layout", { sourceRects })
+          .then(() => clearWidgetNotice("layout"))
+          .catch(() =>
+            showWidgetNotice(
+              "layout",
+              "The app shortcut visuals could not update.",
+            ),
+          );
+      });
+    };
+
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(shell);
+    // CSS hot reload can change a shortcut offset without changing its size.
+    // Reconcile only while a live surface is enabled so native DWM placement
+    // follows those development and runtime layout changes as well.
+    const reconcileTimer = enabledVisualSources.length
+      ? window.setInterval(updateLayout, 1_000)
+      : undefined;
+    updateLayout();
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      if (reconcileTimer) window.clearInterval(reconcileTimer);
+    };
   }, [
     appsPanelVisible,
     clearWidgetNotice,
-    preferences.widthMode,
+    enabledVisualSources.length,
     showWidgetNotice,
     visibleSources,
   ]);
@@ -1651,6 +1747,51 @@ export function WidgetView() {
       monitorRight: monitor.position.x + monitor.size.width,
       monitorBottom: monitor.position.y + monitor.size.height,
     };
+  };
+
+  const openCalendarEventSettings = async (
+    selection: WorkCalendarSelection,
+  ) => {
+    if (!selection.eventToken) return;
+    const anchor = await calendarPopupAnchor();
+    if (!anchor) {
+      showWidgetNotice("calendar", "Event settings could not be positioned.");
+      return;
+    }
+    await openEventSettingsWindow(
+      { eventToken: selection.eventToken, anchor },
+      (message) => showWidgetNotice("calendar", message),
+    );
+  };
+
+  const openCalendarProjectStash = async (
+    selection: WorkCalendarSelection,
+  ) => {
+    const projectId = selection.eventWorkspace?.projectId;
+    if (!projectId) return;
+    const anchor = await calendarPopupAnchor();
+    if (!anchor) {
+      showWidgetNotice("calendar", "Project stash could not be positioned.");
+      return;
+    }
+    await openProjectStashWindow(
+      { projectId, anchor },
+      (message) => showWidgetNotice("calendar", message),
+    );
+  };
+
+  const openCalendarEventLink = async (
+    selection: WorkCalendarSelection,
+  ) => {
+    if (!selection.eventToken) return;
+    try {
+      await invoke("open_event_workspace_link", {
+        eventToken: selection.eventToken,
+      });
+      clearWidgetNotice("calendar");
+    } catch {
+      showWidgetNotice("calendar", "The saved event link could not be opened.");
+    }
   };
 
   const finishCalendarEvent = (
@@ -2296,6 +2437,7 @@ export function WidgetView() {
         >
           <div
             className="widget-calendar__event"
+            data-workspace-actions={calendarSelection?.eventToken || undefined}
             title={`${calendarTitle}\n${calendarDetail}`}
           >
             <div className="widget-calendar__event-header">
@@ -2309,6 +2451,7 @@ export function WidgetView() {
                 {calendarState}
               </span>
               <strong className="widget-calendar__title widget-calendar__title--compact">
+                <MeetingProviderGlyph provider={calendarSelection?.meetingProvider ?? null} />
                 {calendarTitle}
               </strong>
             </div>
@@ -2358,6 +2501,7 @@ export function WidgetView() {
                 </div>
               )}
             <strong className="widget-calendar__title widget-calendar__title--standard">
+              <MeetingProviderGlyph provider={calendarSelection?.meetingProvider ?? null} />
               {calendarTitle}
             </strong>
             {calendarNotConfigured ? (
@@ -2392,6 +2536,16 @@ export function WidgetView() {
                 <span style={{ width: `${calendarProgress}%` }} />
               </div>
             )}
+            {calendarSelection?.eventToken && (
+              <EventWorkspaceActions
+                className="widget-calendar__workspace-actions"
+                onOpenLink={() => void openCalendarEventLink(calendarSelection)}
+                onOpenSettings={() => void openCalendarEventSettings(calendarSelection)}
+                onOpenStash={() => void openCalendarProjectStash(calendarSelection)}
+                subject={calendarSelection.subject}
+                workspace={calendarSelection.eventWorkspace}
+              />
+            )}
           </div>
 
           {showNextEvent && calendarNextSelection && (
@@ -2404,6 +2558,7 @@ export function WidgetView() {
                     : "Next work-calendar event"
               }
               className="widget-calendar__next"
+              data-workspace-actions={calendarNextSelection.eventToken || undefined}
               title={`${calendarNextSelection.subject}\n${calendarNextDetail}`}
             >
               <div className="widget-calendar__next-header">
@@ -2421,6 +2576,7 @@ export function WidgetView() {
                   {calendarNextState}
                 </span>
                 <strong className="widget-calendar__title widget-calendar__title--compact">
+                  <MeetingProviderGlyph provider={calendarNextSelection.meetingProvider} />
                   {calendarNextSelection.subject}
                 </strong>
               </div>
@@ -2474,6 +2630,7 @@ export function WidgetView() {
                 </div>
               )}
               <strong className="widget-calendar__title widget-calendar__title--standard">
+                <MeetingProviderGlyph provider={calendarNextSelection.meetingProvider} />
                 {calendarNextSelection.subject}
               </strong>
               <CalendarEventDetail
@@ -2491,6 +2648,16 @@ export function WidgetView() {
                 >
                   <span style={{ width: `${calendarNextProgress}%` }} />
                 </div>
+              )}
+              {calendarNextSelection.eventToken && (
+                <EventWorkspaceActions
+                  className="widget-calendar__workspace-actions"
+                  onOpenLink={() => void openCalendarEventLink(calendarNextSelection)}
+                  onOpenSettings={() => void openCalendarEventSettings(calendarNextSelection)}
+                  onOpenStash={() => void openCalendarProjectStash(calendarNextSelection)}
+                  subject={calendarNextSelection.subject}
+                  workspace={calendarNextSelection.eventWorkspace}
+                />
               )}
             </div>
           )}

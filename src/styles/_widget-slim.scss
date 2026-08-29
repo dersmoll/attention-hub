@@ -291,6 +291,11 @@
       gap: 5px;
     }
 
+    &__event[data-workspace-actions],
+    &__next[data-workspace-actions] {
+      padding-right: 56px;
+    }
+
     &__next {
       padding-left: 8px;
     }
@@ -332,7 +337,7 @@
     &__progress {
       position: absolute;
       right: 0;
-      bottom: -3px;
+      bottom: -5px;
       left: 0;
       width: auto;
       height: 2px;
@@ -345,13 +350,51 @@
       transform: translateY(-50%);
     }
 
+    &__workspace-actions {
+      width: 52px;
+      height: 16px;
+      grid-template-columns: repeat(3, 16px);
+      grid-template-rows: 16px;
+      gap: 2px;
+
+      .event-workspace-actions__link {
+        grid-row: 1;
+        grid-column: 1;
+      }
+
+      .event-workspace-actions__stash {
+        grid-row: 1;
+        grid-column: 2;
+      }
+
+      .event-workspace-actions__settings {
+        grid-row: 1;
+        grid-column: 3;
+      }
+
+      button {
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
+        min-height: 16px;
+      }
+
+      svg {
+        width: 12px;
+        height: 12px;
+      }
+    }
+
+    &__event[data-workspace-actions] > .widget-calendar__hover-actions,
+    &__next[data-workspace-actions] > .widget-calendar__hover-actions {
+      right: 56px;
+    }
+
     &__ack,
     &__join,
     &__finish,
     &__setup-button {
       display: grid;
-      min-height: 24px;
-      padding: 1px 6px;
       place-items: center;
       font-size: 9px;
     }
@@ -391,6 +434,7 @@
 
     button {
       @include fixed-size(var(--widget-slim-control-size));
+      align-items: center;
     }
   }
 

@@ -2,8 +2,8 @@
 mod credential_store_windows;
 
 use crate::published_ics::{
-    self, DayEventSelection, EventClassification, EventSelection, PublishedIcsProbeStatus,
-    PublishedIcsSemanticProbe, PublishedIcsStopReason,
+    self, DayEventSelection, EventClassification, EventSelection, MeetingProvider,
+    PublishedIcsProbeStatus, PublishedIcsSemanticProbe, PublishedIcsStopReason,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -63,7 +63,12 @@ pub struct WorkCalendarSelection {
     pub all_day: bool,
     pub classification: EventClassification,
     pub meeting_link_present: Option<bool>,
+    pub meeting_provider: Option<MeetingProvider>,
     pub join_token: Option<String>,
+    pub event_token: Option<String>,
+    pub event_workspace: Option<EventWorkspaceSummary>,
+    #[serde(skip_serializing)]
+    pub(crate) workspace_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -121,6 +126,7 @@ impl WorkCalendarState {
         selection: Option<EventSelection>,
         overlapping_selections: Vec<EventSelection>,
         next_selection: Option<EventSelection>,
+        source_scope: Option<&str>,
     ) -> (
         Option<WorkCalendarSelection>,
         Vec<WorkCalendarSelection>,
@@ -128,12 +134,13 @@ impl WorkCalendarState {
     ) {
         let Ok(mut cache) = self.join_targets.lock() else {
             return (
-                selection.map(|value| WorkCalendarSelection::from_event(value, None)),
+                selection.map(|value| WorkCalendarSelection::from_event(value, None, source_scope)),
                 overlapping_selections
                     .into_iter()
-                    .map(|value| WorkCalendarSelection::from_event(value, None))
+                    .map(|value| WorkCalendarSelection::from_event(value, None, source_scope))
                     .collect(),
-                next_selection.map(|value| WorkCalendarSelection::from_event(value, None)),
+                next_selection
+                    .map(|value| WorkCalendarSelection::from_event(value, None, source_scope)),
             );
         };
         cache.targets.clear();
@@ -144,7 +151,7 @@ impl WorkCalendarState {
                 cache.targets.insert(token.clone(), url.clone());
                 token
             });
-            WorkCalendarSelection::from_event(event, token)
+            WorkCalendarSelection::from_event(event, token, source_scope)
         };
         let selection = selection.map(&mut expose);
         let overlapping_selections = overlapping_selections
@@ -157,7 +164,20 @@ impl WorkCalendarState {
 }
 
 impl WorkCalendarSelection {
-    fn from_event(event: EventSelection, join_token: Option<String>) -> Self {
+    fn from_event(
+        event: EventSelection,
+        join_token: Option<String>,
+        source_scope: Option<&str>,
+    ) -> Self {
+        let meeting_provider = event
+            .meeting_provider
+            .or_else(|| classify_meeting_provider(event.meeting_url.as_deref()));
+        let workspace_key = event_workspace_key(
+            source_scope,
+            &event.series_uid,
+            event.recurring,
+            event.private,
+        );
         Self {
             subject: event.subject,
             start: event.start,
@@ -165,8 +185,26 @@ impl WorkCalendarSelection {
             all_day: event.all_day,
             classification: event.classification,
             meeting_link_present: event.meeting_link_present,
+            meeting_provider,
             join_token,
+            event_token: None,
+            event_workspace: None,
+            workspace_key,
         }
+    }
+}
+
+fn classify_meeting_provider(meeting_url: Option<&str>) -> Option<MeetingProvider> {
+    let host = meeting_url
+        .and_then(|value| reqwest::Url::parse(value).ok())
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))?;
+    match host.as_str() {
+        "teams.microsoft.com" | "teams.live.com" | "teams.cloud.microsoft" => {
+            Some(MeetingProvider::Teams)
+        }
+        "zoom.us" => Some(MeetingProvider::Zoom),
+        _ if host.ends_with(".zoom.us") => Some(MeetingProvider::Zoom),
+        _ => None,
     }
 }
 
@@ -352,8 +390,16 @@ pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfigurati
 }
 
 pub fn log_snapshot(action: &str, snapshot: &WorkCalendarSnapshot) {
+    let selection_provider = snapshot
+        .selection
+        .as_ref()
+        .and_then(|event| event.meeting_provider);
+    let next_provider = snapshot
+        .next_selection
+        .as_ref()
+        .and_then(|event| event.meeting_provider);
     eprintln!(
-        "work calendar {action}: status={:?}, configured={}, storage_available={}, selection_present={}, next_selection_present={}, stop_reason={:?}, timing_ms={}/{}",
+        "work calendar {action}: status={:?}, configured={}, storage_available={}, selection_present={}, selection_provider={selection_provider:?}, next_selection_present={}, next_provider={next_provider:?}, stop_reason={:?}, timing_ms={}/{}",
         snapshot.status,
         snapshot.configured,
         snapshot.storage_available,
@@ -406,6 +452,7 @@ fn snapshot_from_probe(
         probe.selection,
         probe.overlapping_selections,
         probe.next_selection,
+        source_scope,
     );
     let day_selections = probe
         .day_selections
@@ -430,15 +477,14 @@ fn snapshot_from_probe(
 }
 
 fn day_selection(event: DayEventSelection, source_scope: Option<&str>) -> WorkCalendarDaySelection {
-    let workspace_key = (!event.private && !event.cancelled)
+    let workspace_key = (!event.cancelled)
         .then(|| {
-            source_scope.map(|scope| {
-                if event.recurring {
-                    recurring_series_key(scope, &event.series_uid)
-                } else {
-                    single_event_key(scope, &event.series_uid)
-                }
-            })
+            event_workspace_key(
+                source_scope,
+                &event.series_uid,
+                event.recurring,
+                event.private,
+            )
         })
         .flatten();
     WorkCalendarDaySelection {
@@ -452,6 +498,24 @@ fn day_selection(event: DayEventSelection, source_scope: Option<&str>) -> WorkCa
         event_workspace: None,
         workspace_key,
     }
+}
+
+fn event_workspace_key(
+    source_scope: Option<&str>,
+    series_uid: &str,
+    recurring: bool,
+    private: bool,
+) -> Option<String> {
+    if private {
+        return None;
+    }
+    source_scope.map(|scope| {
+        if recurring {
+            recurring_series_key(scope, series_uid)
+        } else {
+            single_event_key(scope, series_uid)
+        }
+    })
 }
 
 fn calendar_source_scope(published_url: &str) -> String {
@@ -582,7 +646,11 @@ mod tests {
             all_day: false,
             classification: EventClassification::Upcoming,
             meeting_link_present: Some(true),
+            meeting_provider: Some(MeetingProvider::Teams),
             meeting_url: Some("https://teams.microsoft.com/l/meetup-join/opaque-token".into()),
+            series_uid: "joinable-meeting".into(),
+            recurring: false,
+            private: false,
         };
         let overlapping_event = EventSelection {
             subject: "Overlapping meeting".into(),
@@ -591,16 +659,22 @@ mod tests {
             all_day: false,
             classification: EventClassification::Active,
             meeting_link_present: Some(true),
+            meeting_provider: Some(MeetingProvider::Teams),
             meeting_url: Some(
                 "https://teams.microsoft.com/l/meetup-join/second-opaque-token".into(),
             ),
+            series_uid: "overlapping-meeting".into(),
+            recurring: false,
+            private: false,
         };
 
         let (selection, overlapping, next) =
-            state.expose_selections(Some(event), vec![overlapping_event], None);
+            state.expose_selections(Some(event), vec![overlapping_event], None, Some("source-a"));
         assert_eq!(overlapping.len(), 1);
         assert!(next.is_none());
         let selection = selection.unwrap();
+        assert!(selection.workspace_key.is_some());
+        assert_eq!(selection.meeting_provider, Some(MeetingProvider::Teams));
         let token = selection.join_token.as_deref().unwrap();
         let overlapping_token = overlapping[0].join_token.as_deref().unwrap();
         assert_ne!(token, overlapping_token);
@@ -615,11 +689,30 @@ mod tests {
         let serialized = serde_json::to_string(&selection).unwrap();
         let overlapping_serialized = serde_json::to_string(&overlapping).unwrap();
         assert!(serialized.contains(token));
+        assert!(serialized.contains("\"meetingProvider\":\"teams\""));
         assert!(!serialized.contains("meetup-join"));
         assert!(!serialized.contains("opaque-token"));
+        assert!(!serialized.contains("workspaceKey"));
         assert!(overlapping_serialized.contains(overlapping_token));
         assert!(!overlapping_serialized.contains("meetup-join"));
         assert!(!overlapping_serialized.contains("second-opaque-token"));
+    }
+
+    #[test]
+    fn classifies_only_teams_and_zoom_meeting_providers() {
+        assert_eq!(
+            classify_meeting_provider(Some("https://teams.microsoft.com/l/meetup-join/opaque")),
+            Some(MeetingProvider::Teams)
+        );
+        assert_eq!(
+            classify_meeting_provider(Some("https://acme.zoom.us/j/123456789")),
+            Some(MeetingProvider::Zoom)
+        );
+        assert_eq!(
+            classify_meeting_provider(Some("https://meet.google.com/abc-defg-hij")),
+            None
+        );
+        assert_eq!(classify_meeting_provider(None), None);
     }
 
     #[test]

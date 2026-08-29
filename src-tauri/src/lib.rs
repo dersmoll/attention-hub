@@ -270,48 +270,35 @@ fn reposition_taskbar_mirrors(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TaskbarMirrorSlot {
+struct TaskbarMirrorRect {
     source_key: String,
-    slot: i32,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
 }
 
 #[tauri::command]
-fn set_fixed_taskbar_mirror_layout(
+fn set_taskbar_mirror_layout(
     state: tauri::State<'_, TaskbarMirrorState>,
-    source_slots: Vec<TaskbarMirrorSlot>,
-    visible_source_count: i32,
-    compact_mode: bool,
-    slim_mode: bool,
-    vertical_offset: i32,
+    source_rects: Vec<TaskbarMirrorRect>,
 ) -> Result<(), String> {
-    if !(0..=6).contains(&visible_source_count) {
-        return Err("Visible source count must be from 0 through 6.".into());
-    }
-    if !(0..=512).contains(&vertical_offset) {
-        return Err("Visual source vertical offset must be from 0 through 512.".into());
-    }
     let mut seen_sources = Vec::new();
-    let mut seen_slots = Vec::new();
-    for item in source_slots {
+    for item in source_rects {
         let source = TaskbarMirrorSource::from_key(&item.source_key)
             .ok_or_else(|| format!("Unsupported visual source: {}", item.source_key))?;
-        if item.slot < 0
-            || item.slot >= visible_source_count
-            || seen_sources.contains(&source)
-            || seen_slots.contains(&item.slot)
+        if seen_sources.contains(&source) {
+            return Err("Visual source rectangles must have unique sources.".into());
+        }
+        if !(0..=4_096).contains(&item.left)
+            || !(0..=1_024).contains(&item.top)
+            || !(1..=512).contains(&item.width)
+            || !(1..=512).contains(&item.height)
         {
-            return Err("Visual source slots must be unique visible app positions.".into());
+            return Err("Visual source rectangles must be visible logical bounds.".into());
         }
         seen_sources.push(source);
-        seen_slots.push(item.slot);
-        state.set_layout(
-            source,
-            Some(item.slot),
-            visible_source_count,
-            compact_mode,
-            slim_mode,
-            vertical_offset,
-        );
+        state.set_layout(source, item.left, item.top, item.width, item.height);
     }
     Ok(())
 }
@@ -529,7 +516,7 @@ pub fn run() {
             start_taskbar_mirror,
             stop_taskbar_mirror,
             reposition_taskbar_mirrors,
-            set_fixed_taskbar_mirror_layout,
+            set_taskbar_mirror_layout,
             activate_attention_source,
             get_later_inbox_snapshot,
             create_later_inbox_item,

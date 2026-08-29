@@ -12,7 +12,10 @@ export interface WorkCalendarSelection {
   allDay: boolean;
   classification: "active" | "upcoming";
   meetingLinkPresent: boolean | null;
+  meetingProvider: "teams" | "zoom" | null;
   joinToken: string | null;
+  eventToken: string | null;
+  eventWorkspace: WorkCalendarEventWorkspaceSummary | null;
 }
 
 export interface WorkCalendarDaySelection {

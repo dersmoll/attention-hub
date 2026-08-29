@@ -24,6 +24,13 @@ pub enum EventClassification {
     Upcoming,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MeetingProvider {
+    Teams,
+    Zoom,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventSelection {
@@ -33,8 +40,15 @@ pub struct EventSelection {
     pub all_day: bool,
     pub classification: EventClassification,
     pub meeting_link_present: Option<bool>,
+    pub meeting_provider: Option<MeetingProvider>,
     #[serde(skip_serializing)]
     pub meeting_url: Option<String>,
+    #[serde(skip_serializing)]
+    pub series_uid: String,
+    #[serde(skip_serializing)]
+    pub recurring: bool,
+    #[serde(skip_serializing)]
+    pub private: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -105,6 +119,7 @@ struct RawEvent {
     status: Option<String>,
     sequence: u32,
     meeting_link_present: bool,
+    meeting_provider: Option<MeetingProvider>,
     meeting_url: Option<String>,
     source_order: u32,
 }
@@ -125,6 +140,7 @@ struct NormalizedEvent {
     cancelled: bool,
     sequence: u32,
     meeting_link_present: bool,
+    meeting_provider: Option<MeetingProvider>,
     meeting_url: Option<String>,
     source_order: u32,
 }
@@ -139,6 +155,7 @@ struct Candidate {
     subject: String,
     private: bool,
     meeting_link_present: bool,
+    meeting_provider: Option<MeetingProvider>,
     meeting_url: Option<String>,
     source_order: u32,
     recurring: bool,
@@ -389,9 +406,15 @@ fn selection_from_candidate(candidate: Candidate, now: DateTime<Utc>) -> EventSe
         all_day: candidate.all_day,
         classification,
         meeting_link_present: (!candidate.private).then_some(candidate.meeting_link_present),
+        meeting_provider: (!candidate.private)
+            .then_some(candidate.meeting_provider)
+            .flatten(),
         meeting_url: (!candidate.private)
             .then_some(candidate.meeting_url)
             .flatten(),
+        series_uid: candidate.uid,
+        recurring: candidate.recurring,
+        private: candidate.private,
     }
 }
 
@@ -523,13 +546,23 @@ fn process_logical_line(state: &mut ParseState, line: &str) -> Result<(), Semant
         })?;
     }
 
+    let provider_signal = meeting_provider_from_signal(name, value);
     if let Some(url) = extract_meeting_url(value) {
         event.meeting_link_present = true;
+        if event.meeting_provider.is_none() {
+            event.meeting_provider = provider_signal;
+        }
         if event.meeting_url.is_none() {
             event.meeting_url = Some(url);
         }
     } else if is_meeting_link_signal(name, value) {
         event.meeting_link_present = true;
+        if event.meeting_provider.is_none() {
+            event.meeting_provider = provider_signal;
+        }
+    } else if provider_signal.is_some() {
+        event.meeting_link_present = true;
+        event.meeting_provider = provider_signal;
     }
     Ok(())
 }
@@ -633,6 +666,7 @@ fn normalize_event(
             .is_some_and(|value| value.eq_ignore_ascii_case("CANCELLED")),
         sequence: raw.sequence,
         meeting_link_present: raw.meeting_link_present,
+        meeting_provider: raw.meeting_provider,
         meeting_url: raw.meeting_url,
         source_order: raw.source_order,
     })
@@ -701,6 +735,9 @@ fn expand_series(
             }
             override_event.private |= master.private;
             override_event.meeting_link_present |= master.meeting_link_present;
+            if override_event.meeting_provider.is_none() {
+                override_event.meeting_provider = master.meeting_provider;
+            }
             if override_event.meeting_url.is_none() {
                 override_event.meeting_url.clone_from(&master.meeting_url);
             }
@@ -827,6 +864,7 @@ fn push_candidate(
             .unwrap_or_else(|| "Untitled event".to_owned()),
         private: event.private,
         meeting_link_present: event.meeting_link_present,
+        meeting_provider: event.meeting_provider,
         meeting_url: event.meeting_url.clone(),
         source_order: event.source_order,
         recurring,
@@ -1083,6 +1121,33 @@ fn is_meeting_link_signal(name: &str, value: &str) -> bool {
     ]
     .iter()
     .any(|marker| lower_value.contains(marker))
+}
+
+fn meeting_provider_from_signal(name: &str, value: &str) -> Option<MeetingProvider> {
+    let upper_name = name.to_ascii_uppercase();
+    let lower_value = unescape_text(value).to_ascii_lowercase();
+    let branded_text_allowed = upper_name == "LOCATION"
+        || upper_name == "DESCRIPTION"
+        || upper_name.starts_with("X-MICROSOFT-")
+        || upper_name.starts_with("X-ALT-DESC");
+    if upper_name.contains("SKYPETEAMS")
+        || (upper_name.contains("MICROSOFT") && upper_name.contains("ONLINEMEETING"))
+        || lower_value.contains("teams.microsoft.com/")
+        || lower_value.contains("teams.live.com/")
+        || lower_value.contains("teams.cloud.microsoft/")
+        || (branded_text_allowed
+            && (lower_value.contains("microsoft teams meeting")
+                || lower_value.contains("join microsoft teams")))
+    {
+        return Some(MeetingProvider::Teams);
+    }
+    if lower_value.contains("zoom.us/")
+        || lower_value.contains(".zoom.us/")
+        || (branded_text_allowed && lower_value.contains("zoom meeting"))
+    {
+        return Some(MeetingProvider::Zoom);
+    }
+    None
 }
 
 fn extract_meeting_url(value: &str) -> Option<String> {
@@ -1377,12 +1442,41 @@ mod tests {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:meeting\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Meeting\r\nDESCRIPTION:Join at https://teams.microsoft.com/l/meetup-join/opaque\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.selection.meeting_link_present, Some(true));
         assert_eq!(
+            result.selection.meeting_provider,
+            Some(MeetingProvider::Teams)
+        );
+        assert_eq!(
             result.selection.meeting_url.as_deref(),
             Some("https://teams.microsoft.com/l/meetup-join/opaque")
         );
         let json = serde_json::to_string(&result.selection).unwrap();
         assert!(!json.contains("meetup-join"));
         assert!(!json.contains("opaque"));
+    }
+
+    #[test]
+    fn retains_teams_provider_from_a_teams_specific_property_without_a_url() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:teams-signal\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Teams meeting\r\nX-MICROSOFT-SKYPETEAMSMEETINGURL:opaque-provider-signal\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+        assert_eq!(result.selection.meeting_link_present, Some(true));
+        assert_eq!(
+            result.selection.meeting_provider,
+            Some(MeetingProvider::Teams)
+        );
+        assert!(result.selection.meeting_url.is_none());
+    }
+
+    #[test]
+    fn recognizes_branded_teams_location_but_not_an_event_title() {
+        let location = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:teams-location\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Daily meeting\r\nLOCATION:Microsoft Teams Meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+        assert_eq!(
+            location.selection.meeting_provider,
+            Some(MeetingProvider::Teams)
+        );
+        assert_eq!(location.selection.meeting_link_present, Some(true));
+
+        let title_only = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:teams-title\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Microsoft Teams Meeting Review\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
+        assert_eq!(title_only.selection.meeting_provider, None);
+        assert_eq!(title_only.selection.meeting_link_present, Some(false));
     }
 
     #[test]
@@ -1395,6 +1489,13 @@ mod tests {
         assert_eq!(
             extract_meeting_url("Join https://acme.zoom.us/j/123456789?pwd=opaque"),
             Some("https://acme.zoom.us/j/123456789?pwd=opaque".to_owned())
+        );
+        assert_eq!(
+            meeting_provider_from_signal(
+                "DESCRIPTION",
+                "Join https://acme.zoom.us/j/123456789?pwd=opaque"
+            ),
+            Some(MeetingProvider::Zoom)
         );
         assert_eq!(
             extract_meeting_url(

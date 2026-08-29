@@ -112,6 +112,20 @@
     @include truncate;
   }
 
+  &__meeting-provider {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 3px;
+    vertical-align: -2px;
+
+    svg {
+      display: block;
+      width: 12px;
+      height: 12px;
+    }
+  }
+
   &__state {
     padding: 2px 4px;
     border: 1px solid var(--color-focus);
@@ -123,7 +137,7 @@
     letter-spacing: 0.04em;
     white-space: nowrap;
 
-    @include uppercase-label(8px, 0.02em);
+    @include uppercase-label(9px, 0.02em);
 
     &[data-calendar-status="observed"] {
       color: var(--color-focus);
@@ -143,13 +157,13 @@
     height: 3px;
     overflow: hidden;
     border-radius: var(--radius-pill);
-    background: panel-border-wash(24%);
+    background: color-mix(in srgb, var(--color-focus) 24%, transparent);
 
     > span {
       display: block;
       height: 100%;
       border-radius: inherit;
-      background: var(--widget-panel-border);
+      background: var(--color-focus);
     }
   }
 
@@ -176,9 +190,6 @@
   &__next > span,
   &__next-header > span {
     color: var(--widget-panel-muted);
-    line-height: 1.15;
-
-    @include uppercase-label(10px, 0.06em);
   }
 
   &__next-header {
@@ -195,12 +206,78 @@
 
   /* Event actions --------------------------------------------------------- */
 
+  &__event[data-workspace-actions],
+  &__next[data-workspace-actions] {
+    padding-right: 18px;
+  }
+
+  &__workspace-actions {
+    position: absolute;
+    z-index: 5;
+    top: 50%;
+    right: 0;
+    display: grid;
+    width: 14px;
+    height: 44px;
+    grid-template-columns: 14px;
+    grid-template-rows: repeat(3, 14px);
+    gap: 1px;
+    transform: translateY(-50%);
+
+    .event-workspace-actions__link {
+      grid-row: 1;
+    }
+
+    .event-workspace-actions__stash {
+      grid-row: 2;
+    }
+
+    .event-workspace-actions__settings {
+      grid-row: 3;
+    }
+
+    button {
+      display: grid;
+      width: 14px;
+      min-width: 14px;
+      height: 14px;
+      min-height: 14px;
+      padding: 0;
+      border: 0;
+      border-radius: 2px;
+      place-items: center;
+      color: var(--widget-panel-muted);
+      background: transparent;
+
+      &:hover:not(:disabled),
+      &:focus-visible {
+        color: var(--color-focus);
+        background: transparent;
+      }
+
+      &:focus-visible {
+        outline: 1px solid var(--color-focus-strong);
+        outline-offset: 0;
+      }
+    }
+
+    svg {
+      width: 12px;
+      height: 12px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+  }
+
   &__ack {
     --calendar-alert: var(--color-danger-strong);
     --calendar-alert-hover: #7f1d1d;
 
-    min-width: 24px;
-    min-height: 24px;
+    min-width: 22px;
+    min-height: 22px;
     padding: 2px 8px;
     border-color: var(--calendar-alert);
     border-radius: var(--radius-pill);
@@ -320,6 +397,11 @@
     pointer-events: auto;
   }
 
+  &__event[data-workspace-actions] > #{$block}__hover-actions,
+  &__next[data-workspace-actions] > #{$block}__hover-actions {
+    right: 18px;
+  }
+
   /* Attention escalation --------------------------------------------------- */
 
   &[data-calendar-attention="soon"],
@@ -331,6 +413,7 @@
 
     #{$block}__state {
       color: var(--color-warning-text);
+      border-color: var(--color-warning-text);
     }
   }
 
@@ -433,9 +516,10 @@
     gap: 6px;
 
     > div {
-      display: grid;
+      display: flex;
       padding-right: 22px;
-      gap: 2px;
+      gap: 10px;
+      align-items: center;
     }
 
     strong {
@@ -444,7 +528,7 @@
 
     span {
       color: var(--widget-panel-muted);
-      font-size: 11px;
+      font-size: 12px;
     }
 
     button {
@@ -476,6 +560,7 @@
     margin: 0;
     overflow: visible;
     list-style: none;
+    padding-top: 4px;
   }
 
   li {
@@ -484,7 +569,7 @@
     min-height: 22px;
     align-items: center;
     gap: 4px;
-    padding: 0;
+    padding: 2px 0;
     border-top: 1px solid panel-border-wash(35%);
 
     + li {
@@ -502,10 +587,10 @@
     time {
       color: var(--widget-panel-muted);
       font-family: var(--font-numeric);
-      font-size: 11px;
+      font-size: 13px;
       font-variant-numeric: tabular-nums;
-      line-height: 1.15;
       white-space: nowrap;
+      padding-top: 2px;
     }
 
     > #{$block}__subject {
@@ -579,7 +664,6 @@
     align-items: center;
     justify-content: flex-end;
     gap: 2px;
-    opacity: 0.3;
     transition: opacity 120ms ease;
 
     button {

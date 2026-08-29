@@ -33,6 +33,7 @@ const [
   app,
   widget,
   today,
+  eventActions,
   settings,
   stash,
   calendarModel,
@@ -46,6 +47,7 @@ const [
     readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/WidgetView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/TodayPopupView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/EventWorkspaceActions.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/EventSettingsView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/ProjectStashView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/work-calendar-model.ts", import.meta.url), "utf8"),
@@ -60,10 +62,12 @@ assert.match(app, /windowLabel === "event-settings"/);
 assert.match(app, /windowLabel === "project-stash"/);
 assert.match(calendarModel, /eventToken: string \| null/);
 assert.match(calendarModel, /eventWorkspace: WorkCalendarEventWorkspaceSummary \| null/);
-assert.match(today, /widget-calendar-day-panel__settings/);
-assert.match(today, /widget-calendar-day-panel__stash/);
+assert.match(calendarModel, /meetingProvider: "teams" \| "zoom" \| null/);
+assert.match(today, /className="widget-calendar-day-panel__actions"/);
+assert.match(eventActions, /event-workspace-actions__settings/);
+assert.match(eventActions, /event-workspace-actions__stash/);
 assert.match(today, /open_event_workspace_link/);
-assert.match(today, /eventWorkspace\.linkUrl/);
+assert.match(eventActions, /workspace\.linkUrl/);
 assert.match(today, /data-live=\{live \|\| undefined\}/);
 assert.match(today, /style=\{panelStyle\}/);
 assert.match(settings, /Event link <em>optional<\/em>/);
@@ -86,12 +90,14 @@ assert.match(nativeCalendar, /attention-hub-recurring-series-v1/);
 assert.match(nativeCalendar, /attention-hub-calendar-event-v1/);
 assert.match(nativeCalendar, /#\[serde\(skip_serializing\)\][\s\S]*workspace_key/);
 assert.match(nativeCalendar, /pub link_url: Option<String>/);
+assert.match(nativeCalendar, /pub event_token: Option<String>/);
+assert.match(nativeWorkspace, /snapshot\.overlapping_selections\.iter_mut\(\)/);
+assert.match(widget, /className="widget-calendar__workspace-actions"/);
 assert.match(capabilities, /"event-settings"/);
 assert.match(capabilities, /"project-stash"/);
 assert.match(capabilities, /"core:window:allow-close"/);
 assert.match(css, /grid-template-columns: 64px minmax\(0, 1fr\) auto/);
 assert.match(css, /white-space: nowrap/);
-assert.match(css, /opacity: 0\.3/);
 assert.match(css, /Bahnschrift SemiCondensed/);
 assert.match(css, /widget-calendar-day-panel li\[data-live\]/);
 assert.match(css, /--radius-panel: 3px/);
