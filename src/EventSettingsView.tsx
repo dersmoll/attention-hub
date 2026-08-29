@@ -252,14 +252,14 @@ export function EventSettingsView() {
             <button disabled={pending !== null || !hasDraft || !validSelection} type="submit">{pending === "save" ? "Saving…" : "Save"}</button>
             {snapshot?.binding?.linkUrl && <button disabled={pending !== null} onClick={() => void openLink()} type="button">Open link</button>}
             {snapshot?.binding && <button disabled={pending !== null} onClick={() => void unlink()} type="button">Unlink</button>}
+            {selectedProject && <div className="event-settings-delete">
+              {deleteRequested ? <>
+                <span>Delete {selectedProject.name} and its assignments?</span>
+                <button disabled={pending !== null} onClick={() => void deleteProject()} type="button">Delete</button>
+                <button disabled={pending !== null} onClick={() => setDeleteRequested(false)} type="button">Keep</button>
+              </> : <button disabled={pending !== null} onClick={() => setDeleteRequested(true)} type="button">Delete project stash…</button>}
+            </div>}
           </div>
-          {selectedProject && <div className="event-settings-delete">
-            {deleteRequested ? <>
-              <span>Delete {selectedProject.name} and its assignments?</span>
-              <button disabled={pending !== null} onClick={() => void deleteProject()} type="button">Delete</button>
-              <button disabled={pending !== null} onClick={() => setDeleteRequested(false)} type="button">Keep</button>
-            </> : <button disabled={pending !== null} onClick={() => setDeleteRequested(true)} type="button">Delete project stash…</button>}
-          </div>}
         </form>
       )}
       {error && <p className="event-settings-error" role="alert">{error}</p>}

@@ -1,0 +1,368 @@
+@use "mixins" as *;
+
+/* Widget preference cards: the fieldsets shared by the main window and the
+ * advanced settings pages. */
+
+.widget-preferences-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+
+  @include narrow-viewport {
+    grid-template-columns: 1fr;
+  }
+}
+
+.widget-preference-card {
+  --preference-card-border: var(--color-border-card);
+  --preference-card-surface: var(--color-surface);
+  --preference-control-border: var(--color-border);
+  --preference-control-radius: var(--radius-field);
+  --preference-control-text: var(--color-text);
+  --preference-control-surface: var(--color-surface);
+
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.7rem;
+  margin: 0;
+
+  @include surface-card(
+    1rem,
+    var(--radius-card),
+    var(--preference-card-border),
+    var(--preference-card-surface)
+  );
+
+  legend,
+  label {
+    font-weight: 700;
+  }
+
+  legend {
+    padding-inline: 0.3rem;
+  }
+
+  > label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  output,
+  small {
+    color: var(--color-text-muted);
+  }
+
+  input[type="range"] {
+    width: 100%;
+    min-height: 2rem;
+    cursor: pointer;
+  }
+
+  .widget-preference-warning {
+    padding: 0.55rem 0.65rem;
+    border-left: 3px solid var(--color-warning);
+    color: #78350f;
+    background: var(--color-warning-surface);
+  }
+
+  /* Indented under the source checkbox they describe. */
+  .widget-source-control__visual {
+    margin-left: 1.6rem;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .widget-source-control__scan-result {
+    margin-left: 1.6rem;
+    color: #334155;
+  }
+}
+
+.widget-visible-panels {
+  > label {
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+
+    input[type="checkbox"] {
+      flex: 0 0 auto;
+      margin: 0;
+    }
+  }
+}
+
+.widget-appearance-pin {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  input {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+}
+
+.widget-color-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  input[type="color"] {
+    width: 3.5rem;
+    height: 2.75rem;
+    padding: 0.2rem;
+    border: 1px solid var(--preference-control-border);
+    border-radius: var(--preference-control-radius);
+    background: var(--preference-control-surface);
+    cursor: pointer;
+  }
+}
+
+.panel-surface-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.panel-surface-option {
+  --panel-surface-option-border: var(--color-border);
+  --panel-surface-option-surface: var(--color-surface);
+  --panel-surface-option-selected: var(--color-info);
+
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-width: 132px;
+  min-height: 64px;
+  gap: 6px;
+
+  @include surface-card(
+    7px 8px,
+    var(--radius-panel),
+    var(--panel-surface-option-border),
+    var(--panel-surface-option-surface)
+  );
+
+  color: var(--color-text);
+  cursor: pointer;
+
+  &[data-selected="true"] {
+    border-color: var(--panel-surface-option-selected);
+    box-shadow: 0 0 0 2px rgb(37 99 235 / 18%);
+  }
+
+  /* The radio stays focusable but invisible; the card is the visible target. */
+  input {
+    @include visually-hidden;
+  }
+
+  &:focus-within {
+    outline: 2px solid var(--panel-surface-option-selected);
+    outline-offset: 2px;
+  }
+
+  &__preview {
+    display: grid;
+    min-height: 30px;
+    place-items: center;
+    border: 1px solid
+      color-mix(in srgb, var(--panel-surface-preview-text) 50%, transparent);
+    border-radius: 5px;
+    color: var(--panel-surface-preview-text);
+    background: var(--panel-surface-preview-background);
+    font-size: 14px;
+    font-weight: 700;
+  }
+}
+
+.panel-surface-colors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+
+  > div {
+    display: grid;
+    gap: 6px;
+  }
+}
+
+.widget-app-order {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 2.75rem;
+
+    @include surface-card(
+      0.45rem 0.5rem 0.45rem 0.7rem,
+      var(--radius-field),
+      var(--color-border-subtle),
+      var(--color-surface-subtle)
+    );
+
+    > span:first-child {
+      font-weight: 650;
+    }
+
+    @include stack-on-narrow;
+  }
+
+  &__actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.35rem;
+
+    button {
+      min-height: 2rem;
+      padding: 0.3rem 0.55rem;
+      font-size: 0.78rem;
+
+      &:disabled {
+        cursor: default;
+      }
+
+      @include narrow-viewport {
+        flex: 1 1 0;
+      }
+    }
+  }
+}
+
+.widget-source-controls {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.widget-source-control,
+.widget-clock-layout-control {
+  display: grid;
+  gap: 0.35rem;
+
+  @include surface-card(
+    0.65rem 0.7rem,
+    var(--radius-field),
+    var(--color-border-subtle),
+    var(--color-surface-subtle)
+  );
+}
+
+.widget-source-control {
+  label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-weight: 650;
+  }
+
+  input {
+    flex: 0 0 auto;
+    @include square(1.1rem);
+
+    margin-top: 0.1rem;
+  }
+}
+
+.widget-clock-layout-control {
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+
+  > label {
+    font-weight: 650;
+  }
+}
+
+.widget-time-zone-search {
+  min-width: 0;
+  min-height: 2.35rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--preference-control-border);
+  border-radius: var(--preference-control-radius);
+  color: var(--preference-control-text);
+  background: var(--preference-control-surface);
+  font: inherit;
+}
+
+.widget-extra-time-zones {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12px;
+  }
+}
+
+.calendar-configuration {
+  margin-block: 1rem;
+
+  @include surface-card(0.85rem 1rem);
+
+  p,
+  .actions {
+    margin-block: 0;
+  }
+
+  .actions {
+    margin-top: 0.7rem;
+  }
+
+  small {
+    display: block;
+    margin-top: 0.65rem;
+    color: var(--color-text-faint);
+  }
+}
+
+.calendar-attention-settings {
+  display: grid;
+  gap: 0.65rem;
+
+  @include surface-card(
+    0.8rem,
+    var(--radius-notice),
+    var(--color-border-subtle),
+    var(--color-surface-subtle)
+  );
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  > label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-weight: 650;
+
+    input {
+      flex: 0 0 auto;
+      margin-top: 0.2rem;
+    }
+  }
+
+  > button {
+    justify-self: start;
+  }
+
+  > small {
+    color: var(--color-text-faint);
+  }
+}

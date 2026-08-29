@@ -1,27 +1,19 @@
-export const WIDGET_CLOCK_WIDTH = 240;
-export const WIDGET_COMPACT_CLOCK_WIDTH = 208;
-export const WIDGET_HEIGHT = 80;
-export const WIDGET_COMPACT_HEIGHT = 68;
-export const WIDGET_SLIM_HEIGHT = 44;
-export const WIDGET_CALENDAR_COMPACT_WIDTH = 272;
+export const WIDGET_COMPACT_CLOCK_WIDTH = 144;
+export const WIDGET_COMPACT_HEIGHT = 55;
+export const WIDGET_SLIM_HEIGHT = 38  ;
+export const WIDGET_CALENDAR_COMPACT_WIDTH = 260;
 export const WIDGET_CALENDAR_COMPACT_DUAL_WIDTH = 392;
-export const WIDGET_CALENDAR_DUAL_WIDTH = 416;
-export const WIDGET_UTILITY_WIDTH = 68;
-export const WIDGET_SLIM_UTILITY_WIDTH = 112;
+export const WIDGET_COMPACT_UTILITY_WIDTH = 20;
+export const WIDGET_SLIM_UTILITY_WIDTH = 64;
 export const WIDGET_SLIM_DRAG_HANDLE_WIDTH = 18;
-export const WIDGET_ZONE_GAP = 8;
-export const WIDGET_COMPACT_ZONE_GAP = 6;
-export const WIDGET_ICON_SIZE = 48;
-export const WIDGET_ICON_GAP = 8;
-export const WIDGET_LEFT_PADDING = 24;
-export const WIDGET_COMPACT_ICON_SIZE = 40;
+export const WIDGET_COMPACT_ICON_SIZE = 32;
 export const WIDGET_COMPACT_ICON_GAP = 4;
 export const WIDGET_COMPACT_LEFT_PADDING = 16;
 export const WIDGET_SLIM_ICON_SIZE = 32;
 export const WIDGET_SLIM_ICON_GAP = 2;
 export const WIDGET_SLIM_LEFT_PADDING = 4;
-export const WIDGET_SLIM_CLOCK_ITEM_WIDTH = 76;
-export const WIDGET_SLIM_CALENDAR_WIDTH = 260;
+export const WIDGET_SLIM_CLOCK_ITEM_WIDTH = 84;
+export const WIDGET_SLIM_CALENDAR_WIDTH = 320;
 export const WIDGET_SLIM_CALENDAR_DUAL_WIDTH = 520;
 export const WIDGET_SLIM_CALENDAR_MAX_WIDTH = 600;
 export const WIDGET_SLIM_CALENDAR_DUAL_MAX_WIDTH = 800;
@@ -31,13 +23,13 @@ export const CALENDAR_DAY_PANEL_BASE_HEIGHT = 54;
 export const CALENDAR_DAY_PANEL_EVENT_HEIGHT = 22;
 export const CALENDAR_DAY_PANEL_MAX_EVENTS = 24;
 
-export type WidgetWidthMode = "recommended" | "larger" | "slim";
+export type WidgetWidthMode = "recommended" | "slim";
 
 export function widgetHeight(widthMode: WidgetWidthMode = "recommended") {
   if (widthMode === "slim") {
     return WIDGET_SLIM_HEIGHT;
   }
-  return widthMode === "recommended" ? WIDGET_COMPACT_HEIGHT : WIDGET_HEIGHT;
+  return WIDGET_COMPACT_HEIGHT;
 }
 
 export function calendarDayPanelDirection(
@@ -83,9 +75,7 @@ export function widgetClockWidth(widthMode: WidgetWidthMode = "recommended") {
   if (widthMode === "slim") {
     return WIDGET_SLIM_CLOCK_ITEM_WIDTH * 2;
   }
-  return widthMode === "recommended"
-    ? WIDGET_COMPACT_CLOCK_WIDTH
-    : WIDGET_CLOCK_WIDTH;
+  return WIDGET_COMPACT_CLOCK_WIDTH;
 }
 
 export function widgetClockPanelWidth(
@@ -101,16 +91,12 @@ export function widgetClockPanelWidth(
   if (clockLayout === "vertical") {
     return base;
   }
-  return base + (boundedCount - 2) * (widthMode === "recommended" ? 104 : 120);
+  return base + (boundedCount - 2) * (WIDGET_COMPACT_CLOCK_WIDTH / 2);
 }
 
 export function widgetZoneGap(widthMode: WidgetWidthMode = "recommended") {
-  if (widthMode === "slim") {
-    return 0;
-  }
-  return widthMode === "recommended"
-    ? WIDGET_COMPACT_ZONE_GAP
-    : WIDGET_ZONE_GAP;
+  void widthMode;
+  return 0;
 }
 
 export function widgetLeftWidth(
@@ -123,21 +109,13 @@ export function widgetLeftWidth(
       return 0;
     }
     return (
-      WIDGET_SLIM_LEFT_PADDING * 2 +
-      boundedCount * WIDGET_SLIM_ICON_SIZE +
-      Math.max(0, boundedCount - 1) * WIDGET_SLIM_ICON_GAP
+      boundedCount * WIDGET_SLIM_ICON_SIZE
     );
   }
-  const recommended = widthMode === "recommended";
-  const iconSize = recommended ? WIDGET_COMPACT_ICON_SIZE : WIDGET_ICON_SIZE;
-  const iconGap = recommended ? WIDGET_COMPACT_ICON_GAP : WIDGET_ICON_GAP;
-  const padding = recommended
-    ? WIDGET_COMPACT_LEFT_PADDING
-    : WIDGET_LEFT_PADDING;
   return (
-    padding +
-    boundedCount * iconSize +
-    Math.max(0, boundedCount - 1) * iconGap
+    WIDGET_COMPACT_LEFT_PADDING +
+    boundedCount * WIDGET_COMPACT_ICON_SIZE +
+    Math.max(0, boundedCount - 1) * WIDGET_COMPACT_ICON_GAP
   );
 }
 
@@ -163,20 +141,18 @@ export function widgetCalendarWidth(
       baseWidth + Math.max(0, safeLength - growthThreshold) * growthPerCharacter,
     );
   }
-  if (widthMode === "recommended") {
-    return showsNextEvent
-      ? WIDGET_CALENDAR_COMPACT_DUAL_WIDTH
-      : WIDGET_CALENDAR_COMPACT_WIDTH;
-  }
-  return WIDGET_CALENDAR_DUAL_WIDTH;
+  return showsNextEvent
+    ? WIDGET_CALENDAR_COMPACT_DUAL_WIDTH
+    : WIDGET_CALENDAR_COMPACT_WIDTH;
 }
 
 export function widgetUtilityWidth(
   widthMode: WidgetWidthMode = "recommended",
 ) {
-  return widthMode === "slim"
-    ? WIDGET_SLIM_UTILITY_WIDTH
-    : WIDGET_UTILITY_WIDTH;
+  if (widthMode === "slim") {
+    return WIDGET_SLIM_UTILITY_WIDTH;
+  }
+  return WIDGET_COMPACT_UTILITY_WIDTH;
 }
 
 export function widgetWidth(

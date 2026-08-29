@@ -1,0 +1,159 @@
+@use "mixins" as *;
+
+/* Document defaults and the bare element styles shared by every window. */
+
+:root {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-text);
+  background: var(--color-canvas);
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 20rem;
+  margin: 0;
+}
+
+main {
+  width: min(100%, 52rem);
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+button,
+summary {
+  font: inherit;
+}
+
+button {
+  min-height: var(--control-height);
+  padding: var(--control-padding);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: var(--color-surface);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-border-hover);
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
+}
+
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
+}
+
+section + section {
+  margin-top: 2rem;
+}
+
+li + li {
+  margin-top: 0.5rem;
+}
+
+hr {
+  margin-block: 2rem;
+  border: 0;
+  border-top: 1px solid #aaa;
+}
+
+pre {
+  max-width: 24rem;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, 13rem) 1fr;
+  gap: 0.5rem 1rem;
+
+  @include narrow-viewport {
+    grid-template-columns: 1fr;
+  }
+}
+
+dt {
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+th,
+td {
+  min-width: 8rem;
+  padding: 0.5rem;
+  border: 1px solid #aaa;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+}
+
+td small {
+  display: block;
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: 1.5rem;
+}
+
+.sr-only {
+  @include visually-hidden;
+}
+
+/* Probe/observation status wording shared by the technical detail tables. */
+.source-observation {
+  display: contents;
+}
+
+[data-status="allowed"],
+[data-status="running"],
+[data-status="observed"] {
+  color: #176b2c;
+}
+
+[data-status="denied"],
+[data-status="error"],
+[data-status="invalidInput"],
+[data-status="unavailable"],
+[data-status="tooLarge"],
+[data-status="timeout"],
+.error {
+  color: #a31515;
+}

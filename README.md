@@ -11,12 +11,14 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.6` is the current public beta.
+Version `0.6.0-beta.9` is the current public beta.
 
-[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.6)
+[Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.9)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
-page publishes the exact installer checksum for verification.
+page publishes the exact installer checksum for verification. Attention Hub's
+separate Tauri updater signature remains the validation path for in-app beta
+updates.
 
 ## What it does
 
@@ -38,8 +40,9 @@ page publishes the exact installer checksum for verification.
   retains the native time picker, and returns to live clocks with **Esc**.
 - Shows the active or next event from one user-supplied Published ICS calendar,
   plus at most one timed event with the same upcoming start or an overlapping
-  active time. Allowlisted Teams, Zoom, Google Meet, and Webex links use compact
-  **Join** actions that appear on hover or keyboard focus. A successful Join
+  active time. Teams and Zoom meetings show a compact provider indicator.
+  Allowlisted Teams, Zoom, Google Meet, and Webex links use compact **Join**
+  actions that appear on hover or keyboard focus. A successful Join
   selects that event and locally hides its parallel peer. Started events also
   expose **I'm in** beside Join until either action acknowledges the event.
   **Finish** locally hides an acknowledged active event until its scheduled end
@@ -50,7 +53,7 @@ page publishes the exact installer checksum for verification.
   An unconfigured widget shows a compact **Set up** action that opens Advanced
   at the masked Published ICS field; configured calendars with no current or
   upcoming event retain the ordinary empty state.
-- Any non-private event in the **Today** summary can keep optional local event
+- Any non-private event in the main widget or **Today** summary can keep optional local event
   settings: a project stash, an HTTP(S) work link, or both. Recurring events
   share settings across their series; one-off events retain their own link.
   Multiple events may share the same bounded text, bullet, and link-aware
@@ -62,22 +65,18 @@ page publishes the exact installer checksum for verification.
   starts a three-step What/When/Details flow with the next quarter-hour
   prefilled. Reminder cards provide compact complete, edit, and confirmed
   delete actions.
-- Keeps pin, close, reminders, and Advanced in a compact right-side utility
-  rail, separate from communication sources and calendar content.
+- Keeps close, reminders, and Advanced in a compact right-side utility rail,
+  separate from communication sources and calendar content. Pinning is an
+  Appearance preference and native context-menu action.
 - The app-shortcut segment can be hidden without changing source order,
   monitoring choices, or privacy semantics. Native visual mirrors pause while
   that segment is hidden.
-- Uses the **Recommended** widget size by default: a 68px window with 60px
-  panels, 40px source buttons, 34px visual surfaces, 4px source gaps, and a
-  208px two-zone clock. Its calendar is 272px wide for one event and expands to
-  392px while current and next events are both visible. The **Larger** option
-  uses an 80px window, 48px source buttons, a 240px clock, and a fixed 416px
-  calendar. Legacy Compact and old-default Auto preferences migrate to
-  Recommended; an explicitly selected legacy Wide preference migrates to
-  Larger. **Compact single-line** uses a 44px unified horizontal rail with
-  smaller app surfaces, inline time-and-city pairs, a one-line calendar, and
-  four horizontal utility controls. Its persisted value is `slim` so legacy
-  Compact preferences continue to migrate safely to Recommended.
+- Uses the **Recommended** widget size by default: the dense two-line layout
+  with a calendar that expands when current and next events are both visible.
+  **Compact single-line** uses a unified horizontal rail with smaller app
+  surfaces, inline time-and-city pairs, a one-line calendar, and horizontal
+  utility controls. Its persisted value is `slim`. Legacy Compact, Auto, Wide,
+  and Larger preferences all migrate safely to Recommended.
   Native DWM mirrors remain synchronized with the selected geometry.
 - Organizes Advanced into a PowerToys-inspired two-column layout with a fixed
   navigation sidebar and focused General, Clocks, Apps, Calendar, Reminders,
@@ -95,7 +94,9 @@ page publishes the exact installer checksum for verification.
   exposes bounded activity state. Outlook shows an Inbox number only while
   Windows exposes a fresh semantic label. Slack, Viber, and WhatsApp remain
   presence, activation, and optional visual surfaces without invented unread
-  counts.
+  counts. When enabled, Viber's live visual surface mirrors the Windows-owned
+  taskbar icon and its native badge without reading pixels or deriving a
+  synthetic count.
 - The calendar publication URL is stored in Windows Credential Manager and is
   never written to the WebView, logs, fixtures, or documentation.
 - Meeting URLs remain in Rust process memory behind short-lived tokens and open

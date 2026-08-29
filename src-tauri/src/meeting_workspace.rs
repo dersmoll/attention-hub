@@ -197,37 +197,74 @@ pub fn enrich_calendar_snapshot(
     let loaded = load_store(&path)?;
     let mut tokens = lock(&state.event_tokens)?;
 
+    for event in snapshot
+        .selection
+        .iter_mut()
+        .chain(snapshot.overlapping_selections.iter_mut())
+        .chain(snapshot.next_selection.iter_mut())
+    {
+        let Some(workspace_key) = event.workspace_key.clone() else {
+            continue;
+        };
+        let token = register_event_token(
+            &mut tokens,
+            &workspace_key,
+            &event.subject,
+            &event.start,
+            &event.end,
+        );
+        event.event_token = Some(token);
+        event.event_workspace = binding_summary(&loaded.store, &workspace_key);
+    }
+
     for event in &mut snapshot.day_selections {
         let Some(workspace_key) = event.workspace_key.clone() else {
             continue;
         };
-        let token = if let Some(token) = tokens.workspace_tokens.get(&workspace_key) {
-            token.clone()
-        } else {
-            if tokens.targets.len() >= MAX_EVENT_TOKENS {
-                tokens.workspace_tokens.clear();
-                tokens.targets.clear();
-            }
-            tokens.next_token = tokens.next_token.wrapping_add(1);
-            let token = format!("meeting-{}", tokens.next_token);
-            tokens
-                .workspace_tokens
-                .insert(workspace_key.clone(), token.clone());
-            token
-        };
-        tokens.targets.insert(
-            token.clone(),
-            EventTarget {
-                workspace_key: workspace_key.clone(),
-                subject: event.subject.clone(),
-                start: event.start.clone(),
-                end: event.end.clone(),
-            },
+        let token = register_event_token(
+            &mut tokens,
+            &workspace_key,
+            &event.subject,
+            &event.start,
+            &event.end,
         );
         event.event_token = Some(token);
         event.event_workspace = binding_summary(&loaded.store, &workspace_key);
     }
     Ok(())
+}
+
+fn register_event_token(
+    tokens: &mut EventTokenCache,
+    workspace_key: &str,
+    subject: &str,
+    start: &str,
+    end: &str,
+) -> String {
+    let token = if let Some(token) = tokens.workspace_tokens.get(workspace_key) {
+        token.clone()
+    } else {
+        if tokens.targets.len() >= MAX_EVENT_TOKENS {
+            tokens.workspace_tokens.clear();
+            tokens.targets.clear();
+        }
+        tokens.next_token = tokens.next_token.wrapping_add(1);
+        let token = format!("meeting-{}", tokens.next_token);
+        tokens
+            .workspace_tokens
+            .insert(workspace_key.to_owned(), token.clone());
+        token
+    };
+    tokens.targets.insert(
+        token.clone(),
+        EventTarget {
+            workspace_key: workspace_key.to_owned(),
+            subject: subject.to_owned(),
+            start: start.to_owned(),
+            end: end.to_owned(),
+        },
+    );
+    token
 }
 
 pub fn get_snapshot(

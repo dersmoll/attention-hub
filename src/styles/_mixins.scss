@@ -1,0 +1,252 @@
+@use "sass:list";
+@use "sass:string";
+
+/* Shared SCSS helpers.
+ *
+ * Two kinds live here:
+ *   - plumbing (breakpoints, window selectors, screen-reader text)
+ *   - recurring UI shapes (cards, icon buttons, badges, labels)
+ *
+ * Reach for a shape mixin when you add a new section: it is what keeps a new
+ * feature looking like the rest of the app without re-deriving the numbers. */
+
+/* Breakpoints ------------------------------------------------------------ */
+
+$breakpoint-narrow: 38rem;
+$breakpoint-advanced: 47.5rem;
+
+@mixin narrow-viewport {
+  @media (max-width: $breakpoint-narrow) {
+    @content;
+  }
+}
+
+/* Horizontal row that becomes a stack once the window is too narrow. */
+@mixin stack-on-narrow {
+  @include narrow-viewport {
+    align-items: stretch;
+    flex-direction: column;
+    @content;
+  }
+}
+
+@mixin reduced-motion {
+  @media (prefers-reduced-motion: reduce) {
+    @content;
+  }
+}
+
+@mixin forced-colors {
+  @media (forced-colors: active) {
+    @content;
+  }
+}
+
+/* Window plumbing -------------------------------------------------------- */
+
+/* Every window mounts the same document, so per-window layout has to be
+ * declared on `html`, `body` and the React root at once. */
+@mixin window-shell($labels...) {
+  $selector: ();
+
+  @each $label in $labels {
+    $selector: list.append(
+      $selector,
+      string.unquote('html[data-window="#{$label}"]'),
+      $separator: comma
+    );
+    $selector: list.append(
+      $selector,
+      string.unquote('body[data-window="#{$label}"]'),
+      $separator: comma
+    );
+    $selector: list.append(
+      $selector,
+      string.unquote('body[data-window="#{$label}"] #root'),
+      $separator: comma
+    );
+  }
+
+  #{$selector} {
+    @content;
+  }
+}
+
+@mixin window-body($labels...) {
+  $selector: ();
+
+  @each $label in $labels {
+    $selector: list.append(
+      $selector,
+      string.unquote('body[data-window="#{$label}"]'),
+      $separator: comma
+    );
+  }
+
+  #{$selector} {
+    @content;
+  }
+}
+
+/* Text ------------------------------------------------------------------- */
+
+/* Single-line text that clips with an ellipsis. */
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Small caps-style heading used for eyebrows, state words and section tags. */
+@mixin uppercase-label($font-size, $tracking: null, $font-weight: 700) {
+  font-size: $font-size;
+  font-weight: $font-weight;
+
+  @if $tracking {
+    letter-spacing: $tracking;
+  }
+
+  text-transform: uppercase;
+}
+
+/* Hint shown inside an empty contenteditable. */
+@mixin empty-placeholder($color) {
+  &:empty::before {
+    color: $color;
+    content: attr(data-placeholder);
+    pointer-events: none;
+  }
+}
+
+/* Hidden from sight, still exposed to assistive technology. */
+@mixin visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Shapes ----------------------------------------------------------------- */
+
+/* Equal width and height. Always use this instead of repeating the value. */
+@mixin square($size) {
+  width: $size;
+  height: $size;
+}
+
+/* Fixed-size box that its layout must not shrink or grow. */
+@mixin fixed-size($size, $min-size: $size) {
+  width: $size;
+  min-width: $min-size;
+  height: $size;
+  min-height: $min-size;
+}
+
+/* Bordered content block: the base for every card and settings panel. */
+@mixin surface-card(
+  $padding,
+  $radius: var(--radius-card),
+  $border: var(--color-border-card),
+  $background: var(--color-surface)
+) {
+  padding: $padding;
+  border: 1px solid $border;
+  border-radius: $radius;
+  background: $background;
+}
+
+/* Square, borderless-by-default button holding a single glyph. */
+@mixin icon-button($size, $radius: null, $min-size: $size) {
+  display: grid;
+  @include fixed-size($size, $min-size);
+
+  padding: 0;
+  place-items: center;
+
+  @if $radius {
+    border-radius: $radius;
+  }
+}
+
+/* Unread/pending counter pinned to the corner of a control. */
+@mixin count-badge(
+  $size,
+  $offset,
+  $font-size,
+  $font-weight: 700,
+  $padding-inline: 4px,
+  $border-width: 2px
+) {
+  position: absolute;
+  z-index: 2;
+  top: $offset;
+  right: $offset;
+  display: grid;
+  min-width: $size;
+  height: $size;
+  padding-inline: $padding-inline;
+  place-items: center;
+  border: $border-width solid var(--widget-panel-solid);
+  border-radius: var(--radius-pill);
+  color: var(--color-surface);
+  font-size: $font-size;
+  font-weight: $font-weight;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Outlined (non-filled) icon drawn with currentColor. Pass no size to style
+ * an SVG that is already sized by its own attributes. */
+@mixin stroke-icon($size: null, $stroke-width: 2) {
+  @if $size {
+    width: $size;
+    height: $size;
+  }
+
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: $stroke-width;
+}
+
+/* Focus ring for controls sitting on a themed widget panel. Raises the
+ * control so the ring is not clipped by an adjacent zone border. */
+@mixin widget-focus-ring {
+  position: relative;
+  z-index: 6;
+  outline: var(--widget-focus-outline);
+  outline-offset: var(--widget-focus-offset);
+}
+
+/* Themed panel surface nudged towards the panel foreground, used for the
+ * inputs and buttons that sit on a user-recoloured widget panel. */
+@function panel-tint($foreground-share) {
+  $surface-share: 100% - $foreground-share;
+
+  @return color-mix(
+    in srgb,
+    var(--widget-panel-solid) $surface-share,
+    var(--widget-panel-foreground) $foreground-share
+  );
+}
+
+/* Themed border/background wash derived from the panel border colour. */
+@function panel-border-wash($share) {
+  @return color-mix(in srgb, var(--widget-panel-border) $share, transparent);
+}
+
+@function panel-foreground-wash($share) {
+  @return color-mix(in srgb, var(--widget-panel-foreground) $share, transparent);
+}
+
+/* Hover tint used by the widget's icon buttons and clock labels. */
+@function panel-accent-hover() {
+  @return color-mix(in srgb, var(--widget-panel-foreground) 78%, #3b82f6);
+}

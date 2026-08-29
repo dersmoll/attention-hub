@@ -41,7 +41,9 @@ assert.deepEqual(legacy, {
   showClocksPanel: true,
   x: 120,
   y: -46,
+  panelSurface: "light",
   panelColor: "#f8fafc",
+  panelTextColor: "#111827",
   panelOpacity: 100,
   widthMode: "recommended",
   appOrder: ["teams", "telegram", "outlook", "slack", "viber", "whatsapp"],
@@ -77,12 +79,38 @@ assert.deepEqual(malformed, {
   showClocksPanel: true,
   x: null,
   y: null,
+  panelSurface: "light",
   panelColor: "#f8fafc",
+  panelTextColor: "#111827",
   panelOpacity: 25,
   widthMode: "recommended",
   appOrder: preferences.DEFAULT_APP_ORDER,
   monitoredSources: preferences.DEFAULT_APP_ORDER,
   liveVisualSources: preferences.LIVE_VISUAL_APP_KEYS,
+});
+
+const legacyCustomSurface = preferences.normalizeWidgetPreferences({
+  panelColor: "#1e293b",
+  panelOpacity: 80,
+});
+assert.equal(legacyCustomSurface.panelSurface, "custom");
+assert.equal(legacyCustomSurface.panelColor, "#1e293b");
+assert.equal(legacyCustomSurface.panelTextColor, "#f8fafc");
+
+const darkSurface = preferences.normalizeWidgetPreferences({
+  panelSurface: "dark",
+  panelColor: "#f8fafc",
+  panelTextColor: "#111827",
+});
+assert.equal(preferences.panelTextContrastRatio(darkSurface) >= 4.5, true);
+assert.deepEqual(preferences.widgetPanelStyle(darkSurface), {
+  "--widget-panel-background": "rgb(17 24 39 / 1)",
+  "--widget-panel-solid": "#111827",
+  "--widget-panel-foreground": "#f8fafc",
+  "--widget-panel-muted": "#b3b6bc",
+  "--widget-panel-border": "#4d535e",
+  "--widget-panel-interactive-foreground": "#111827",
+  "--widget-clock-picker-filter": "brightness(0) invert(1)",
 });
 
 const sourceControls = preferences.normalizeWidgetPreferences({
@@ -192,11 +220,11 @@ assert.equal(
 );
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "wide" }).widthMode,
-  "larger",
+  "recommended",
 );
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "larger" }).widthMode,
-  "larger",
+  "recommended",
 );
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "slim" }).widthMode,
@@ -277,7 +305,9 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   showClocksPanel: true,
   x: 10,
   y: 20,
+  panelSurface: "light",
   panelColor: "#f8fafc",
+  panelTextColor: "#111827",
   panelOpacity: 100,
   widthMode: "recommended",
   appOrder: [

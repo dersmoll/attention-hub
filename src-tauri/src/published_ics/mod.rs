@@ -4,7 +4,7 @@ use reqwest::{header::CONTENT_TYPE, redirect::Policy, Url};
 use serde::Serialize;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub use semantics::{DayEventSelection, EventClassification, EventSelection};
+pub use semantics::{DayEventSelection, EventClassification, EventSelection, MeetingProvider};
 
 const MAX_URL_BYTES: usize = 4_096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);

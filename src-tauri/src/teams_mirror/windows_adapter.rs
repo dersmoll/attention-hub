@@ -50,6 +50,10 @@ struct MirrorLayoutState {
     compact_mode: AtomicBool,
     slim_mode: AtomicBool,
     vertical_offset: AtomicI32,
+    left: AtomicI32,
+    top: AtomicI32,
+    width: AtomicI32,
+    height: AtomicI32,
 }
 
 struct MirrorRuntime {
@@ -100,35 +104,16 @@ impl TaskbarMirrorState {
     pub fn set_layout(
         &self,
         source: TaskbarMirrorSource,
-        slot_index: Option<i32>,
-        visible_source_count: i32,
-        compact_mode: bool,
-        slim_mode: bool,
-        vertical_offset: i32,
+        left: i32,
+        top: i32,
+        width: i32,
+        height: i32,
     ) {
         let instance = self.instance(source);
-        if let Some(slot_index) = slot_index {
-            instance
-                .layout
-                .slot_index
-                .store(slot_index, Ordering::Release);
-        }
-        instance
-            .layout
-            .visible_source_count
-            .store(visible_source_count, Ordering::Release);
-        instance
-            .layout
-            .compact_mode
-            .store(compact_mode, Ordering::Release);
-        instance
-            .layout
-            .slim_mode
-            .store(slim_mode, Ordering::Release);
-        instance
-            .layout
-            .vertical_offset
-            .store(vertical_offset, Ordering::Release);
+        instance.layout.left.store(left, Ordering::Release);
+        instance.layout.top.store(top, Ordering::Release);
+        instance.layout.width.store(width, Ordering::Release);
+        instance.layout.height.store(height, Ordering::Release);
     }
 
     pub fn stop_all(&self) {
@@ -172,6 +157,10 @@ impl MirrorInstance {
                 compact_mode: AtomicBool::new(false),
                 slim_mode: AtomicBool::new(false),
                 vertical_offset: AtomicI32::new(0),
+                left: AtomicI32::new(0),
+                top: AtomicI32::new(0),
+                width: AtomicI32::new(0),
+                height: AtomicI32::new(0),
             }),
         }
     }
@@ -257,8 +246,8 @@ impl MirrorInstance {
                         status.enabled = false;
                         status.visible = false;
                         status.diagnostic = Some(format!(
-                            "{} visual mirror stopped unexpectedly.",
-                            source.display_name()
+                            "{} visual mirror stopped unexpectedly: {error}",
+                            source.display_name(),
                         ));
                     }
                 } else {
@@ -1382,6 +1371,26 @@ mod windows_probe {
         unsafe { GetWindowRect(owner, &mut owner_rect)? };
         let dpi = unsafe { GetDpiForWindow(owner) }.max(96) as i32;
         let scale = |value: i32| value.saturating_mul(dpi) / 96;
+        if let Some((left, top, width, height)) = measured_widget_bounds(layout) {
+            let width = scale(width).max(1);
+            let height = scale(height).max(1);
+            unsafe {
+                SetWindowPos(
+                    window,
+                    None,
+                    owner_rect.left + scale(left),
+                    owner_rect.top + scale(top),
+                    width,
+                    height,
+                    SWP_NOACTIVATE | SWP_NOZORDER,
+                )?
+            };
+            return Ok((width, height));
+        }
+
+        // The first native frame can arrive before the webview reports its
+        // rendered bounds. Keep the previous geometry only for that short
+        // startup interval; reflow replaces it with the measured rectangle.
         let compact = layout.is_some_and(|value| value.compact_mode.load(Ordering::Acquire));
         let slim = layout.is_some_and(|value| value.slim_mode.load(Ordering::Acquire));
         let size = scale(if slim {
@@ -1427,6 +1436,20 @@ mod windows_probe {
             )?
         };
         Ok((size, size))
+    }
+
+    fn measured_widget_bounds(layout: Option<&MirrorLayoutState>) -> Option<(i32, i32, i32, i32)> {
+        let layout = layout?;
+        let width = layout.width.load(Ordering::Acquire);
+        let height = layout.height.load(Ordering::Acquire);
+        (width > 0 && height > 0).then(|| {
+            (
+                layout.left.load(Ordering::Acquire).max(0),
+                layout.top.load(Ordering::Acquire).max(0),
+                width,
+                height,
+            )
+        })
     }
 
     pub(super) fn reposition_product_destination(

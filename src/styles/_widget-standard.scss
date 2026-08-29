@@ -1,0 +1,272 @@
+@use "mixins" as *;
+
+/* "Recommended" width mode: the compact two-line rail. Everything here is a
+ * size/density override of the base widget components. */
+
+.widget-shell[data-width-mode="recommended"] {
+  /* Icon chain: re-point the tokens, the rules live in `_widget-core`. */
+  --widget-app-slot-size: 34px;
+  --widget-app-surface-size: 34px;
+  --widget-app-icon-size: 24px;
+  --widget-utility-surface-size: 16px;
+  --widget-utility-icon-size: 12px;
+  --widget-utility-close-size: 12px;
+
+  .widget-zone {
+    height: 100%;
+  }
+
+  .widget-apps {
+    top: 9px;
+    left: 8px;
+    gap: 2px;
+  }
+
+  /* Calendar band ------------------------------------------------------- */
+
+  .widget-calendar {
+    padding: 5px 7px;
+
+    small {
+      font-size: 11px;
+    }
+
+    .widget-calendar__countdown {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    &__content {
+      height: 100%;
+
+      &[data-has-next] > .widget-calendar__event,
+      &[data-has-next] > .widget-calendar__next {
+        height: 100%;
+        align-content: start;
+      }
+    }
+
+    &__event-header,
+    &__next-header {
+      gap: 5px;
+    }
+
+    &__event,
+    &__next {
+      gap: 0;
+
+      > .widget-calendar__detail {
+        margin-top: 4px;
+      }
+
+      > .widget-calendar__progress {
+        margin-top: 3px;
+      }
+    }
+
+    &__event > small:not(.widget-calendar__detail) {
+      margin-top: 7px;
+    }
+
+    &__title--compact {
+      display: block;
+      min-width: 0;
+      flex: 1 1 auto;
+      font-size: 13px;
+    }
+
+    &__title--standard {
+      display: none;
+    }
+
+    &__state,
+    &__next-header > span,
+    &__ack,
+    &__join {
+      flex: 0 0 auto;
+    }
+
+    /* Status words become pills once the band gets short. */
+    &__state,
+    &__next-header > span {
+
+    }
+
+    &__state[data-calendar-progress],
+    &__next-header > span[data-calendar-progress] {
+      border-color: #86efac;
+      color: var(--color-success);
+      background: var(--color-success-surface);
+    }
+
+    &__state[data-calendar-started] {
+      border-color: #fca5a5;
+      color: var(--color-danger);
+      background: var(--color-danger-surface);
+    }
+
+    &__hover-actions {
+      top: -1px;
+      right: -2px;
+    }
+
+    &__event[data-workspace-actions] > .widget-calendar__hover-actions,
+    &__next[data-workspace-actions] > .widget-calendar__hover-actions {
+      right: 16px;
+    }
+  }
+
+  /* Clocks -------------------------------------------------------------- */
+
+  .widget-clock {
+    padding: 1px 0;
+
+    &[data-clock-layout="horizontal"][data-clock-mode="live"] {
+      > div {
+        grid-template-rows: 12px 27px 10px;
+        gap: 0;
+        padding-inline: 5px;
+        align-self: flex-start;
+      }
+
+      .widget-clock__label {
+        height: 12px;
+        min-height: 12px;
+        font-size: 10px;
+      }
+
+      .widget-clock__short-label {
+        font-size: 10px;
+      }
+
+      time {
+        font-size: 26px;
+      }
+
+      .widget-clock__time-button {
+        min-height: 27px;
+      }
+
+      .widget-clock__day {
+        display: block;
+      }
+    }
+  }
+
+  /* Time-zone converter -------------------------------------------------- */
+
+  .widget-clock-converter {
+    grid-template-rows: 12px 27px 10px;
+    gap: 0;
+    text-align: left;
+    align-self: flex-start;
+    padding-left: 4px;
+    &::after {
+      top: 0;
+      bottom: 0;
+    }
+
+    label,
+    output > span {
+      height: 12px;
+      justify-content: flex-start;
+      padding-inline: 0 4px;
+      font-size: 10px;
+    }
+
+    input {
+      grid-row: 2;
+      height: 27px;
+      padding-inline: 0 4px;
+      font-size: 23px;
+      position: relative;
+      text-align: left;
+
+      &::-webkit-calendar-picker-indicator {
+        position: absolute;
+        top: -13px;
+        right: 0;
+      }
+    }
+
+    &__source-day {
+      display: block;
+      grid-column: 1;
+      grid-row: 3;
+      min-width: 0;
+      color: var(--widget-panel-muted);
+      font-size: 9px;
+      font-weight: 500;
+      line-height: 10px;
+
+      @include truncate;
+    }
+
+    output {
+      grid-row: 1 / 4;
+      grid-template-rows: 12px 27px 10px;
+      text-align: left;
+      padding-inline: 5px;
+
+      > span {
+        padding-right: 0;
+      }
+    }
+
+    &__result {
+      grid-row: 2 / 4;
+      grid-template-rows: 27px 10px;
+      align-content: start;
+
+      .widget-clock-converter__time {
+        align-self: center;
+        font-size: 23px;
+        line-height: 1;
+      }
+
+      .widget-clock-converter__day {
+        font-size: 9px;
+        font-weight: 500;
+        line-height: 10px;
+        text-transform: none;
+      }
+    }
+
+    /* Only the offsets and the box differ from the base close button. */
+    &__close {
+      z-index: 4;
+      top: 1px;
+      right: 1px;
+
+      @include fixed-size(12px);
+
+      &:hover {
+        background: none;
+        color: var(--color-focus);
+      }
+    }
+  }
+
+  /* Mirrored layout when the conversion is anchored to the second clock. */
+  .widget-clock[data-clock-conversion-source="secondary"] {
+    .widget-clock-converter label,
+    .widget-clock-converter input,
+    .widget-clock-converter__source-day {
+      grid-column: 2;
+    }
+
+    .widget-clock-converter output {
+      grid-column: 1;
+    }
+  }
+
+  /* Utility column ------------------------------------------------------- */
+
+  .widget-utility {
+    gap: 2px;
+
+    .widget-close-control {
+      font-size: 17px;
+    }
+  }
+}

@@ -1,0 +1,694 @@
+@use "mixins" as *;
+
+/* Widget rail: the shell grid, the app shortcut zone, the clocks and the
+ * utility buttons. Width-mode specific sizing lives in `_widget-standard`
+ * and `_widget-slim`. */
+
+.widget-shell {
+  --widget-focus-outline: 3px solid var(--color-focus-strong);
+  --widget-focus-offset: 1px;
+  --widget-interactive-accent: var(--color-info-strong);
+  --widget-control-radius: 5px;
+
+  /* Icon chain sizing. The width-mode partials re-point these rather than
+   * re-declaring the rules that consume them, so a size change is one edit
+   * per mode. Defaults below are the base fallback values. */
+  --widget-app-slot-size: 48px;
+  --widget-app-slot-radius: 8px;
+  --widget-app-surface-size: 40px;
+  --widget-app-surface-radius: 7px;
+  --widget-app-icon-size: 28px;
+  --widget-utility-surface-size: 20px;
+  --widget-utility-icon-size: 13px;
+  --widget-utility-close-size: 12px;
+
+  position: relative;
+  display: grid;
+  align-items: stretch;
+  grid-template-columns: var(--widget-grid-template, 240px 240px 320px 68px);
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--widget-panel-border);
+  border-radius: var(--radius-panel);
+  color: var(--widget-panel-foreground);
+  background: var(--widget-panel-background);
+  box-shadow: var(--shadow-panel);
+  user-select: none;
+
+  > .widget-zone:not(:first-child),
+  > .widget-utility {
+    border-left: 1px solid var(--widget-panel-border);
+  }
+}
+
+.widget-zone {
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--widget-panel-foreground);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Only the slim rail exposes a dedicated drag strip. */
+.widget-drag-handle {
+  display: none;
+}
+
+/* App shortcuts ---------------------------------------------------------- */
+
+.widget-left {
+  position: relative;
+}
+
+.widget-apps {
+  position: absolute;
+  top: 16px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.widget-app-slot {
+  position: relative;
+  display: grid;
+  flex: 0 0 var(--widget-app-slot-size);
+
+  @include square(var(--widget-app-slot-size));
+
+  min-height: var(--widget-app-slot-size);
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--widget-app-slot-radius);
+  color: #334155;
+  background: transparent;
+  svg {
+    transition: all .3s;
+  }
+
+  &:hover:not(:disabled) {
+    background: transparent;
+
+    svg {
+      transform: translateY(-2px)
+    }
+  }
+
+  &:focus-visible {
+    @include widget-focus-ring;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+  }
+
+  &[data-health="retrying"] {
+    box-shadow: inset 0 0 0 1px var(--color-warning);
+  }
+
+  &[data-health="stale"] {
+    box-shadow: inset 0 0 0 1px #9a3412;
+  }
+
+  &[data-health="unavailable"] {
+    filter: grayscale(0.45);
+  }
+
+  /* Transient toast anchored to the shortcut that produced it. */
+  &[data-feedback] {
+    z-index: 12;
+    filter: none;
+
+    &::after {
+      position: absolute;
+      z-index: 12;
+      top: 50%;
+      left: calc(100% + 6px);
+      width: max-content;
+      max-width: 220px;
+      padding: 5px 7px;
+      border: 1px solid var(--color-text-subtle);
+      border-radius: 6px;
+      color: var(--color-surface-subtle);
+      background: var(--color-text-strong);
+      box-shadow: 0 3px 10px rgb(15 23 42 / 28%);
+      content: attr(data-feedback);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.25;
+      pointer-events: none;
+      text-align: left;
+      white-space: normal;
+      transform: translateY(-50%);
+    }
+  }
+}
+
+.widget-app-surface {
+  position: relative;
+  display: grid;
+
+  @include square(var(--widget-app-surface-size));
+
+  place-items: center;
+  border-radius: var(--widget-app-surface-radius);
+  color: var(--color-surface-subtle);
+  background: transparent;
+  box-shadow: none;
+
+  > svg {
+    @include square(var(--widget-app-icon-size));
+
+    overflow: visible;
+  }
+}
+
+.widget-app-badge {
+  @include count-badge($size: 18px, $offset: -4px, $font-size: 10px);
+
+  background: #6b7280;
+
+  &[data-tone="attention"] {
+    background: #c62828;
+  }
+}
+
+/* Clocks ----------------------------------------------------------------- */
+
+.widget-clock {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  padding: 4px 8px;
+  text-align: left;
+
+  > div {
+    display: grid;
+    align-content: center;
+    min-width: 0;
+    gap: 1px;
+    line-height: 1.15;
+    text-align: left;
+
+    + div {
+      padding-left: 8px;
+      border-left: 1px solid var(--widget-panel-border);
+    }
+  }
+
+  input:focus-visible,
+  button:focus-visible {
+    @include widget-focus-ring;
+  }
+
+  time {
+    font-family: var(--font-numeric);
+    font-variant-numeric: tabular-nums;
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  /* The zone picker is an invisible <select> stretched over its label. */
+  select {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    opacity: 0;
+  }
+
+  /* Side-by-side label/time layout. */
+  &[data-clock-layout="horizontal"][data-clock-mode="live"] {
+    grid-template-columns: repeat(var(--widget-clock-count, 2), minmax(0, 1fr));
+
+    .widget-clock__label {
+      justify-content: flex-start;
+    }
+
+    .widget-clock__time-button {
+      place-items: center start;
+      border-radius: 0;
+      max-width: fit-content;
+
+      &:hover {
+        color: currentColor;
+        background: rgb(255 255 255 / 10%);
+      }
+    }
+  }
+
+  &__label {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 0;
+    color: var(--widget-panel-muted);
+    background: transparent;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+
+    &--select {
+      &:focus-within {
+        outline: var(--widget-focus-outline);
+        outline-offset: var(--widget-focus-offset);
+      }
+
+      &:hover {
+        color: panel-accent-hover();
+      }
+
+      > svg {
+        position: absolute;
+        right: 1px;
+        z-index: 1;
+        width: 10px;
+        height: 7px;
+        display: none;
+        pointer-events: none;
+
+        @include stroke-icon($stroke-width: 1.7);
+      }
+    }
+  }
+
+  &__short-label {
+    min-width: 0;
+    padding-inline: 0;
+    font-size: 11px;
+    font-weight: 600;
+
+    @include truncate;
+  }
+
+  &__time-button {
+    display: grid;
+    min-width: 0;
+    min-height: 31px;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--widget-interactive-accent);
+    }
+  }
+
+  &__time-display {
+    display: block;
+    min-width: 0;
+    color: var(--widget-panel-foreground);
+    text-align: left;
+  }
+
+  &__day {
+    display: none;
+    min-width: 0;
+    color: var(--widget-panel-muted);
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 10px;
+
+    @include truncate;
+  }
+
+  > .widget-clock-converter {
+    position: relative;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: 19px 31px;
+    align-items: center;
+    gap: 1px 0;
+    padding: 0;
+    border: 0;
+    text-align: center;
+  }
+}
+
+/* Stacked label/time layout for the live clocks. */
+.widget-shell .widget-clock[data-clock-layout="vertical"][data-clock-mode="live"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 0;
+  padding-block: 3px;
+
+  > div {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    align-items: center;
+    gap: 4px;
+    min-height: 0;
+
+    + div {
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    &:first-child {
+      padding-right: 0;
+    }
+  }
+
+  .widget-clock__label {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    justify-content: flex-start;
+    justify-self: stretch;
+    font-size: 9px;
+    text-align: left;
+  }
+
+  .widget-clock__short-label {
+    width: 100%;
+    padding: 0 14px 0 0;
+    text-align: left;
+  }
+
+  .widget-clock__time-button,
+  .widget-clock__time-display {
+    grid-column: 1;
+    grid-row: 1;
+    display: grid;
+    width: 100%;
+    min-height: 0;
+    justify-items: end;
+    font-size: 11px;
+    line-height: 1;
+    text-align: right;
+  }
+
+  time {
+    font-size: 11px;
+    line-height: 1;
+  }
+}
+
+/* Time-zone converter overlay -------------------------------------------- */
+
+.widget-clock-converter {
+  /* Divider between the source and result columns. */
+  &::after {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    border-left: 1px solid var(--widget-panel-border);
+    content: "";
+    pointer-events: none;
+  }
+
+  label,
+  output > span {
+    display: flex;
+    height: 19px;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 4px;
+    color: var(--widget-panel-muted);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+
+    @include truncate;
+  }
+
+  label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  input {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+    height: 31px;
+    padding: 0 4px;
+    border: 0;
+    border-radius: 4px;
+    color: inherit;
+    background: transparent;
+    font-family: var(--font-numeric);
+    font-size: 25px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-align: center;
+
+    &::-webkit-calendar-picker-indicator {
+      @include square(12px);
+
+      margin: 0;
+      padding: 0;
+      filter: var(--widget-clock-picker-filter, none);
+      opacity: 0.9;
+    }
+
+    &:hover {
+      color: var(--widget-interactive-accent);
+    }
+
+    &:focus {
+      outline: 2px solid var(--color-info-strong);
+      outline-offset: -2px;
+      background: rgb(255 255 255 / 45%);
+    }
+  }
+
+  output {
+    display: grid;
+    grid-column: 2;
+    grid-row: 1 / 3;
+    grid-template-rows: 19px 31px;
+    min-width: 0;
+    align-content: stretch;
+    gap: 1px;
+    overflow: hidden;
+    text-align: center;
+
+    > span {
+      grid-row: 1;
+      align-self: center;
+    }
+  }
+
+  &__source-day {
+    display: none;
+  }
+
+  &__result {
+    display: grid;
+    grid-row: 2;
+    grid-template-rows: 22px 8px;
+    min-width: 0;
+    align-content: center;
+    overflow: hidden;
+
+    .widget-clock-converter__time {
+      align-self: end;
+      font-family: var(--font-numeric);
+      font-size: 23px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      line-height: 0.92;
+
+      @include truncate;
+    }
+
+    .widget-clock-converter__day {
+      align-self: start;
+      color: var(--widget-panel-muted);
+      font-size: 8px;
+      font-weight: 600;
+      line-height: 1;
+      text-transform: lowercase;
+
+      @include truncate;
+    }
+  }
+
+  &__close {
+    position: absolute;
+    z-index: 5;
+    top: 2px;
+    right: 2px;
+
+    @include icon-button(14px);
+
+    border: 0;
+    color: var(--widget-panel-muted);
+    background: transparent;
+    font-size: 15px;
+    line-height: 1;
+    transform: none;
+  }
+}
+
+/* Utility column ---------------------------------------------------------- */
+
+.widget-utility {
+  z-index: 4;
+  display: grid;
+
+  /* Same value the grid column uses, so the rail and its contents cannot
+   * disagree. Written by `widgetUtilityWidth()` in `widget-layout.ts`. */
+  width: var(--widget-utility-width);
+  height: 100%;
+  align-self: stretch;
+  justify-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+
+  button {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--widget-control-radius);
+    color: var(--widget-panel-foreground);
+    background: transparent;
+
+    &:hover:not(:disabled),
+    &:hover:not(:disabled) .widget-utility__surface {
+      color: var(--color-focus) !important;
+    }
+
+    &:focus-visible {
+      @include widget-focus-ring;
+    }
+  }
+
+  &__surface {
+    display: grid;
+
+    @include square(var(--widget-utility-surface-size));
+
+    place-items: center;
+    border: 0;
+    border-radius: var(--widget-control-radius);
+    color: var(--widget-panel-foreground);
+    background: transparent;
+  }
+
+  svg {
+    @include square(var(--widget-utility-icon-size));
+
+    fill: currentColor;
+  }
+
+  /* Wins over the generic `svg` rule above, which fills rather than strokes. */
+  .hub-close-icon {
+    @include stroke-icon(var(--widget-utility-close-size));
+  }
+
+  .widget-reminder-control svg {
+    @include stroke-icon($stroke-width: 1.8);
+  }
+
+  .widget-close-control {
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  /* The hover tint sits on the button and its inner surface alike. */
+  button:hover:not(:disabled),
+  button:focus-visible,
+  button:hover:not(:disabled) .widget-utility__surface,
+  button:focus-visible .widget-utility__surface {
+    border-color: transparent;
+    color: panel-accent-hover();
+    background: transparent !important;
+  }
+}
+
+.widget-advanced-control svg {
+  @include stroke-icon($stroke-width: 1.5);
+}
+
+.widget-reminder__badge {
+  @include count-badge(
+    $size: 16px,
+    $offset: -3px,
+    $font-size: 9px,
+    $font-weight: 800,
+    $padding-inline: 3px
+  );
+
+  background: var(--color-info-strong);
+
+  .widget-reminder-control[data-due] & {
+    color: #2e1b02;
+    background: #fbbf24;
+  }
+}
+
+/* Shared close glyph, also used by the detached panels. */
+.hub-close-icon {
+  @include stroke-icon(12px);
+}
+
+.widget-error {
+  position: absolute;
+  z-index: 7;
+  right: 8px;
+  bottom: 4px;
+  max-width: 416px;
+  margin: 0;
+  color: var(--color-danger);
+  background: var(--color-surface);
+  font-size: 10px;
+  line-height: 1.2;
+
+  @include truncate;
+}
+
+@include forced-colors {
+  .widget-app-slot[data-health="retrying"],
+  .widget-app-slot[data-health="stale"] {
+    outline: 2px dashed Highlight;
+    outline-offset: -4px;
+  }
+
+  .widget-app-surface,
+  .widget-utility button[aria-pressed="true"] .widget-utility__surface {
+    forced-color-adjust: auto;
+  }
+}

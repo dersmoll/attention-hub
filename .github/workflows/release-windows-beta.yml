@@ -64,7 +64,7 @@ jobs:
 
       - name: Build signed updater artifacts and publish prerelease
         id: tauri_release
-        uses: tauri-apps/tauri-action@3b50ac4d4512105f96edbaa78a6e2f9392805589 # v0.5.24
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -73,9 +73,8 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Attention Hub ${{ github.ref_name }}"
           releaseBody: "Signed in-app updater artifacts are included. The Windows installer remains Authenticode-unsigned unless the release notes state otherwise."
-          generateReleaseNotes: true
           prerelease: true
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           tauriScript: pnpm tauri
           args: --bundles nsis

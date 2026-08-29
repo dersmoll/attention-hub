@@ -10,8 +10,14 @@ export type AttentionAppKey =
   | "viber"
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
-export type WidgetWidthMode = "recommended" | "larger" | "slim";
+export type WidgetWidthMode = "recommended" | "slim";
 export type ClockLayout = "horizontal" | "vertical";
+export type PanelSurfaceMode = "light" | "dark" | "custom";
+
+export const PANEL_SURFACE_COLORS = {
+  light: { background: "#f8fafc", text: "#111827" },
+  dark: { background: "#111827", text: "#f8fafc" },
+} as const;
 
 export interface WidgetPreferences {
   sourceCatalogVersion: 2;
@@ -25,7 +31,9 @@ export interface WidgetPreferences {
   showClocksPanel: boolean;
   x: number | null;
   y: number | null;
+  panelSurface: PanelSurfaceMode;
   panelColor: string;
+  panelTextColor: string;
   panelOpacity: number;
   widthMode: WidgetWidthMode;
   appOrder: AttentionAppKey[];
@@ -69,7 +77,9 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   showClocksPanel: true,
   x: null,
   y: null,
-  panelColor: "#f8fafc",
+  panelSurface: "light",
+  panelColor: PANEL_SURFACE_COLORS.light.background,
+  panelTextColor: PANEL_SURFACE_COLORS.light.text,
   panelOpacity: 100,
   widthMode: "recommended",
   appOrder: [...DEFAULT_APP_ORDER],
@@ -77,10 +87,32 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
 };
 
-function normalizeColor(value: unknown) {
+function normalizeColor(value: unknown, fallback: string) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
     ? value.toLowerCase()
-    : DEFAULT_WIDGET_PREFERENCES.panelColor;
+    : fallback;
+}
+
+function normalizePanelSurface(
+  value: unknown,
+  panelColor: string,
+): PanelSurfaceMode {
+  if (value === "light" || value === "dark" || value === "custom") {
+    return value;
+  }
+
+  return panelColor === PANEL_SURFACE_COLORS.light.background
+    ? "light"
+    : "custom";
+}
+
+function legacyPanelTextColor(panelColor: string) {
+  const background = parseHexColor(panelColor);
+  const dark = parseHexColor(PANEL_SURFACE_COLORS.light.text);
+  const light = parseHexColor(PANEL_SURFACE_COLORS.dark.text);
+  return contrastRatio(background, dark) >= contrastRatio(background, light)
+    ? PANEL_SURFACE_COLORS.light.text
+    : PANEL_SURFACE_COLORS.dark.text;
 }
 
 function normalizeOpacity(value: unknown) {
@@ -94,7 +126,7 @@ function normalizeWidthMode(value: unknown): WidgetWidthMode {
     return "recommended";
   }
   if (value === "larger" || value === "wide") {
-    return "larger";
+    return "recommended";
   }
   if (value === "slim") {
     return "slim";
@@ -237,6 +269,14 @@ export function normalizeWidgetPreferences(
     : DEFAULT_WIDGET_PREFERENCES.liveVisualSources;
   const primaryTimeZone = normalizePrimaryTimeZone(value?.primaryTimeZone);
   const secondaryTimeZone = normalizeTimeZone(value?.secondaryTimeZone);
+  const panelColor = normalizeColor(
+    value?.panelColor,
+    DEFAULT_WIDGET_PREFERENCES.panelColor,
+  );
+  const panelTextColor = normalizeColor(
+    value?.panelTextColor,
+    legacyPanelTextColor(panelColor),
+  );
   return {
     sourceCatalogVersion: 2,
     pinned:
@@ -265,7 +305,9 @@ export function normalizeWidgetPreferences(
         : DEFAULT_WIDGET_PREFERENCES.showClocksPanel,
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
-    panelColor: normalizeColor(value?.panelColor),
+    panelSurface: normalizePanelSurface(value?.panelSurface, panelColor),
+    panelColor,
+    panelTextColor,
     panelOpacity: normalizeOpacity(value?.panelOpacity),
     widthMode: normalizeWidthMode(value?.widthMode),
     appOrder: normalizeAppOrder(value?.appOrder, migrateLegacyCatalog),
@@ -342,33 +384,67 @@ function contrastRatio(first: RgbColor, second: RgbColor) {
   );
 }
 
+function mixColors(
+  foreground: RgbColor,
+  background: RgbColor,
+  foregroundWeight: number,
+) {
+  const backgroundWeight = 1 - foregroundWeight;
+  const toHex = (value: number) =>
+    Math.round(value).toString(16).padStart(2, "0");
+  const red = toHex(
+    foreground.red * foregroundWeight + background.red * backgroundWeight,
+  );
+  const green = toHex(
+    foreground.green * foregroundWeight + background.green * backgroundWeight,
+  );
+  const blue = toHex(
+    foreground.blue * foregroundWeight + background.blue * backgroundWeight,
+  );
+  return `#${red}${green}${blue}`;
+}
+
+export function panelSurfaceColors(preferences: WidgetPreferences) {
+  const preset =
+    preferences.panelSurface === "custom"
+      ? null
+      : PANEL_SURFACE_COLORS[preferences.panelSurface];
+  return {
+    background: preset?.background ?? preferences.panelColor,
+    text: preset?.text ?? preferences.panelTextColor,
+  };
+}
+
+export function panelTextContrastRatio(preferences: WidgetPreferences) {
+  const colors = panelSurfaceColors(preferences);
+  return contrastRatio(
+    parseHexColor(colors.background),
+    parseHexColor(colors.text),
+  );
+}
+
 export function widgetPanelStyle(preferences: WidgetPreferences) {
-  const background = parseHexColor(preferences.panelColor);
-  const dark = parseHexColor("#111827");
-  const light = parseHexColor("#f8fafc");
-  const useDarkForeground =
-    contrastRatio(background, dark) >= contrastRatio(background, light);
-  const foreground = useDarkForeground ? "#111827" : "#f8fafc";
-  const mutedCandidate = useDarkForeground ? "#475569" : "#e2e8f0";
-  const muted =
-    contrastRatio(background, parseHexColor(mutedCandidate)) >= 4.5
-      ? mutedCandidate
-      : foreground;
-  const borderCandidate = useDarkForeground ? "#334155" : "#e2e8f0";
-  const border =
-    contrastRatio(background, parseHexColor(borderCandidate)) >= 3
-      ? borderCandidate
-      : foreground;
+  const colors = panelSurfaceColors(preferences);
+  const background = parseHexColor(colors.background);
+  const foreground = parseHexColor(colors.text);
   const alpha = preferences.panelOpacity / 100;
+  const borderForegroundWeight =
+    relativeLuminance(background) < 0.18 ? 0.26 : 0.5;
 
   return {
     "--widget-panel-background": `rgb(${background.red} ${background.green} ${background.blue} / ${alpha})`,
-    "--widget-panel-solid": preferences.panelColor,
-    "--widget-panel-foreground": foreground,
-    "--widget-panel-muted": muted,
-    "--widget-panel-border": border,
-    "--widget-panel-interactive-foreground": useDarkForeground
-      ? "#f8fafc"
-      : "#111827",
+    "--widget-panel-solid": colors.background,
+    "--widget-panel-foreground": colors.text,
+    "--widget-panel-muted": mixColors(foreground, background, 0.7),
+    "--widget-panel-border": mixColors(
+      foreground,
+      background,
+      borderForegroundWeight,
+    ),
+    "--widget-panel-interactive-foreground": colors.background,
+    "--widget-clock-picker-filter":
+      relativeLuminance(background) < 0.5
+        ? "brightness(0) invert(1)"
+        : "none",
   };
 }
