@@ -1,15 +1,15 @@
 {
-  "version": "0.6.0-beta.8",
+  "version": "0.6.0-beta.9",
   "notes": "Signed in-app updater artifacts are included. The Windows installer remains Authenticode-unsigned unless the release notes state otherwise.",
-  "pub_date": "2026-08-28T19:34:26.712Z",
+  "pub_date": "2026-08-29T20:39:59.402Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdWViY1lJc2Jla2hmbUFtMng3cDVhd0NwMnJKVTYzaTdHQmdHN0RnNld5V25ETHNnVzlwZDM0MU5LL3pPbHR2RkhjOUduQXRtNCtGSzJ5YmlDUVFoVkFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTQ1NjYzCWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjhfeDY0LXNldHVwLmV4ZQowbFB0U2t0N2xlWHo5MklXNDllQlVMYXAwajhWTU01Mmg2ZWJuTUJUYnBiOFR1dERIYWZxcS9FcHRyNkc5cGxLTDBna3RrYzE5U1l4bkZ1US9YL2FDZz09Cg==",
-      "url": "https://github.com/dersmoll/attention-hub/releases/download/v0.6.0-beta.8/Attention.Hub_0.6.0-beta.8_x64-setup_windows.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdVVrUEw1Ky9VL3hUTnZKeHhHV2pNZWNPNDVDZ2NuRERGb2dweVByQVBGREppREFWMXhiQVNqRHExMnNSRDFOZmxHdHlMNUJmbXNYYnJuWlFmZkpMNEFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MDM1OTk2CWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjlfeDY0LXNldHVwLmV4ZQpoUUZCYTE2LzFNTWd5UE9XZVIvZkdPWCtlakdENk5kZldVek1CZUFUU3hpWTIzNUZwbllDd3owaURWZGp1RnJvallVcmlsZGU5ZkFtS0Z2RDdQOEhCZz09Cg==",
+      "url": "https://api.github.com/repos/dersmoll/attention-hub/releases/assets/535708323"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdWViY1lJc2Jla2hmbUFtMng3cDVhd0NwMnJKVTYzaTdHQmdHN0RnNld5V25ETHNnVzlwZDM0MU5LL3pPbHR2RkhjOUduQXRtNCtGSzJ5YmlDUVFoVkFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTQ1NjYzCWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjhfeDY0LXNldHVwLmV4ZQowbFB0U2t0N2xlWHo5MklXNDllQlVMYXAwajhWTU01Mmg2ZWJuTUJUYnBiOFR1dERIYWZxcS9FcHRyNkc5cGxLTDBna3RrYzE5U1l4bkZ1US9YL2FDZz09Cg==",
-      "url": "https://github.com/dersmoll/attention-hub/releases/download/v0.6.0-beta.8/Attention.Hub_0.6.0-beta.8_x64-setup_windows.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdVVrUEw1Ky9VL3hUTnZKeHhHV2pNZWNPNDVDZ2NuRERGb2dweVByQVBGREppREFWMXhiQVNqRHExMnNSRDFOZmxHdHlMNUJmbXNYYnJuWlFmZkpMNEFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MDM1OTk2CWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjlfeDY0LXNldHVwLmV4ZQpoUUZCYTE2LzFNTWd5UE9XZVIvZkdPWCtlakdENk5kZldVek1CZUFUU3hpWTIzNUZwbllDd3owaURWZGp1RnJvallVcmlsZGU5ZkFtS0Z2RDdQOEhCZz09Cg==",
+      "url": "https://api.github.com/repos/dersmoll/attention-hub/releases/assets/535708323"
     }
   }
 }
