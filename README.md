@@ -11,12 +11,14 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.6` is the current public beta.
+Version `0.6.0-beta.9` is the current public beta.
 
-[Download the unsigned Windows installer](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.6)
+[Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.9)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
-page publishes the exact installer checksum for verification.
+page publishes the exact installer checksum for verification. Attention Hub's
+separate Tauri updater signature remains the validation path for in-app beta
+updates.
 
 ## What it does
 
@@ -38,8 +40,9 @@ page publishes the exact installer checksum for verification.
   retains the native time picker, and returns to live clocks with **Esc**.
 - Shows the active or next event from one user-supplied Published ICS calendar,
   plus at most one timed event with the same upcoming start or an overlapping
-  active time. Allowlisted Teams, Zoom, Google Meet, and Webex links use compact
-  **Join** actions that appear on hover or keyboard focus. A successful Join
+  active time. Teams and Zoom meetings show a compact provider indicator.
+  Allowlisted Teams, Zoom, Google Meet, and Webex links use compact **Join**
+  actions that appear on hover or keyboard focus. A successful Join
   selects that event and locally hides its parallel peer. Started events also
   expose **I'm in** beside Join until either action acknowledges the event.
   **Finish** locally hides an acknowledged active event until its scheduled end
@@ -50,7 +53,7 @@ page publishes the exact installer checksum for verification.
   An unconfigured widget shows a compact **Set up** action that opens Advanced
   at the masked Published ICS field; configured calendars with no current or
   upcoming event retain the ordinary empty state.
-- Any non-private event in the **Today** summary can keep optional local event
+- Any non-private event in the main widget or **Today** summary can keep optional local event
   settings: a project stash, an HTTP(S) work link, or both. Recurring events
   share settings across their series; one-off events retain their own link.
   Multiple events may share the same bounded text, bullet, and link-aware
@@ -62,8 +65,9 @@ page publishes the exact installer checksum for verification.
   starts a three-step What/When/Details flow with the next quarter-hour
   prefilled. Reminder cards provide compact complete, edit, and confirmed
   delete actions.
-- Keeps pin, close, reminders, and Advanced in a compact right-side utility
-  rail, separate from communication sources and calendar content.
+- Keeps close, reminders, and Advanced in a compact right-side utility rail,
+  separate from communication sources and calendar content. Pinning is an
+  Appearance preference and native context-menu action.
 - The app-shortcut segment can be hidden without changing source order,
   monitoring choices, or privacy semantics. Native visual mirrors pause while
   that segment is hidden.
@@ -90,7 +94,9 @@ page publishes the exact installer checksum for verification.
   exposes bounded activity state. Outlook shows an Inbox number only while
   Windows exposes a fresh semantic label. Slack, Viber, and WhatsApp remain
   presence, activation, and optional visual surfaces without invented unread
-  counts.
+  counts. When enabled, Viber's live visual surface mirrors the Windows-owned
+  taskbar icon and its native badge without reading pixels or deriving a
+  synthetic count.
 - The calendar publication URL is stored in Windows Credential Manager and is
   never written to the WebView, logs, fixtures, or documentation.
 - Meeting URLs remain in Rust process memory behind short-lived tokens and open
