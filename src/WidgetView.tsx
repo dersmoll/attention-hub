@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -49,11 +50,13 @@ import {
   timeZoneOffsetLabel,
 } from "./time-zone-options";
 import {
-  WIDGET_SLIM_DRAG_HANDLE_WIDTH,
+  WIDGET_DRAG_HANDLE_WIDTH,
   calendarDayPanelDirection,
   calendarDayPanelHeight,
+  widgetCalendarMinimumWidth,
   widgetCalendarWidth,
   widgetClockPanelWidth,
+  widgetFixedWidth,
   widgetHeight,
   widgetLeftWidth,
   widgetUtilityWidth,
@@ -116,6 +119,10 @@ const WORK_CALENDAR_IMMINENT_MS = 60 * 1_000;
 const SOURCE_ACTIVATION_NOTICE_MS = 4_000;
 const WIDGET_NOTICE_MS = 4_500;
 const LATER_INBOX_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
+const WIDGET_RESIZE_EDGE_SIZE = 6;
+const WIDGET_HEIGHT_SNAP_THRESHOLD = 46.5;
+const WIDGET_RESIZE_SETTLE_MS = 500;
+const WIDGET_MONITOR_MARGIN = 24;
 const MIAMI_TIME_ZONE = "America/New_York";
 const FORCED_DEV_VISUAL_SOURCE = import.meta.env.DEV
   ? LIVE_VISUAL_APP_KEYS.find(
@@ -124,6 +131,7 @@ const FORCED_DEV_VISUAL_SOURCE = import.meta.env.DEV
     ) ?? null
   : null;
 type ClockConversionSource = "local" | "secondary";
+type WidgetResizeDirection = "East" | "North" | "South" | "West";
 type TaskbarMirrorLayoutRect = {
   sourceKey: LiveVisualAppKey;
   left: number;
@@ -641,6 +649,12 @@ export function WidgetView() {
   const todayPopupPositionedRef = useRef(false);
   const widgetInitialLayoutRef = useRef(true);
   const suppressPositionPersistenceRef = useRef(false);
+  const resizeDirectionRef = useRef<WidgetResizeDirection | null>(null);
+  const resizeScaleFactorRef = useRef(1);
+  const lastResizeLogicalSizeRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
+  const resizeFinalizeTimerRef = useRef<number | null>(null);
   const mirrorRepositionTimerRef = useRef<number | null>(null);
   const widgetContextMenuRef = useRef<Menu | null>(null);
   const widgetNoticeTimerRef = useRef<number | null>(null);
@@ -657,6 +671,10 @@ export function WidgetView() {
       if (widgetNoticeTimerRef.current !== null) {
         window.clearTimeout(widgetNoticeTimerRef.current);
         widgetNoticeTimerRef.current = null;
+      }
+      if (resizeFinalizeTimerRef.current !== null) {
+        window.clearTimeout(resizeFinalizeTimerRef.current);
+        resizeFinalizeTimerRef.current = null;
       }
     },
     [],
@@ -847,6 +865,10 @@ export function WidgetView() {
     (calendarDisplay.selection ? 28 : 0) +
     (calendarDisplay.companion?.subject.length ?? 0) +
     (calendarDisplay.companion ? 28 : 0);
+  const preferredCalendarWidth =
+    preferences.widthMode === "recommended"
+      ? preferences.recommendedCalendarWidth
+      : preferences.slimCalendarWidth;
   const laterOpenItems = laterInbox?.items.filter(
     (item) => item.completedAt === null,
   ) ?? [];
@@ -1242,6 +1264,21 @@ export function WidgetView() {
       const initialLayout = widgetInitialLayoutRef.current;
       try {
         suppressPositionPersistenceRef.current = initialLayout;
+        const minimumWidth =
+          widgetFixedWidth(
+            visibleSources.length,
+            preferences.widthMode,
+            2 + preferences.extraTimeZones.length,
+            preferences.clockLayout,
+            appsPanelVisible,
+            clocksPanelVisible,
+          ) +
+          widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent);
+        await widgetWindow.setSizeConstraints({
+          minWidth: minimumWidth,
+          minHeight: widgetHeight("slim"),
+          maxHeight: widgetHeight("recommended"),
+        });
         await widgetWindow.setSize(
           new LogicalSize(
             widgetWidth(
@@ -1253,6 +1290,7 @@ export function WidgetView() {
               appsPanelVisible,
               clocksPanelVisible,
               calendarLayoutContentLength,
+              preferredCalendarWidth,
             ),
             widgetHeight(preferences.widthMode),
           ),
@@ -1317,10 +1355,13 @@ export function WidgetView() {
     preferences.widthMode,
     preferences.clockLayout,
     preferences.extraTimeZones.length,
+    preferences.recommendedCalendarWidth,
+    preferences.slimCalendarWidth,
     appsPanelVisible,
     clocksPanelVisible,
     showNextEvent,
     calendarLayoutContentLength,
+    preferredCalendarWidth,
     clearWidgetNotice,
     initialPreferences,
     showWidgetNotice,
@@ -1399,6 +1440,187 @@ export function WidgetView() {
     [showWidgetNotice],
   );
 
+  const beginWidgetResize = useCallback(
+    (event: ReactPointerEvent<HTMLElement>, direction: WidgetResizeDirection) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void (async () => {
+        try {
+          const scaleFactor = await widgetWindow.scaleFactor();
+          const [position, monitors] = await Promise.all([
+            widgetWindow.outerPosition(),
+            availableMonitors(),
+          ]);
+          const monitor =
+            monitors.find(({ workArea }) => {
+              const left = workArea.position.x;
+              const top = workArea.position.y;
+              return (
+                position.x >= left &&
+                position.y >= top &&
+                position.x < left + workArea.size.width &&
+                position.y < top + workArea.size.height
+              );
+            }) ?? monitors[0];
+          const minimumWidth =
+            widgetFixedWidth(
+              visibleSources.length,
+              preferences.widthMode,
+              2 + preferences.extraTimeZones.length,
+              preferences.clockLayout,
+              appsPanelVisible,
+              clocksPanelVisible,
+            ) +
+            widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent);
+          const maximumWidth = monitor
+            ? Math.max(
+                minimumWidth,
+                Math.floor(monitor.workArea.size.width / scaleFactor) -
+                  WIDGET_MONITOR_MARGIN,
+              )
+            : undefined;
+          resizeScaleFactorRef.current = scaleFactor;
+          resizeDirectionRef.current = direction;
+          lastResizeLogicalSizeRef.current = null;
+          await widgetWindow.setSizeConstraints({
+            minWidth: minimumWidth,
+            minHeight: widgetHeight("slim"),
+            maxWidth: maximumWidth,
+            maxHeight: widgetHeight("recommended"),
+          });
+          await widgetWindow.startResizeDragging(direction);
+          clearWidgetNotice("layout");
+        } catch {
+          resizeDirectionRef.current = null;
+          showWidgetNotice("layout", "The widget resize could not be started.");
+        }
+      })();
+    },
+    [
+      appsPanelVisible,
+      clearWidgetNotice,
+      clocksPanelVisible,
+      preferences.clockLayout,
+      preferences.extraTimeZones.length,
+      preferences.widthMode,
+      showNextEvent,
+      showWidgetNotice,
+      visibleSources.length,
+      widgetWindow,
+    ],
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenResized: (() => void) | undefined;
+    void widgetWindow.onResized(({ payload }) => {
+      if (disposed || resizeDirectionRef.current === null) {
+        return;
+      }
+      const logicalSize = payload.toLogical(resizeScaleFactorRef.current);
+      lastResizeLogicalSizeRef.current = {
+        width: logicalSize.width,
+        height: logicalSize.height,
+      };
+      if (resizeFinalizeTimerRef.current !== null) {
+        window.clearTimeout(resizeFinalizeTimerRef.current);
+      }
+      resizeFinalizeTimerRef.current = window.setTimeout(() => {
+        resizeFinalizeTimerRef.current = null;
+        const direction = resizeDirectionRef.current;
+        const size = lastResizeLogicalSizeRef.current;
+        resizeDirectionRef.current = null;
+        if (!direction || !size) {
+          return;
+        }
+
+        const horizontal = direction === "East" || direction === "West";
+        if (horizontal) {
+          const fixedWidth = widgetFixedWidth(
+            visibleSources.length,
+            preferences.widthMode,
+            2 + preferences.extraTimeZones.length,
+            preferences.clockLayout,
+            appsPanelVisible,
+            clocksPanelVisible,
+          );
+          const calendarWidth = Math.max(
+            widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent),
+            Math.round(size.width - fixedWidth),
+          );
+          updateWidgetPreferences(
+            preferences.widthMode === "recommended"
+              ? { recommendedCalendarWidth: calendarWidth }
+              : { slimCalendarWidth: calendarWidth },
+          );
+          return;
+        }
+
+        const nextMode =
+          size.height <= WIDGET_HEIGHT_SNAP_THRESHOLD ? "slim" : "recommended";
+        if (nextMode === preferences.widthMode) {
+          void widgetWindow
+            .setSize(new LogicalSize(size.width, widgetHeight(nextMode)))
+            .catch(() =>
+              showWidgetNotice(
+                "layout",
+                "The widget height could not be snapped.",
+              ),
+            );
+          return;
+        }
+        const targetFixedWidth = widgetFixedWidth(
+          visibleSources.length,
+          nextMode,
+          2 + preferences.extraTimeZones.length,
+          preferences.clockLayout,
+          appsPanelVisible,
+          clocksPanelVisible,
+        );
+        const targetCalendarWidth = Math.max(
+          widgetCalendarMinimumWidth(nextMode, showNextEvent),
+          Math.round(size.width - targetFixedWidth),
+        );
+        updateWidgetPreferences(
+          nextMode === "recommended"
+            ? {
+                widthMode: nextMode,
+                recommendedCalendarWidth: targetCalendarWidth,
+              }
+            : { widthMode: nextMode, slimCalendarWidth: targetCalendarWidth },
+        );
+      }, WIDGET_RESIZE_SETTLE_MS);
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        unlistenResized = unlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      unlistenResized?.();
+      if (resizeFinalizeTimerRef.current !== null) {
+        window.clearTimeout(resizeFinalizeTimerRef.current);
+        resizeFinalizeTimerRef.current = null;
+      }
+    };
+  }, [
+    appsPanelVisible,
+    clocksPanelVisible,
+    preferences.clockLayout,
+    preferences.extraTimeZones.length,
+    preferences.widthMode,
+    showNextEvent,
+    showWidgetNotice,
+    updateWidgetPreferences,
+    visibleSources.length,
+    widgetWindow,
+  ]);
+
   const openAdvanced = async (focusTarget?: AdvancedFocusTarget) => {
     try {
       const existing = await WebviewWindow.getByLabel("advanced");
@@ -1445,6 +1667,16 @@ export function WidgetView() {
         checked: preferences.widthMode === "slim",
         text: "Compact single-line",
         action: () => updateWidgetPreferences({ widthMode: "slim" }),
+      },
+      {
+        enabled: preferredCalendarWidth !== null,
+        text: "Reset width to automatic",
+        action: () =>
+          updateWidgetPreferences(
+            preferences.widthMode === "recommended"
+              ? { recommendedCalendarWidth: null }
+              : { slimCalendarWidth: null },
+          ),
       },
     ];
     const visiblePanelItems: NonNullable<MenuOptions["items"]> = [
@@ -2032,10 +2264,8 @@ export function WidgetView() {
   const gridSegments = [
     appsPanelVisible ? "var(--widget-left-width)" : null,
     clocksPanelVisible ? "var(--widget-clock-width)" : null,
-    "var(--widget-calendar-width)",
-    preferences.widthMode === "slim"
-      ? "var(--widget-drag-handle-width)"
-      : null,
+    "minmax(var(--widget-calendar-min-width), 1fr)",
+    "var(--widget-drag-handle-width)",
     "var(--widget-utility-width)",
   ].filter((segment): segment is string => segment !== null);
   const panelStyle = {
@@ -2051,12 +2281,18 @@ export function WidgetView() {
       preferences.widthMode,
       showNextEvent,
       calendarLayoutContentLength,
+      preferredCalendarWidth,
+    )}px`,
+    "--widget-calendar-min-width": `${widgetCalendarMinimumWidth(
+      preferences.widthMode,
+      showNextEvent,
     )}px`,
     "--widget-height": `${widgetHeight(preferences.widthMode)}px`,
     "--widget-calendar-day-panel-height": `${calendarDayPanelLogicalHeight}px`,
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
     "--widget-utility-width": `${widgetUtilityWidth(preferences.widthMode)}px`,
-    "--widget-drag-handle-width": `${WIDGET_SLIM_DRAG_HANDLE_WIDTH}px`,
+    "--widget-drag-handle-width": `${WIDGET_DRAG_HANDLE_WIDTH}px`,
+    "--widget-resize-edge-size": `${WIDGET_RESIZE_EDGE_SIZE}px`,
     "--widget-grid-template": gridSegments.join(" "),
   } as CSSProperties;
   const calendarDaySelections = workCalendar?.daySelections ?? [];
@@ -2193,6 +2429,15 @@ export function WidgetView() {
       onContextMenu={handleWidgetContextMenu}
       style={panelStyle}
     >
+      {(["West", "East", "North", "South"] as const).map((direction) => (
+        <div
+          aria-hidden="true"
+          className="widget-resize-edge"
+          data-resize-direction={direction.toLowerCase()}
+          key={direction}
+          onPointerDown={(event) => beginWidgetResize(event, direction)}
+        />
+      ))}
       {appsPanelVisible && (
         <section
           className="widget-zone widget-left"

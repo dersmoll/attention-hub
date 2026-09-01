@@ -58,32 +58,37 @@ assert.equal(layout.widgetCalendarWidth("slim", false, 68), 480);
 assert.equal(layout.widgetCalendarWidth("slim", false, 200), 600);
 assert.equal(layout.widgetCalendarWidth("slim", true, 100), 616);
 assert.equal(layout.widgetCalendarWidth("slim", true, 200), 800);
+assert.equal(layout.widgetCalendarWidth("recommended", false, 0, 444), 444);
+assert.equal(layout.widgetCalendarWidth("recommended", true, 0, 300), 392);
+assert.equal(layout.widgetCalendarWidth("slim", false, 200, 460), 460);
 assert.equal(layout.widgetUtilityWidth("recommended"), 20);
 assert.equal(layout.widgetUtilityWidth("slim"), 64);
-assert.equal(layout.widgetWidth(0, "recommended"), 424);
-assert.equal(layout.widgetWidth(2, "recommended"), 508);
-assert.equal(layout.widgetWidth(6, "recommended"), 652);
-assert.equal(layout.widgetWidth(0, "recommended", true), 556);
-assert.equal(layout.widgetWidth(2, "recommended", true), 640);
-assert.equal(layout.widgetWidth(6, "recommended", true), 784);
-assert.equal(layout.widgetWidth(2), 508);
-assert.equal(layout.widgetWidth(2, "recommended", false, 5, "horizontal"), 724);
-assert.equal(layout.widgetWidth(2, "recommended", false, 5, "vertical"), 508);
+assert.equal(layout.widgetFixedWidth(2, "recommended"), 266);
+assert.equal(layout.widgetFixedWidth(2, "slim"), 314);
+assert.equal(layout.widgetWidth(0, "recommended"), 442);
+assert.equal(layout.widgetWidth(2, "recommended"), 526);
+assert.equal(layout.widgetWidth(6, "recommended"), 670);
+assert.equal(layout.widgetWidth(0, "recommended", true), 574);
+assert.equal(layout.widgetWidth(2, "recommended", true), 658);
+assert.equal(layout.widgetWidth(6, "recommended", true), 802);
+assert.equal(layout.widgetWidth(2), 526);
+assert.equal(layout.widgetWidth(2, "recommended", false, 5, "horizontal"), 742);
+assert.equal(layout.widgetWidth(2, "recommended", false, 5, "vertical"), 526);
 assert.equal(layout.widgetWidth(2, "slim"), 634);
 assert.equal(layout.widgetWidth(2, "slim", true), 834);
 assert.equal(layout.widgetWidth(2, "slim", false, 5, "horizontal"), 886);
 assert.equal(layout.widgetWidth(2, "slim", false, 5, "vertical"), 886);
 assert.equal(
   layout.widgetWidth(2, "recommended", false, 2, "horizontal", false, true),
-  424,
+  442,
 );
 assert.equal(
   layout.widgetWidth(2, "recommended", false, 2, "horizontal", true, false),
-  364,
+  382,
 );
 assert.equal(
   layout.widgetWidth(2, "recommended", false, 2, "horizontal", false, false),
-  280,
+  298,
 );
 assert.equal(
   layout.widgetWidth(2, "slim", false, 2, "horizontal", false, false),
@@ -92,6 +97,10 @@ assert.equal(
 assert.equal(
   layout.widgetWidth(2, "slim", false, 2, "horizontal", true, true, 68),
   794,
+);
+assert.equal(
+  layout.widgetWidth(2, "recommended", false, 2, "horizontal", true, true, 0, 444),
+  710,
 );
 
 const [
@@ -128,6 +137,10 @@ assert.match(appSource, /Show clocks/);
 assert.match(widgetSource, /\{appsPanelVisible && \(/);
 assert.match(widgetSource, /\{clocksPanelVisible && \(/);
 assert.match(widgetSource, /className="widget-drag-handle"/);
+assert.match(widgetSource, /className="widget-resize-edge"/);
+assert.match(widgetSource, /startResizeDragging\(direction\)/);
+assert.match(widgetSource, /WIDGET_HEIGHT_SNAP_THRESHOLD/);
+assert.match(widgetSource, /Reset width to automatic/);
 assert.doesNotMatch(
   widgetSource,
   /className="widget-shell"\s+data-tauri-drag-region/,
@@ -192,6 +205,9 @@ const mainWindow = tauriConfig.app.windows.find(({ label }) => label === "main")
 assert.equal(mainWindow.visible, false);
 assert.equal(mainWindow.width, 548);
 assert.equal(mainWindow.height, 60);
+assert.equal(mainWindow.resizable, true);
+assert.match(capabilitiesSource, /allow-start-resize-dragging/);
+assert.match(capabilitiesSource, /allow-set-size-constraints/);
 assert.ok(
   widgetSource.indexOf('className="widget-close-control"') <
     widgetSource.indexOf('className="widget-reminder-control"'),
@@ -233,7 +249,12 @@ assert.match(
 );
 assert.match(cssSource, /\.widget-calendar:hover \.widget-calendar__hover-actions/);
 assert.match(cssSource, /\.widget-calendar__hover-actions \{\s*position: absolute;\s*z-index: 6;/);
-assert.match(cssSource, /--widget-calendar-surface: #fef2f2/);
+assert.match(
+  cssSource,
+  /--widget-calendar-surface: color-mix\([\s\S]*?--color-danger-strong[\s\S]*?16%[\s\S]*?--widget-panel-solid/,
+);
+assert.match(cssSource, /--widget-panel-accent/);
+assert.match(cssSource, /data-resize-direction="west"/);
 assert.match(cssSource, /widget-calendar__meeting-provider/);
 assert.match(cssSource, /transform: translateY\(-50%\)/);
 assert.match(cssSource, /background-image: radial-gradient/);

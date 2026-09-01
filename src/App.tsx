@@ -39,6 +39,7 @@ import {
   LIVE_VISUAL_APP_KEYS,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
+  panelAccentContrastRatio,
   panelTextContrastRatio,
   readWidgetPreferences,
   writeWidgetPreferences,
@@ -726,6 +727,25 @@ function AdvancedView() {
               </div>
             )}
 
+            <div className="panel-accent-color">
+              <label htmlFor="widget-panel-accent-color">Accent color</label>
+              <div className="widget-color-control">
+                <input
+                  id="widget-panel-accent-color"
+                  onChange={(event) =>
+                    applyWidgetPreferences({
+                      panelAccentColor: event.target.value,
+                    })
+                  }
+                  type="color"
+                  value={widgetPreferences.panelAccentColor}
+                />
+                <output htmlFor="widget-panel-accent-color">
+                  {widgetPreferences.panelAccentColor.toUpperCase()}
+                </output>
+              </div>
+            </div>
+
             <label className="widget-appearance-pin">
               <input
                 checked={widgetPreferences.pinned}
@@ -767,6 +787,12 @@ function AdvancedView() {
                   easier to read together.
                 </small>
               )}
+            {panelAccentContrastRatio(widgetPreferences) < 3 && (
+              <small className="widget-preference-warning" role="status">
+                This accent has low contrast against the panel. Choose a color
+                that keeps emphasized labels easy to distinguish.
+              </small>
+            )}
             {widgetPreferences.panelOpacity < 60 && (
               <small className="widget-preference-warning" role="status">
                 Low opacity may make text and controls difficult to read over a
@@ -779,6 +805,8 @@ function AdvancedView() {
                   panelSurface: DEFAULT_WIDGET_PREFERENCES.panelSurface,
                   panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
                   panelTextColor: DEFAULT_WIDGET_PREFERENCES.panelTextColor,
+                  panelAccentColor:
+                    DEFAULT_WIDGET_PREFERENCES.panelAccentColor,
                   panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
                 })
               }
@@ -810,8 +838,25 @@ function AdvancedView() {
             </select>
             <small>
               Recommended uses the dense two-line layout. Compact single-line
-              uses a unified horizontal rail.
+              uses a unified horizontal rail. Drag the widget's left or right
+              edge to adjust the calendar width.
             </small>
+            {(widgetPreferences.widthMode === "recommended"
+              ? widgetPreferences.recommendedCalendarWidth
+              : widgetPreferences.slimCalendarWidth) !== null && (
+              <button
+                onClick={() =>
+                  applyWidgetPreferences(
+                    widgetPreferences.widthMode === "recommended"
+                      ? { recommendedCalendarWidth: null }
+                      : { slimCalendarWidth: null },
+                  )
+                }
+                type="button"
+              >
+                Reset width to automatic
+              </button>
+            )}
           </fieldset>
 
           <fieldset

@@ -152,9 +152,10 @@ declared on that component's root and points at a global token where possible:
 
 `widgetPanelStyle()` in `src/widget-preferences.ts` writes
 `--widget-panel-background`, `--widget-panel-solid`, `--widget-panel-foreground`,
+`--widget-panel-accent`, `--widget-panel-accent-foreground`,
 `--widget-panel-interactive-foreground`, `--widget-panel-muted` and
 `--widget-panel-border` inline on every panel root, and `:root` declares
-defaults for all six. Write `var(--widget-panel-muted)`, never
+defaults for all eight. Write `var(--widget-panel-muted)`, never
 `var(--widget-panel-muted, #475569)` — the fallback is dead code and drifts out
 of sync.
 

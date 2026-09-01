@@ -28,7 +28,7 @@
 
   &:hover {
     background: none;
-    color: var(--color-focus);
+    color: var(--widget-panel-accent);
   }
 }
 
@@ -36,7 +36,7 @@
 .project-stash-shell {
   --event-control-height: 24px;
   --event-control-radius: var(--radius-chrome);
-  --event-accent: var(--color-info-strong);
+  --event-accent: var(--widget-panel-accent);
   --event-focus: var(--color-info);
 
   box-sizing: border-box;
@@ -167,14 +167,14 @@
 
 .event-settings-actions button:first-child {
   border-color: var(--event-accent);
-  color: #fff;
+  color: var(--widget-panel-accent-foreground);
   background: var(--event-accent);
 }
 
 .event-settings-delete {
   color: var(--color-danger);
   font-size: 10px;
-  background-color: transparent;
+  background-color: color-mix(in srgb, var(--widget-panel-solid) 90%, var(--widget-panel-foreground) 80%);;
 
   > button,
   button:first-of-type {
@@ -203,7 +203,7 @@
 
     &:hover {
       background: none;
-      color: var(--color-focus);
+      color: var(--widget-panel-accent);
     }
   }
 }
@@ -235,7 +235,7 @@
   @include empty-placeholder(var(--widget-panel-muted));
 
   a {
-    color: var(--color-info-strong);
+    color: var(--widget-panel-accent);
     text-decoration: underline;
   }
 }

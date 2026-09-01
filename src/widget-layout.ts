@@ -5,7 +5,7 @@ export const WIDGET_CALENDAR_COMPACT_WIDTH = 260;
 export const WIDGET_CALENDAR_COMPACT_DUAL_WIDTH = 392;
 export const WIDGET_COMPACT_UTILITY_WIDTH = 20;
 export const WIDGET_SLIM_UTILITY_WIDTH = 64;
-export const WIDGET_SLIM_DRAG_HANDLE_WIDTH = 18;
+export const WIDGET_DRAG_HANDLE_WIDTH = 18;
 export const WIDGET_COMPACT_ICON_SIZE = 32;
 export const WIDGET_COMPACT_ICON_GAP = 4;
 export const WIDGET_COMPACT_LEFT_PADDING = 16;
@@ -24,6 +24,20 @@ export const CALENDAR_DAY_PANEL_EVENT_HEIGHT = 22;
 export const CALENDAR_DAY_PANEL_MAX_EVENTS = 24;
 
 export type WidgetWidthMode = "recommended" | "slim";
+
+export function widgetCalendarMinimumWidth(
+  widthMode: WidgetWidthMode,
+  showsNextEvent: boolean,
+) {
+  if (widthMode === "slim") {
+    return showsNextEvent
+      ? WIDGET_SLIM_CALENDAR_DUAL_WIDTH
+      : WIDGET_SLIM_CALENDAR_WIDTH;
+  }
+  return showsNextEvent
+    ? WIDGET_CALENDAR_COMPACT_DUAL_WIDTH
+    : WIDGET_CALENDAR_COMPACT_WIDTH;
+}
 
 export function widgetHeight(widthMode: WidgetWidthMode = "recommended") {
   if (widthMode === "slim") {
@@ -123,14 +137,17 @@ export function widgetCalendarWidth(
   widthMode: WidgetWidthMode,
   showsNextEvent: boolean,
   contentLength = 0,
+  preferredWidth: number | null = null,
 ) {
+  const minimumWidth = widgetCalendarMinimumWidth(widthMode, showsNextEvent);
+  if (preferredWidth !== null && Number.isFinite(preferredWidth)) {
+    return Math.max(minimumWidth, Math.round(preferredWidth));
+  }
   if (widthMode === "slim") {
     const safeLength = Number.isFinite(contentLength)
       ? Math.max(0, Math.trunc(contentLength))
       : 0;
-    const baseWidth = showsNextEvent
-      ? WIDGET_SLIM_CALENDAR_DUAL_WIDTH
-      : WIDGET_SLIM_CALENDAR_WIDTH;
+    const baseWidth = minimumWidth;
     const maxWidth = showsNextEvent
       ? WIDGET_SLIM_CALENDAR_DUAL_MAX_WIDTH
       : WIDGET_SLIM_CALENDAR_MAX_WIDTH;
@@ -144,6 +161,30 @@ export function widgetCalendarWidth(
   return showsNextEvent
     ? WIDGET_CALENDAR_COMPACT_DUAL_WIDTH
     : WIDGET_CALENDAR_COMPACT_WIDTH;
+}
+
+export function widgetFixedWidth(
+  visibleSourceCount: number,
+  widthMode: WidgetWidthMode = "recommended",
+  clockCount = 2,
+  clockLayout: "horizontal" | "vertical" = "horizontal",
+  showAppsPanel = true,
+  showClocksPanel = true,
+) {
+  const segmentWidths = [
+    showAppsPanel && visibleSourceCount > 0
+      ? widgetLeftWidth(visibleSourceCount, widthMode)
+      : 0,
+    showClocksPanel
+      ? widgetClockPanelWidth(widthMode, clockCount, clockLayout)
+      : 0,
+    WIDGET_DRAG_HANDLE_WIDTH,
+    widgetUtilityWidth(widthMode),
+  ].filter((width) => width > 0);
+  return (
+    segmentWidths.reduce((total, width) => total + width, 0) +
+    widgetZoneGap(widthMode) * segmentWidths.length
+  );
 }
 
 export function widgetUtilityWidth(
@@ -164,20 +205,22 @@ export function widgetWidth(
   showAppsPanel = true,
   showClocksPanel = true,
   calendarContentLength = 0,
+  preferredCalendarWidth: number | null = null,
 ) {
-  const segmentWidths = [
-    showAppsPanel && visibleSourceCount > 0
-      ? widgetLeftWidth(visibleSourceCount, widthMode)
-      : 0,
-    showClocksPanel
-      ? widgetClockPanelWidth(widthMode, clockCount, clockLayout)
-      : 0,
-    widgetCalendarWidth(widthMode, showsNextEvent, calendarContentLength),
-    widthMode === "slim" ? WIDGET_SLIM_DRAG_HANDLE_WIDTH : 0,
-    widgetUtilityWidth(widthMode),
-  ].filter((width) => width > 0);
   return (
-    segmentWidths.reduce((total, width) => total + width, 0) +
-    widgetZoneGap(widthMode) * Math.max(0, segmentWidths.length - 1)
+    widgetFixedWidth(
+      visibleSourceCount,
+      widthMode,
+      clockCount,
+      clockLayout,
+      showAppsPanel,
+      showClocksPanel,
+    ) +
+    widgetCalendarWidth(
+      widthMode,
+      showsNextEvent,
+      calendarContentLength,
+      preferredCalendarWidth,
+    )
   );
 }

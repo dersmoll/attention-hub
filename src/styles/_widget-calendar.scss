@@ -54,7 +54,7 @@
   .widget-calendar__countdown {
     flex: 0 0 auto;
     overflow: visible;
-    color: var(--color-focus);
+    color: var(--widget-panel-accent);
     font-size: 13px;
     font-weight: 750;
     font-family: system-ui;
@@ -128,9 +128,13 @@
 
   &__state {
     padding: 2px 4px;
-    border: 1px solid var(--color-focus);
+    border: 1px solid var(--widget-panel-accent);
     border-radius: var(--radius-pill);
-    background: panel-border-wash(10%);
+    background: color-mix(
+      in srgb,
+      var(--widget-panel-accent) 14%,
+      var(--widget-panel-solid)
+    );
     font-weight: 700;
     font-family: system-ui;
     line-height: 1.5;
@@ -140,7 +144,7 @@
     @include uppercase-label(9px, 0.02em);
 
     &[data-calendar-status="observed"] {
-      color: var(--color-focus);
+      color: var(--widget-panel-accent);
     }
 
     &[data-calendar-progress] {
@@ -157,13 +161,17 @@
     height: 3px;
     overflow: hidden;
     border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--color-focus) 24%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--widget-panel-accent) 24%,
+      transparent
+    );
 
     > span {
       display: block;
       height: 100%;
       border-radius: inherit;
-      background: var(--color-focus);
+      background: var(--widget-panel-accent);
     }
   }
 
@@ -407,44 +415,63 @@
   &[data-calendar-attention="soon"],
   &[data-calendar-attention="imminent"],
   &[data-calendar-attention="started"] {
-    --widget-panel-foreground: var(--color-text-strong);
-    --widget-panel-muted: #475569;
-    --widget-panel-interactive-foreground: #fff;
-
     #{$block}__state {
-      color: var(--color-warning-text);
-      border-color: var(--color-warning-text);
+      color: var(--color-warning);
+      border-color: var(--color-warning);
+      background: color-mix(
+        in srgb,
+        var(--color-warning) 14%,
+        var(--widget-panel-solid)
+      );
     }
   }
 
   &[data-calendar-attention="soon"] {
-    --widget-calendar-surface: #fffbeb;
+    --widget-calendar-surface: color-mix(
+      in srgb,
+      var(--color-warning) 14%,
+      var(--widget-panel-solid)
+    );
     --widget-panel-border: var(--color-warning);
 
     border-color: var(--color-warning);
-    background: #fffbeb;
+    background: var(--widget-calendar-surface);
     box-shadow: 0 2px 4px rgb(180 83 9 / 24%);
   }
 
   &[data-calendar-attention="imminent"] {
-    --widget-calendar-surface: #fff7d6;
+    --widget-calendar-surface: color-mix(
+      in srgb,
+      var(--color-warning) 18%,
+      var(--widget-panel-solid)
+    );
     --widget-panel-border: var(--color-warning);
 
     border-color: var(--color-warning);
-    background: #fff7d6;
+    background: var(--widget-calendar-surface);
     animation: widget-calendar-imminent 1.6s ease-in-out infinite;
   }
 
   &[data-calendar-attention="started"] {
-    --widget-calendar-surface: #fef2f2;
+    --widget-calendar-surface: color-mix(
+      in srgb,
+      var(--color-danger-strong) 16%,
+      var(--widget-panel-solid)
+    );
     --widget-panel-border: var(--color-danger-strong);
 
     border-color: var(--color-danger-strong);
-    background: #fef2f2;
+    background: var(--widget-calendar-surface);
     animation: widget-calendar-alert 1.35s ease-in-out infinite;
 
     #{$block}__state {
       color: var(--color-danger-strong);
+      border-color: var(--color-danger-strong);
+      background: color-mix(
+        in srgb,
+        var(--color-danger-strong) 16%,
+        var(--widget-panel-solid)
+      );
     }
   }
 
@@ -494,7 +521,10 @@
   position: absolute;
   z-index: 8;
   top: calc(var(--widget-height, 68px) + 5px);
-  right: calc(var(--widget-utility-width, 68px) + var(--widget-zone-gap, 8px));
+  right: calc(
+    var(--widget-utility-width, 68px) + var(--widget-drag-handle-width, 18px) +
+      var(--widget-zone-gap, 8px)
+  );
   display: grid;
   width: var(--widget-calendar-width, 320px);
   height: var(--widget-calendar-day-panel-height, 216px);
@@ -545,8 +575,12 @@
       &:hover:not(:disabled),
       &:focus-visible {
         border-color: var(--widget-panel-foreground);
-        color: var(--color-focus);
-        background: rgba(var(--color-focus-rgb), 0.1);
+        color: var(--widget-panel-accent);
+        background: color-mix(
+          in srgb,
+          var(--widget-panel-accent) 14%,
+          var(--widget-panel-solid)
+        );
       }
     }
   }

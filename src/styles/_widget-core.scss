@@ -7,7 +7,7 @@
 .widget-shell {
   --widget-focus-outline: 3px solid var(--color-focus-strong);
   --widget-focus-offset: 1px;
-  --widget-interactive-accent: var(--color-info-strong);
+  --widget-interactive-accent: var(--widget-panel-accent);
   --widget-control-radius: 5px;
 
   /* Icon chain sizing. The width-mode partials re-point these rather than
@@ -55,9 +55,74 @@
   box-shadow: none;
 }
 
-/* Only the slim rail exposes a dedicated drag strip. */
 .widget-drag-handle {
-  display: none;
+  position: relative;
+  z-index: 4;
+  display: grid;
+  width: var(--widget-drag-handle-width);
+  height: 100%;
+  border-left: 1px solid var(--widget-panel-border);
+  color: var(--widget-panel-muted);
+  background: transparent;
+  cursor: grab;
+  place-items: center;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &::before {
+    width: 8px;
+    height: 20px;
+    opacity: 0.62;
+    background-image: radial-gradient(
+      circle,
+      currentColor 1.15px,
+      transparent 1.3px
+    );
+    background-position: center;
+    background-size: 4px 4px;
+    content: "";
+    pointer-events: none;
+  }
+}
+
+.widget-resize-edge {
+  position: absolute;
+  z-index: 20;
+  touch-action: none;
+
+  &[data-resize-direction="west"],
+  &[data-resize-direction="east"] {
+    top: var(--widget-resize-edge-size);
+    bottom: var(--widget-resize-edge-size);
+    width: var(--widget-resize-edge-size);
+    cursor: ew-resize;
+  }
+
+  &[data-resize-direction="west"] {
+    left: 0;
+  }
+
+  &[data-resize-direction="east"] {
+    right: 0;
+  }
+
+  &[data-resize-direction="north"],
+  &[data-resize-direction="south"] {
+    right: var(--widget-resize-edge-size);
+    left: var(--widget-resize-edge-size);
+    height: var(--widget-resize-edge-size);
+    cursor: ns-resize;
+  }
+
+  &[data-resize-direction="north"] {
+    top: 0;
+  }
+
+  &[data-resize-direction="south"] {
+    bottom: 0;
+  }
 }
 
 /* App shortcuts ---------------------------------------------------------- */
@@ -576,6 +641,7 @@
   button {
     position: relative;
     display: grid;
+    justify-items: center;
     width: 100%;
     min-width: 0;
     height: 100%;
@@ -645,14 +711,14 @@
 
 .widget-reminder__badge {
   @include count-badge(
-    $size: 16px,
-    $offset: -3px,
-    $font-size: 9px,
+    $size: 8px,
+    $offset: -1px,
+    $font-size: 0px,
     $font-weight: 800,
-    $padding-inline: 3px
+    $padding-inline: 1px
   );
 
-  background: var(--color-info-strong);
+  background: var(--widget-panel-accent);
 
   .widget-reminder-control[data-due] & {
     color: #2e1b02;

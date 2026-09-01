@@ -18,6 +18,7 @@ export const PANEL_SURFACE_COLORS = {
   light: { background: "#f8fafc", text: "#111827" },
   dark: { background: "#111827", text: "#f8fafc" },
 } as const;
+export const DEFAULT_PANEL_ACCENT_COLOR = "#377fc5";
 
 export interface WidgetPreferences {
   sourceCatalogVersion: 2;
@@ -34,8 +35,11 @@ export interface WidgetPreferences {
   panelSurface: PanelSurfaceMode;
   panelColor: string;
   panelTextColor: string;
+  panelAccentColor: string;
   panelOpacity: number;
   widthMode: WidgetWidthMode;
+  recommendedCalendarWidth: number | null;
+  slimCalendarWidth: number | null;
   appOrder: AttentionAppKey[];
   monitoredSources: AttentionAppKey[];
   liveVisualSources: LiveVisualAppKey[];
@@ -80,8 +84,11 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   panelSurface: "light",
   panelColor: PANEL_SURFACE_COLORS.light.background,
   panelTextColor: PANEL_SURFACE_COLORS.light.text,
+  panelAccentColor: DEFAULT_PANEL_ACCENT_COLOR,
   panelOpacity: 100,
   widthMode: "recommended",
+  recommendedCalendarWidth: null,
+  slimCalendarWidth: null,
   appOrder: [...DEFAULT_APP_ORDER],
   monitoredSources: [...DEFAULT_MONITORED_SOURCES],
   liveVisualSources: [...DEFAULT_LIVE_VISUAL_SOURCES],
@@ -119,6 +126,12 @@ function normalizeOpacity(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(100, Math.max(25, Math.round(value)))
     : DEFAULT_WIDGET_PREFERENCES.panelOpacity;
+}
+
+function normalizeCalendarWidth(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(2_400, Math.max(160, Math.round(value)))
+    : null;
 }
 
 function normalizeWidthMode(value: unknown): WidgetWidthMode {
@@ -277,6 +290,10 @@ export function normalizeWidgetPreferences(
     value?.panelTextColor,
     legacyPanelTextColor(panelColor),
   );
+  const panelAccentColor = normalizeColor(
+    value?.panelAccentColor,
+    DEFAULT_WIDGET_PREFERENCES.panelAccentColor,
+  );
   return {
     sourceCatalogVersion: 2,
     pinned:
@@ -308,8 +325,13 @@ export function normalizeWidgetPreferences(
     panelSurface: normalizePanelSurface(value?.panelSurface, panelColor),
     panelColor,
     panelTextColor,
+    panelAccentColor,
     panelOpacity: normalizeOpacity(value?.panelOpacity),
     widthMode: normalizeWidthMode(value?.widthMode),
+    recommendedCalendarWidth: normalizeCalendarWidth(
+      value?.recommendedCalendarWidth,
+    ),
+    slimCalendarWidth: normalizeCalendarWidth(value?.slimCalendarWidth),
     appOrder: normalizeAppOrder(value?.appOrder, migrateLegacyCatalog),
     monitoredSources: normalizeSourceSubset(
       value?.monitoredSources,
@@ -423,10 +445,25 @@ export function panelTextContrastRatio(preferences: WidgetPreferences) {
   );
 }
 
+export function panelAccentContrastRatio(preferences: WidgetPreferences) {
+  const colors = panelSurfaceColors(preferences);
+  return contrastRatio(
+    parseHexColor(colors.background),
+    parseHexColor(preferences.panelAccentColor),
+  );
+}
+
 export function widgetPanelStyle(preferences: WidgetPreferences) {
   const colors = panelSurfaceColors(preferences);
   const background = parseHexColor(colors.background);
   const foreground = parseHexColor(colors.text);
+  const accent = parseHexColor(preferences.panelAccentColor);
+  const dark = parseHexColor(PANEL_SURFACE_COLORS.light.text);
+  const light = parseHexColor(PANEL_SURFACE_COLORS.dark.text);
+  const accentForeground =
+    contrastRatio(accent, dark) >= contrastRatio(accent, light)
+      ? PANEL_SURFACE_COLORS.light.text
+      : PANEL_SURFACE_COLORS.dark.text;
   const alpha = preferences.panelOpacity / 100;
   const borderForegroundWeight =
     relativeLuminance(background) < 0.18 ? 0.26 : 0.5;
@@ -435,6 +472,8 @@ export function widgetPanelStyle(preferences: WidgetPreferences) {
     "--widget-panel-background": `rgb(${background.red} ${background.green} ${background.blue} / ${alpha})`,
     "--widget-panel-solid": colors.background,
     "--widget-panel-foreground": colors.text,
+    "--widget-panel-accent": preferences.panelAccentColor,
+    "--widget-panel-accent-foreground": accentForeground,
     "--widget-panel-muted": mixColors(foreground, background, 0.7),
     "--widget-panel-border": mixColors(
       foreground,
