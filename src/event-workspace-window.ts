@@ -8,12 +8,15 @@ import {
   EVENT_SETTINGS_OPEN_EVENT,
   EVENT_SETTINGS_WINDOW_GEOMETRY,
   EVENT_SETTINGS_WINDOW_LABEL,
-  PROJECT_STASH_OPEN_EVENT,
-  PROJECT_STASH_WINDOW_GEOMETRY,
-  PROJECT_STASH_WINDOW_LABEL,
+  PROJECT_PANEL_OPEN_EVENT,
+  PROJECT_NOTES_WINDOW_GEOMETRY,
+  PROJECT_PANEL_WINDOW_GEOMETRY,
+  PROJECT_PANEL_WINDOW_LABEL,
+  PROJECT_TODOS_WINDOW_GEOMETRY,
+  TODO_DETAIL_WINDOW_GEOMETRY,
   type EventSettingsOpenPayload,
   type PopupAnchor,
-  type ProjectStashOpenPayload,
+  type ProjectPanelOpenPayload,
 } from "./event-workspace-model";
 
 type FloatingGeometry = {
@@ -34,6 +37,10 @@ const FLOATING_GEOMETRY_STORAGE_PREFIX = "attention-hub.floating-window.v1.";
 
 function geometryStorageKey(label: string) {
   return `${FLOATING_GEOMETRY_STORAGE_PREFIX}${label}`;
+}
+
+export function projectPanelGeometryLabel(view: "notes" | "todos" | "todo") {
+  return `${PROJECT_PANEL_WINDOW_LABEL}-${view}`;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -127,19 +134,23 @@ async function showAnchoredWindow(
   label: string,
   title: string,
   eventName: string,
-  payload: EventSettingsOpenPayload | ProjectStashOpenPayload,
+  payload: EventSettingsOpenPayload | ProjectPanelOpenPayload,
   geometry: FloatingGeometry,
   onError?: (message: string) => void,
+  rememberGeometry = true,
+  geometryLabel = label,
 ) {
   const existing = await WebviewWindow.getByLabel(label);
-  const stored = readStoredFloatingGeometry(label);
+  const stored = rememberGeometry ? readStoredFloatingGeometry(geometryLabel) : {};
   const resolvedGeometry = geometryWithinAnchor(
     payload.anchor,
-    geometryWithStoredSize(label, geometry),
+    rememberGeometry ? geometryWithStoredSize(geometryLabel, geometry) : geometry,
   );
   const position = anchoredPosition(payload.anchor, resolvedGeometry, stored);
   if (existing) {
     await existing.setMinSize(new LogicalSize(geometry.minWidth, geometry.minHeight));
+    await existing.setSize(new LogicalSize(resolvedGeometry.width, resolvedGeometry.height));
+    await existing.setPosition(position);
     await existing.unminimize();
     await existing.show();
     await existing.setFocus();
@@ -150,7 +161,7 @@ async function showAnchoredWindow(
   const params = new URLSearchParams(
     "eventToken" in payload
       ? { eventToken: payload.eventToken }
-      : { projectId: payload.projectId },
+      : { projectId: payload.projectId, ...(payload.itemId ? { itemId: payload.itemId } : {}), ...(payload.view ? { view: payload.view } : {}) },
   );
   const window = new WebviewWindow(label, {
     url: `/?${params.toString()}`,
@@ -189,16 +200,26 @@ export function openEventSettingsWindow(
   );
 }
 
-export function openProjectStashWindow(
-  payload: ProjectStashOpenPayload,
+export function openProjectPanelWindow(
+  payload: ProjectPanelOpenPayload,
   onError?: (message: string) => void,
 ) {
+  const quickView = payload.view === "notes" || payload.view === "todos" || payload.view === "todo" ? payload.view : null;
+  const geometry = payload.view === "notes"
+    ? PROJECT_NOTES_WINDOW_GEOMETRY
+    : payload.view === "todos"
+      ? PROJECT_TODOS_WINDOW_GEOMETRY
+      : payload.view === "todo"
+        ? TODO_DETAIL_WINDOW_GEOMETRY
+      : PROJECT_PANEL_WINDOW_GEOMETRY;
   return showAnchoredWindow(
-    PROJECT_STASH_WINDOW_LABEL,
-    "Attention Hub - Project stash",
-    PROJECT_STASH_OPEN_EVENT,
+    PROJECT_PANEL_WINDOW_LABEL,
+    "Attention Hub - Project",
+    PROJECT_PANEL_OPEN_EVENT,
     payload,
-    PROJECT_STASH_WINDOW_GEOMETRY,
+    geometry,
     onError,
+    quickView !== null,
+    quickView ? projectPanelGeometryLabel(quickView) : PROJECT_PANEL_WINDOW_LABEL,
   );
 }

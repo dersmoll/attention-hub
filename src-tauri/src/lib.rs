@@ -1,23 +1,484 @@
 mod attention_signals;
-mod later_inbox;
-mod meeting_workspace;
+mod external_url;
+mod local_store;
 mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
 mod work_calendar;
+mod workspace;
+mod zoom_meeting;
 
 use attention_signals::AttentionSignalSnapshot;
-use later_inbox::{LaterInboxInput, LaterInboxSnapshot, LaterInboxState};
-use meeting_workspace::{
-    MeetingWorkspaceInput, MeetingWorkspaceSnapshot, MeetingWorkspaceState, ProjectStashInput,
-    ProjectStashSnapshot,
-};
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use teams_mirror::{
     AttentionAppSource, TaskbarMirrorSource, TaskbarMirrorState, TaskbarMirrorStatus,
 };
 use work_calendar::{WorkCalendarConfiguration, WorkCalendarSnapshot, WorkCalendarState};
+use workspace::{
+    ActionItemInput, EventWorkspaceInput, EventWorkspaceSnapshot, OwnerKind, ProjectLinkInput,
+    WorkspaceImportPreview, WorkspaceSnapshot, WorkspaceState,
+};
+
+fn emit_workspace_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("workspace-changed", ());
+}
+
+#[tauri::command]
+fn get_workspace_snapshot(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<WorkspaceSnapshot, String> {
+    workspace::get_snapshot(&app, state.inner())
+}
+#[tauri::command]
+fn export_workspace_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    destination_path: String,
+) -> Result<String, String> {
+    workspace::export_workspace(&app, state.inner(), destination_path)
+}
+#[tauri::command]
+fn preview_workspace_import(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    source_path: String,
+) -> Result<WorkspaceImportPreview, String> {
+    workspace::preview_workspace_import(&app, state.inner(), source_path)
+}
+#[tauri::command]
+fn import_workspace_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    source_path: String,
+    expected_revision: u64,
+    expected_digest: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::import_workspace(
+        &app,
+        state.inner(),
+        source_path,
+        expected_revision,
+        expected_digest,
+    )?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn create_personal_category(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let s = workspace::create_category(&app, state.inner(), name)?;
+    emit_workspace_changed(&app);
+    Ok(s)
+}
+#[tauri::command]
+fn create_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let s = workspace::create_project(&app, state.inner(), name)?;
+    emit_workspace_changed(&app);
+    Ok(s)
+}
+#[tauri::command]
+fn create_action_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    input: ActionItemInput,
+) -> Result<WorkspaceSnapshot, String> {
+    let s = workspace::create_action_item(&app, state.inner(), input)?;
+    emit_workspace_changed(&app);
+    Ok(s)
+}
+#[tauri::command]
+fn set_project_archived(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    archived: bool,
+) -> Result<WorkspaceSnapshot, String> {
+    let s = workspace::set_project_archived(&app, state.inner(), &project_id, archived)?;
+    emit_workspace_changed(&app);
+    Ok(s)
+}
+#[tauri::command]
+fn save_project_notes(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    notes: Vec<workspace::NoteSegment>,
+    expected_notes_revision: u64,
+) -> Result<WorkspaceSnapshot, String> {
+    let s = workspace::save_project_notes(
+        &app,
+        state.inner(),
+        &project_id,
+        notes,
+        expected_notes_revision,
+    )?;
+    emit_workspace_changed(&app);
+    Ok(s)
+}
+#[tauri::command]
+fn open_project_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&workspace::project_note_url(
+        &app,
+        state.inner(),
+        &project_id,
+        &url,
+    )?)
+}
+#[tauri::command]
+fn get_delete_impact(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    entity: String,
+    id: Option<String>,
+) -> Result<workspace::DeleteImpact, String> {
+    workspace::delete_impact(&app, state.inner(), &entity, id.as_deref())
+}
+#[tauri::command]
+fn delete_all_workspace_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    expected_revision: u64,
+) -> Result<WorkspaceSnapshot, String> {
+    let s = workspace::delete_all(&app, state.inner(), expected_revision)?;
+    emit_workspace_changed(&app);
+    Ok(s)
+}
+
+#[tauri::command]
+fn create_list(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    category_id: Option<String>,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::create_list(&app, state.inner(), category_id.as_deref(), name)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn rename_personal_category(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    category_id: String,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::rename_category(&app, state.inner(), &category_id, name)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn rename_list(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    list_id: String,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::rename_list(&app, state.inner(), &list_id, name)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn rename_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::rename_project(&app, state.inner(), &project_id, name)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn update_action_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    item_id: String,
+    input: ActionItemInput,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::update_action_item(&app, state.inner(), &item_id, input)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn complete_action_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    item_id: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::set_action_item_completed(&app, state.inner(), &item_id, true)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn restore_action_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    item_id: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::set_action_item_completed(&app, state.inner(), &item_id, false)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_action_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    item_id: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::delete_action_item(&app, state.inner(), &item_id)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_personal_category(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    category_id: String,
+    expected_revision: u64,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot =
+        workspace::delete_category(&app, state.inner(), &category_id, expected_revision)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_list(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    list_id: String,
+    expected_revision: u64,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::delete_list(&app, state.inner(), &list_id, expected_revision)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    expected_revision: u64,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::delete_project(&app, state.inner(), &project_id, expected_revision)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn create_project_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    input: ProjectLinkInput,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::create_project_link(&app, state.inner(), &project_id, input)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn update_project_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    link_id: String,
+    input: ProjectLinkInput,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::update_project_link(&app, state.inner(), &link_id, input)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_project_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    link_id: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::delete_project_link(&app, state.inner(), &link_id)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn open_project_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    link_id: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&workspace::project_link_url(&app, state.inner(), &link_id)?)
+}
+#[tauri::command]
+fn move_personal_category(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    category_id: String,
+    sort_index: i32,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::move_category(&app, state.inner(), &category_id, sort_index)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn move_list(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    list_id: String,
+    sort_index: i32,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::move_list(&app, state.inner(), &list_id, sort_index)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn set_list_category(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    list_id: String,
+    category_id: Option<String>,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot =
+        workspace::set_list_category(&app, state.inner(), &list_id, category_id.as_deref())?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn move_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    project_id: String,
+    sort_index: i32,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::move_project(&app, state.inner(), &project_id, sort_index)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn move_project_link(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    link_id: String,
+    sort_index: i32,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::move_project_link(&app, state.inner(), &link_id, sort_index)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn move_action_item(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    item_id: String,
+    owner_kind: OwnerKind,
+    owner_id: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot =
+        workspace::move_action_item(&app, state.inner(), &item_id, owner_kind, &owner_id)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_completed_action_items(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    owner_kind: Option<OwnerKind>,
+    owner_id: Option<String>,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot =
+        workspace::delete_completed_action_items(&app, state.inner(), owner_kind, owner_id)?;
+    emit_workspace_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn notify_due_action_items(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<WorkspaceSnapshot, String> {
+    let before = workspace::get_snapshot(&app, state.inner())?;
+    let notification_body = workspace::due_notification_body(&before);
+    let snapshot = workspace::notify_due_action_items(&app, state.inner())?;
+    if snapshot.revision != before.revision {
+        if let Some(body) = notification_body {
+            app.notification()
+                .builder()
+                .title("Attention Hub To-dos")
+                .body(body)
+                .show()
+                .map_err(|_| {
+                    "Windows could not show the to-do reminder notification.".to_owned()
+                })?;
+        }
+        emit_workspace_changed(&app);
+    }
+    Ok(snapshot)
+}
+#[tauri::command]
+fn open_action_item_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    item_id: String,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&workspace::action_item_note_url(
+        &app,
+        state.inner(),
+        &item_id,
+        &url,
+    )?)
+}
+#[tauri::command]
+fn get_event_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    event_token: String,
+) -> Result<EventWorkspaceSnapshot, String> {
+    workspace::get_event_workspace(&app, state.inner(), &event_token)
+}
+#[tauri::command]
+fn save_event_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    event_token: String,
+    input: EventWorkspaceInput,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::save_event_workspace(&app, state.inner(), &event_token, input)?;
+    emit_workspace_changed(&app);
+    let _ = app.emit("work-calendar-changed", ());
+    Ok(snapshot)
+}
+#[tauri::command]
+fn unlink_event_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    event_token: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let snapshot = workspace::unlink_event_workspace(&app, state.inner(), &event_token)?;
+    emit_workspace_changed(&app);
+    let _ = app.emit("work-calendar-changed", ());
+    Ok(snapshot)
+}
+#[tauri::command]
+fn open_event_workspace_link_from_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkspaceState>,
+    event_token: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&workspace::event_workspace_link_url(
+        &app,
+        state.inner(),
+        &event_token,
+    )?)
+}
 
 #[tauri::command]
 async fn get_attention_signal_snapshot(
@@ -53,13 +514,13 @@ fn get_work_calendar_configuration() -> WorkCalendarConfiguration {
 async fn save_work_calendar_source(
     app: tauri::AppHandle,
     state: tauri::State<'_, WorkCalendarState>,
-    meeting_state: tauri::State<'_, MeetingWorkspaceState>,
+    workspace_state: tauri::State<'_, WorkspaceState>,
     published_url: String,
     title_capability_confirmed: bool,
 ) -> Result<WorkCalendarSnapshot, ()> {
     let mut snapshot =
         work_calendar::save_source(state.inner(), published_url, title_capability_confirmed).await;
-    let _ = meeting_workspace::enrich_calendar_snapshot(&app, meeting_state.inner(), &mut snapshot);
+    let _ = workspace::enrich_calendar_snapshot(&app, workspace_state.inner(), &mut snapshot);
     work_calendar::log_snapshot("save", &snapshot);
     let _ = app.emit("work-calendar-changed", ());
     Ok(snapshot)
@@ -69,11 +530,11 @@ async fn save_work_calendar_source(
 async fn get_work_calendar_snapshot(
     app: tauri::AppHandle,
     state: tauri::State<'_, WorkCalendarState>,
-    meeting_state: tauri::State<'_, MeetingWorkspaceState>,
+    workspace_state: tauri::State<'_, WorkspaceState>,
 ) -> Result<WorkCalendarSnapshot, ()> {
     let mut snapshot = work_calendar::get_snapshot(state.inner()).await;
     if let Err(error) =
-        meeting_workspace::enrich_calendar_snapshot(&app, meeting_state.inner(), &mut snapshot)
+        workspace::enrich_calendar_snapshot(&app, workspace_state.inner(), &mut snapshot)
     {
         snapshot
             .diagnostics
@@ -99,99 +560,7 @@ fn open_work_calendar_join_url(
     join_token: String,
 ) -> Result<(), String> {
     let url = work_calendar::join_url(state.inner(), &join_token)?;
-    later_inbox::open_external_url(&url)
-}
-
-#[tauri::command]
-fn get_meeting_workspace(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    event_token: String,
-) -> Result<MeetingWorkspaceSnapshot, String> {
-    meeting_workspace::get_snapshot(&app, state.inner(), &event_token)
-}
-
-fn emit_meeting_workspace_changed(app: &tauri::AppHandle) {
-    let _ = app.emit("meeting-workspace-changed", ());
-    let _ = app.emit("work-calendar-changed", ());
-}
-
-#[tauri::command]
-fn save_meeting_workspace(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    event_token: String,
-    input: MeetingWorkspaceInput,
-) -> Result<MeetingWorkspaceSnapshot, String> {
-    let snapshot = meeting_workspace::save(&app, state.inner(), &event_token, input)?;
-    emit_meeting_workspace_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn unlink_meeting_workspace(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    event_token: String,
-) -> Result<MeetingWorkspaceSnapshot, String> {
-    let snapshot = meeting_workspace::unlink(&app, state.inner(), &event_token)?;
-    emit_meeting_workspace_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn delete_meeting_project(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    event_token: String,
-    project_id: String,
-) -> Result<MeetingWorkspaceSnapshot, String> {
-    let snapshot =
-        meeting_workspace::delete_project(&app, state.inner(), &event_token, &project_id)?;
-    emit_meeting_workspace_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn open_event_workspace_link(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    event_token: String,
-) -> Result<(), String> {
-    let url = meeting_workspace::link_url(&app, state.inner(), &event_token)?;
-    later_inbox::open_external_url(&url)
-}
-
-#[tauri::command]
-fn open_project_stash_note_url(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    project_id: String,
-    url: String,
-) -> Result<(), String> {
-    let url = meeting_workspace::note_url(&app, state.inner(), &project_id, &url)?;
-    later_inbox::open_external_url(&url)
-}
-
-#[tauri::command]
-fn get_project_stash(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    project_id: String,
-) -> Result<ProjectStashSnapshot, String> {
-    meeting_workspace::get_project_stash(&app, state.inner(), &project_id)
-}
-
-#[tauri::command]
-fn save_project_stash(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, MeetingWorkspaceState>,
-    project_id: String,
-    input: ProjectStashInput,
-) -> Result<ProjectStashSnapshot, String> {
-    let snapshot = meeting_workspace::save_project_stash(&app, state.inner(), &project_id, input)?;
-    emit_meeting_workspace_changed(&app);
-    Ok(snapshot)
+    external_url::open_external_url(&url)
 }
 
 #[tauri::command]
@@ -311,6 +680,16 @@ fn activate_attention_source(source_key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_zoom_meeting_snapshot() -> Result<zoom_meeting::ZoomMeetingSnapshot, String> {
+    zoom_meeting::snapshot()
+}
+
+#[tauri::command]
+fn activate_zoom_meeting() -> Result<(), String> {
+    zoom_meeting::activate()
+}
+
+#[tauri::command]
 fn quit_application(app: tauri::AppHandle) {
     app.exit(0);
 }
@@ -370,147 +749,62 @@ fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-fn emit_later_inbox_changed(app: &tauri::AppHandle) {
-    let _ = app.emit("later-inbox-changed", ());
-}
-
-#[tauri::command]
-fn get_later_inbox_snapshot(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-) -> Result<LaterInboxSnapshot, String> {
-    later_inbox::get_snapshot(&app, state.inner())
-}
-
-#[tauri::command]
-fn create_later_inbox_item(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    input: LaterInboxInput,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::create_item(&app, state.inner(), input)?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn update_later_inbox_item(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    item_id: String,
-    input: LaterInboxInput,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::update_item(&app, state.inner(), &item_id, input)?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn complete_later_inbox_item(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    item_id: String,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::complete_item(&app, state.inner(), &item_id)?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn restore_later_inbox_item(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    item_id: String,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::restore_item(&app, state.inner(), &item_id)?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn delete_later_inbox_item(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    item_id: String,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::delete_item(&app, state.inner(), &item_id)?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn delete_completed_later_inbox_items(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::delete_completed(&app, state.inner())?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn delete_all_later_inbox_items(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-) -> Result<LaterInboxSnapshot, String> {
-    let snapshot = later_inbox::delete_all(&app, state.inner())?;
-    emit_later_inbox_changed(&app);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn notify_due_later_inbox_items(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-) -> Result<LaterInboxSnapshot, String> {
-    later_inbox::notify_due(&app, state.inner())
-}
-
-#[tauri::command]
-fn open_later_inbox_item_url(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    item_id: String,
-) -> Result<(), String> {
-    let url = later_inbox::item_url(&app, state.inner(), &item_id)?;
-    later_inbox::open_external_url(&url)
-}
-
-#[tauri::command]
-fn open_later_inbox_note_url(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, LaterInboxState>,
-    item_id: String,
-    url: String,
-) -> Result<(), String> {
-    let url = later_inbox::item_note_url(&app, state.inner(), &item_id, &url)?;
-    later_inbox::open_external_url(&url)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(LaterInboxState::new())
-        .manage(MeetingWorkspaceState::new())
+        .manage(WorkspaceState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
+            get_workspace_snapshot,
+            export_workspace_data,
+            preview_workspace_import,
+            import_workspace_data,
+            create_personal_category,
+            create_project,
+            create_action_item,
+            set_project_archived,
+            save_project_notes,
+            open_project_note_url,
+            get_delete_impact,
+            delete_all_workspace_data,
+            create_list,
+            rename_personal_category,
+            rename_list,
+            rename_project,
+            update_action_item,
+            complete_action_item,
+            restore_action_item,
+            delete_action_item,
+            delete_personal_category,
+            delete_list,
+            delete_project,
+            create_project_link,
+            update_project_link,
+            delete_project_link,
+            open_project_link,
+            move_personal_category,
+            move_list,
+            set_list_category,
+            move_project,
+            move_project_link,
+            move_action_item,
+            delete_completed_action_items,
+            notify_due_action_items,
+            open_action_item_note_url,
+            get_event_workspace,
+            save_event_workspace,
+            unlink_event_workspace,
+            open_event_workspace_link_from_workspace,
             get_work_calendar_configuration,
             save_work_calendar_source,
             get_work_calendar_snapshot,
             remove_work_calendar_source,
             open_work_calendar_join_url,
-            get_meeting_workspace,
-            save_meeting_workspace,
-            unlink_meeting_workspace,
-            delete_meeting_project,
-            open_event_workspace_link,
-            open_project_stash_note_url,
-            get_project_stash,
-            save_project_stash,
             get_teams_mirror_status,
             get_taskbar_mirror_status,
             start_taskbar_mirror,
@@ -518,17 +812,8 @@ pub fn run() {
             reposition_taskbar_mirrors,
             set_taskbar_mirror_layout,
             activate_attention_source,
-            get_later_inbox_snapshot,
-            create_later_inbox_item,
-            update_later_inbox_item,
-            complete_later_inbox_item,
-            restore_later_inbox_item,
-            delete_later_inbox_item,
-            delete_completed_later_inbox_items,
-            delete_all_later_inbox_items,
-            notify_due_later_inbox_items,
-            open_later_inbox_item_url,
-            open_later_inbox_note_url,
+            get_zoom_meeting_snapshot,
+            activate_zoom_meeting,
             play_meeting_start_sound,
             open_main_panel_devtools,
             quit_application

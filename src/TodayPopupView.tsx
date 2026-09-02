@@ -8,7 +8,7 @@ import {
 } from "@tauri-apps/api/window";
 import {
   openEventSettingsWindow,
-  openProjectStashWindow,
+  openProjectPanelWindow,
 } from "./event-workspace-window";
 import type { PopupAnchor } from "./event-workspace-model";
 import {
@@ -22,6 +22,9 @@ import { todayPopupPosition } from "./today-popup-window";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { HubCloseIcon } from "./HubCloseIcon";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
+import { openManagerWindow } from "./manager-window";
+import { deferActionItemToTomorrow, isFromActiveOwner, isVisibleInToday, sortActionItems, type ActionItem, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
+import { todayPopupHeight, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
 
 function formatTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat([], {
@@ -66,10 +69,25 @@ export function TodayPopupView() {
   const [payload, setPayload] = useState<TodayPopupPayload | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [error, setError] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const refresh = async () => {
+      try {
+        const next = await invoke<WorkspaceSnapshot>("get_workspace_snapshot");
+        if (!disposed) setWorkspace(next);
+      } catch (cause) { if (!disposed) setError(String(cause)); }
+    };
+    void listen(WORKSPACE_CHANGED_EVENT, () => void refresh()).then((next) => { if (disposed) next(); else unlisten = next; });
+    void refresh();
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -113,30 +131,82 @@ export function TodayPopupView() {
     );
   };
 
-  const openProjectStash = async (selection: WorkCalendarDaySelection) => {
+  const openProjectPanel = async (selection: WorkCalendarDaySelection, view: "project" | "notes" | "todos" = "project") => {
     const projectId = selection.eventWorkspace?.projectId;
     if (!projectId) return;
     const anchor = await currentPopupAnchor();
     if (!anchor) {
-      setError("Project stash could not be positioned.");
+      setError("Project panel could not be positioned.");
       return;
     }
-    await openProjectStashWindow(
-      { projectId, anchor },
+    await openProjectPanelWindow(
+      { projectId, view, anchor },
       (message) => setError(message),
     );
+  };
+
+  const openTodoDetails = async (item: ActionItem) => {
+    const anchor = await currentPopupAnchor();
+    if (!anchor) { setError("To-do details could not be positioned."); return; }
+    await openProjectPanelWindow({
+      projectId: item.ownerKind === "project" ? item.ownerId : "",
+      itemId: item.id,
+      view: "todo",
+      anchor,
+    }, (message) => setError(message));
   };
 
   const openEventLink = async (selection: WorkCalendarDaySelection) => {
     if (!selection.eventToken) return;
     try {
-      await invoke("open_event_workspace_link", {
+      await invoke("open_event_workspace_link_from_workspace", {
         eventToken: selection.eventToken,
       });
       setError(null);
     } catch {
       setError("The saved event link could not be opened.");
     }
+  };
+
+  const openEventProject = (selection: WorkCalendarDaySelection) => {
+    return selection.eventWorkspace?.projectId
+      ? openProjectPanel(selection)
+      : openEventSettings(selection);
+  };
+
+  const pendingProjectTodos = (projectId: string | null | undefined) => projectId
+    ? workspace?.actionItems.filter((item) => item.ownerKind === "project" && item.ownerId === projectId && item.completedAt === null).length ?? 0
+    : 0;
+
+  const todayTodos = sortActionItems(workspace?.actionItems.filter((item) => isVisibleInToday(item, now) && isFromActiveOwner(item, workspace)) ?? []);
+  const openTodayTodos = todayTodos.filter((item) => item.completedAt === null);
+  const hasMoreTodos = todayTodos.length > TODAY_TODO_MAX_ITEMS;
+  const visibleTodos = todayTodos.slice(0, hasMoreTodos ? TODAY_TODO_MAX_ITEMS - 1 : TODAY_TODO_MAX_ITEMS);
+  const ownerName = (kind: "project" | "list", id: string) => kind === "project"
+    ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
+    : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
+
+  useEffect(() => {
+    if (!payload) return;
+    const next = { ...payload, height: todayPopupHeight(payload.selections.length, todayTodos.length) };
+    const currentWindow = getCurrentWindow();
+    void currentWindow.setSize(new LogicalSize(next.width, next.height)).then(() => currentWindow.setPosition(todayPopupPosition(next)));
+  }, [todayTodos.length, payload]);
+
+  const toggleTodo = async (item: ActionItem) => {
+    try { setWorkspace(await invoke<WorkspaceSnapshot>(item.completedAt ? "restore_action_item" : "complete_action_item", { itemId: item.id })); setError(null); }
+    catch (cause) { setError(String(cause)); }
+  };
+
+  const deferTodo = async (item: ActionItem) => {
+    const schedule = deferActionItemToTomorrow(item, now);
+    try {
+      setWorkspace(await invoke<WorkspaceSnapshot>("update_action_item", {
+        itemId: item.id,
+        input: { ownerKind: item.ownerKind, ownerId: item.ownerId, title: item.title, notes: item.notes, ...schedule },
+      }));
+      setError(null);
+    } catch (cause) { setError(String(cause)); }
   };
 
   if (!payload) return null;
@@ -151,17 +221,17 @@ export function TodayPopupView() {
             {payload.selections.length === 1 ? "" : "s"} · {Math.floor(
               payload.occupiedMinutes / 60,
             )}
-            h {payload.occupiedMinutes % 60}m in meetings
+            h {payload.occupiedMinutes % 60}m in calls
           </span>
         </div>
         <button aria-label="Close today's meeting summary" className="hub-close-button" onClick={() => void close()} type="button">
           <HubCloseIcon />
         </button>
       </header>
-      <ol>
+      <ol className="today-popup-events">
         {payload.selections.length === 0 ? (
           <li className="widget-calendar-day-panel__empty">
-            No meetings today.
+            No calls today.
           </li>
         ) : payload.selections.map((selection, index) => {
           const startMs = Date.parse(selection.start);
@@ -190,18 +260,20 @@ export function TodayPopupView() {
                       payload.systemTimeZone,
                     )}`}
               </time>
-              <span className="widget-calendar-day-panel__subject" title={selection.subject}>
+              <button className="widget-calendar-day-panel__subject" onClick={() => void openEventProject(selection)} title={selection.eventWorkspace?.projectName ? `Open ${selection.eventWorkspace.projectName}` : "Assign a project"} type="button">
                 {finished && <span className="sr-only">Finished: </span>}
                 {selection.cancelled && <span className="sr-only">Cancelled: </span>}
                 {live && <span className="sr-only">Live now: </span>}
                 {selection.subject}
-              </span>
+              </button>
               {selection.eventToken && !selection.cancelled && (
                 <EventWorkspaceActions
                   className="widget-calendar-day-panel__actions"
                   onOpenLink={() => void openEventLink(selection)}
                   onOpenSettings={() => void openEventSettings(selection)}
-                  onOpenStash={() => void openProjectStash(selection)}
+                  onOpenNotes={() => void openProjectPanel(selection, "notes")}
+                  onOpenTodos={() => void openProjectPanel(selection, "todos")}
+                  pendingTodoCount={pendingProjectTodos(selection.eventWorkspace?.projectId)}
                   subject={selection.subject}
                   workspace={selection.eventWorkspace}
                 />
@@ -210,6 +282,15 @@ export function TodayPopupView() {
           );
         })}
       </ol>
+      {todayTodos.length > 0 && <section className="today-popup-todos" aria-labelledby="today-todos-heading">
+        <header><strong id="today-todos-heading">TODO</strong><span>{openTodayTodos.length} need attention</span></header>
+        <ol>{visibleTodos.map((item) => <li data-completed={item.completedAt !== null || undefined} key={item.id}>
+          <button aria-label={`${item.completedAt ? "Restore" : "Complete"} ${item.title}`} className="today-popup-todos__check" onClick={() => void toggleTodo(item)} type="button"><span aria-hidden="true">{item.completedAt ? "✓" : ""}</span></button>
+          <button className="today-popup-todos__title" onClick={() => void openTodoDetails(item)} title={`Open details for ${item.title}`} type="button">{item.title}</button>
+          <small>{ownerName(item.ownerKind, item.ownerId)}</small>
+          {!item.completedAt && <button aria-label={`Move ${item.title} to tomorrow`} className="today-popup-todos__defer" onClick={() => void deferTodo(item)} title="Move to tomorrow" type="button"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v3m-4.2-.8L5.9 6M2 8h3m7.5-3.5A5.5 5.5 0 1 1 5 12.9"/><path d="m3.7 11.1 1.5 2.2-2.6.4"/></svg><span>Not today</span></button>}
+        </li>)}{hasMoreTodos && <li className="today-popup-todos__more"><button onClick={() => void openManagerWindow("todos")} type="button">+{todayTodos.length - visibleTodos.length} more</button></li>}</ol>
+      </section>}
       {error && <p className="today-popup-shell__error" role="status">{error}</p>}
     </main>
   );

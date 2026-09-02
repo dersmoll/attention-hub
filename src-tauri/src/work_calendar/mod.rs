@@ -448,12 +448,17 @@ fn snapshot_from_probe(
         probe.next_selection = None;
         probe.day_selections.clear();
     }
-    let (selection, overlapping_selections, next_selection) = state.expose_selections(
-        probe.selection,
-        probe.overlapping_selections,
-        probe.next_selection,
-        source_scope,
-    );
+    let (selection, overlapping_selections, next_selection) =
+        if matches!(status, WorkCalendarStatus::Observed) {
+            state.expose_selections(
+                probe.selection,
+                probe.overlapping_selections,
+                probe.next_selection,
+                source_scope,
+            )
+        } else {
+            (None, Vec::new(), None)
+        };
     let day_selections = probe
         .day_selections
         .into_iter()
@@ -594,6 +599,12 @@ mod tests {
     #[test]
     fn unavailable_probe_never_exposes_a_selection() {
         let state = WorkCalendarState::new();
+        state
+            .join_targets
+            .lock()
+            .unwrap()
+            .targets
+            .insert("join-1".into(), "https://teams.microsoft.com/meet/1".into());
         let probe = PublishedIcsSemanticProbe::command_deadline(true);
         let snapshot = snapshot_from_probe(&state, probe, true, None);
 
@@ -601,6 +612,10 @@ mod tests {
         assert!(snapshot.selection.is_none());
         assert!(snapshot.next_selection.is_none());
         assert!(snapshot.configured);
+        assert_eq!(
+            join_url(&state, "join-1").unwrap(),
+            "https://teams.microsoft.com/meet/1"
+        );
     }
 
     #[test]

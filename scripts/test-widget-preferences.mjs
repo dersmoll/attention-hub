@@ -39,6 +39,8 @@ assert.deepEqual(legacy, {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: 120,
   y: -46,
   panelSurface: "light",
@@ -80,6 +82,8 @@ assert.deepEqual(malformed, {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: null,
   y: null,
   panelSurface: "light",
@@ -161,14 +165,20 @@ assert.equal(fresh.clockLayout, "horizontal");
 assert.equal(fresh.meetingStartSoundEnabled, true);
 assert.equal(fresh.showAppsPanel, true);
 assert.equal(fresh.showClocksPanel, true);
+assert.equal(fresh.showTodayPanel, true);
+assert.equal(fresh.showProjectsPanel, true);
 
 const hiddenPanels = preferences.normalizeWidgetPreferences({
   sourceCatalogVersion: 2,
   showAppsPanel: false,
   showClocksPanel: false,
+  showTodayPanel: false,
+  showProjectsPanel: false,
 });
 assert.equal(hiddenPanels.showAppsPanel, false);
 assert.equal(hiddenPanels.showClocksPanel, false);
+assert.equal(hiddenPanels.showTodayPanel, false);
+assert.equal(hiddenPanels.showProjectsPanel, false);
 assert.equal(
   preferences.normalizeWidgetPreferences({
     sourceCatalogVersion: 2,
@@ -217,6 +227,16 @@ assert.deepEqual(multipleClocks.extraTimeZones, [
   "Asia/Tokyo",
 ]);
 assert.equal(multipleClocks.clockLayout, "vertical");
+assert.equal(
+  preferences.normalizeWidgetPreferences({ clockLayout: "timeFocus" })
+    .clockLayout,
+  "timeFocus",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ clockLayout: "unsupported" })
+    .clockLayout,
+  "horizontal",
+);
 
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "compact" }).widthMode,
@@ -339,6 +359,8 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: 10,
   y: 20,
   panelSurface: "light",

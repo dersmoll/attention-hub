@@ -6,8 +6,11 @@ interface EventWorkspaceActionsProps {
   subject: string;
   workspace: WorkCalendarEventWorkspaceSummary | null;
   onOpenLink: () => void;
-  onOpenStash: () => void;
+  onOpenNotes?: () => void;
+  onOpenProject?: () => void;
+  onOpenTodos?: () => void;
   onOpenSettings: () => void;
+  pendingTodoCount?: number;
 }
 
 export function EventWorkspaceActions({
@@ -15,8 +18,11 @@ export function EventWorkspaceActions({
   subject,
   workspace,
   onOpenLink,
-  onOpenStash,
+  onOpenNotes,
+  onOpenProject,
+  onOpenTodos,
   onOpenSettings,
+  pendingTodoCount,
 }: EventWorkspaceActionsProps) {
   const run = (
     event: MouseEvent<HTMLButtonElement>,
@@ -28,6 +34,17 @@ export function EventWorkspaceActions({
 
   return (
     <span className={`event-workspace-actions ${className}`}>
+      {workspace?.projectId && onOpenTodos && pendingTodoCount !== undefined && pendingTodoCount > 0 && (
+        <button
+          aria-label={`Open ${pendingTodoCount} pending to-do${pendingTodoCount === 1 ? "" : "s"} for ${workspace.projectName ?? "project"}`}
+          className="event-workspace-actions__button event-workspace-actions__todos"
+          onClick={(event) => run(event, onOpenTodos)}
+          title={`${pendingTodoCount} pending to-do${pendingTodoCount === 1 ? "" : "s"}`}
+          type="button"
+        >
+          {pendingTodoCount}
+        </button>
+      )}
       {workspace?.linkUrlPresent && (
         <button
           aria-label={`Open saved link for ${subject}`}
@@ -41,12 +58,25 @@ export function EventWorkspaceActions({
           </svg>
         </button>
       )}
-      {workspace?.projectId && (
+      {workspace?.notesPresent && onOpenNotes && (
         <button
-          aria-label={`Open ${workspace.projectName ?? "project"} stash`}
+          aria-label={`Open notes for ${workspace.projectName ?? "project"}`}
+          className="event-workspace-actions__button event-workspace-actions__notes"
+          onClick={(event) => run(event, onOpenNotes)}
+          title={`Notes for ${workspace.projectName ?? "project"}`}
+          type="button"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" />
+          </svg>
+        </button>
+      )}
+      {workspace?.projectId && onOpenProject && (
+        <button
+          aria-label={`Open ${workspace.projectName ?? "project"}`}
           className="event-workspace-actions__button event-workspace-actions__stash"
-          onClick={(event) => run(event, onOpenStash)}
-          title={`Open ${workspace.projectName ?? "project"} stash`}
+          onClick={(event) => run(event, onOpenProject)}
+          title={`Open ${workspace.projectName ?? "project"}`}
           type="button"
         >
           <svg aria-hidden="true" viewBox="0 0 24 24">

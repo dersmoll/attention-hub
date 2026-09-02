@@ -3,6 +3,8 @@ export const WIDGET_COMPACT_HEIGHT = 55;
 export const WIDGET_SLIM_HEIGHT = 38  ;
 export const WIDGET_CALENDAR_COMPACT_WIDTH = 260;
 export const WIDGET_CALENDAR_COMPACT_DUAL_WIDTH = 392;
+export const WIDGET_COMPACT_DESTINATIONS_WIDTH = 88;
+export const WIDGET_SLIM_DESTINATIONS_WIDTH = 66;
 export const WIDGET_COMPACT_UTILITY_WIDTH = 20;
 export const WIDGET_SLIM_UTILITY_WIDTH = 64;
 export const WIDGET_DRAG_HANDLE_WIDTH = 18;
@@ -13,6 +15,9 @@ export const WIDGET_SLIM_ICON_SIZE = 32;
 export const WIDGET_SLIM_ICON_GAP = 2;
 export const WIDGET_SLIM_LEFT_PADDING = 4;
 export const WIDGET_SLIM_CLOCK_ITEM_WIDTH = 84;
+export const WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH = 10;
+export const WIDGET_TIME_FOCUS_CLOCK_WIDTH = 240;
+export const WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH = 192;
 export const WIDGET_SLIM_CALENDAR_WIDTH = 320;
 export const WIDGET_SLIM_CALENDAR_DUAL_WIDTH = 520;
 export const WIDGET_SLIM_CALENDAR_MAX_WIDTH = 600;
@@ -22,6 +27,9 @@ export const CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT = 224;
 export const CALENDAR_DAY_PANEL_BASE_HEIGHT = 54;
 export const CALENDAR_DAY_PANEL_EVENT_HEIGHT = 22;
 export const CALENDAR_DAY_PANEL_MAX_EVENTS = 24;
+export const TODAY_TODO_SECTION_BASE_HEIGHT = 30;
+export const TODAY_TODO_ROW_HEIGHT = 30;
+export const TODAY_TODO_MAX_ITEMS = 8;
 
 export type WidgetWidthMode = "recommended" | "slim";
 
@@ -95,17 +103,26 @@ export function widgetClockWidth(widthMode: WidgetWidthMode = "recommended") {
 export function widgetClockPanelWidth(
   widthMode: WidgetWidthMode = "recommended",
   clockCount = 2,
-  clockLayout: "horizontal" | "vertical" = "horizontal",
+  clockLayout: "horizontal" | "vertical" | "timeFocus" = "horizontal",
 ) {
+  if (clockLayout === "timeFocus") {
+    return widthMode === "slim"
+      ? WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH
+      : WIDGET_TIME_FOCUS_CLOCK_WIDTH;
+  }
   const boundedCount = Math.min(5, Math.max(2, Math.trunc(clockCount)));
   if (widthMode === "slim") {
-    return boundedCount * WIDGET_SLIM_CLOCK_ITEM_WIDTH;
+    return boundedCount * WIDGET_SLIM_CLOCK_ITEM_WIDTH + WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH;
   }
   const base = widgetClockWidth(widthMode);
   if (clockLayout === "vertical") {
-    return base;
+    return base + WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH;
   }
-  return base + (boundedCount - 2) * (WIDGET_COMPACT_CLOCK_WIDTH / 2);
+  return (
+    base +
+    (boundedCount - 2) * (WIDGET_COMPACT_CLOCK_WIDTH / 2) +
+    WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH
+  );
 }
 
 export function widgetZoneGap(widthMode: WidgetWidthMode = "recommended") {
@@ -117,7 +134,7 @@ export function widgetLeftWidth(
   visibleSourceCount: number,
   widthMode: WidgetWidthMode = "recommended",
 ) {
-  const boundedCount = Math.min(6, Math.max(0, Math.trunc(visibleSourceCount)));
+  const boundedCount = Math.min(7, Math.max(0, Math.trunc(visibleSourceCount)));
   if (widthMode === "slim") {
     if (boundedCount === 0) {
       return 0;
@@ -163,13 +180,20 @@ export function widgetCalendarWidth(
     : WIDGET_CALENDAR_COMPACT_WIDTH;
 }
 
+export function todayPopupHeight(eventCount: number, todoCount: number) {
+  const boundedTodos = Math.min(TODAY_TODO_MAX_ITEMS, Math.max(0, Math.trunc(todoCount)));
+  return calendarDayPanelHeight(eventCount) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
+}
+
 export function widgetFixedWidth(
   visibleSourceCount: number,
   widthMode: WidgetWidthMode = "recommended",
   clockCount = 2,
-  clockLayout: "horizontal" | "vertical" = "horizontal",
+  clockLayout: "horizontal" | "vertical" | "timeFocus" = "horizontal",
   showAppsPanel = true,
   showClocksPanel = true,
+  showTodayPanel = true,
+  showProjectsPanel = true,
 ) {
   const segmentWidths = [
     showAppsPanel && visibleSourceCount > 0
@@ -178,6 +202,11 @@ export function widgetFixedWidth(
     showClocksPanel
       ? widgetClockPanelWidth(widthMode, clockCount, clockLayout)
       : 0,
+    widgetDestinationsWidth(
+      widthMode,
+      showTodayPanel,
+      showProjectsPanel,
+    ),
     WIDGET_DRAG_HANDLE_WIDTH,
     widgetUtilityWidth(widthMode),
   ].filter((width) => width > 0);
@@ -185,6 +214,18 @@ export function widgetFixedWidth(
     segmentWidths.reduce((total, width) => total + width, 0) +
     widgetZoneGap(widthMode) * segmentWidths.length
   );
+}
+
+export function widgetDestinationsWidth(
+  widthMode: WidgetWidthMode = "recommended",
+  showTodayPanel = true,
+  showProjectsPanel = true,
+) {
+  if (widthMode === "slim") {
+    return (WIDGET_SLIM_DESTINATIONS_WIDTH / 2)
+      * (Number(showTodayPanel) + Number(showProjectsPanel));
+  }
+  return (showTodayPanel ? 60 : 0) + (showProjectsPanel ? 28 : 0);
 }
 
 export function widgetUtilityWidth(
@@ -201,11 +242,14 @@ export function widgetWidth(
   widthMode: WidgetWidthMode = "recommended",
   showsNextEvent = false,
   clockCount = 2,
-  clockLayout: "horizontal" | "vertical" = "horizontal",
+  clockLayout: "horizontal" | "vertical" | "timeFocus" = "horizontal",
   showAppsPanel = true,
   showClocksPanel = true,
   calendarContentLength = 0,
   preferredCalendarWidth: number | null = null,
+  showTodayPanel = true,
+  showProjectsPanel = true,
+  showCalendarPanel = true,
 ) {
   return (
     widgetFixedWidth(
@@ -215,12 +259,16 @@ export function widgetWidth(
       clockLayout,
       showAppsPanel,
       showClocksPanel,
+      showTodayPanel,
+      showProjectsPanel,
     ) +
-    widgetCalendarWidth(
-      widthMode,
-      showsNextEvent,
-      calendarContentLength,
-      preferredCalendarWidth,
-    )
+    (showCalendarPanel
+      ? widgetCalendarWidth(
+          widthMode,
+          showsNextEvent,
+          calendarContentLength,
+          preferredCalendarWidth,
+        )
+      : 0)
   );
 }

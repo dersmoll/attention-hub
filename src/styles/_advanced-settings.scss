@@ -324,15 +324,11 @@
   }
 
   .calendar-configuration,
-  .later-data-card {
+  .workspace-data-card {
     margin-block: 12px 0;
     padding: 14px;
     border-color: var(--color-border-chrome-card);
     border-radius: var(--radius-chrome-card);
-  }
-
-  .later-data-panel {
-    margin-block: 0;
   }
 
   /* Denser variants of the shared attention components. */

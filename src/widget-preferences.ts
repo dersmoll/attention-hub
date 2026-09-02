@@ -11,7 +11,7 @@ export type AttentionAppKey =
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
 export type WidgetWidthMode = "recommended" | "slim";
-export type ClockLayout = "horizontal" | "vertical";
+export type ClockLayout = "horizontal" | "vertical" | "timeFocus";
 export type PanelSurfaceMode = "light" | "dark" | "custom";
 
 export const PANEL_SURFACE_COLORS = {
@@ -30,6 +30,8 @@ export interface WidgetPreferences {
   meetingStartSoundEnabled: boolean;
   showAppsPanel: boolean;
   showClocksPanel: boolean;
+  showTodayPanel: boolean;
+  showProjectsPanel: boolean;
   x: number | null;
   y: number | null;
   panelSurface: PanelSurfaceMode;
@@ -79,6 +81,8 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: null,
   y: null,
   panelSurface: "light",
@@ -218,7 +222,9 @@ function normalizeExtraTimeZones(
 }
 
 function normalizeClockLayout(value: unknown): ClockLayout {
-  return value === "vertical" ? "vertical" : "horizontal";
+  return value === "vertical" || value === "timeFocus"
+    ? value
+    : "horizontal";
 }
 
 function normalizeCoordinate(value: unknown) {
@@ -320,6 +326,14 @@ export function normalizeWidgetPreferences(
       typeof value?.showClocksPanel === "boolean"
         ? value.showClocksPanel
         : DEFAULT_WIDGET_PREFERENCES.showClocksPanel,
+    showTodayPanel:
+      typeof value?.showTodayPanel === "boolean"
+        ? value.showTodayPanel
+        : DEFAULT_WIDGET_PREFERENCES.showTodayPanel,
+    showProjectsPanel:
+      typeof value?.showProjectsPanel === "boolean"
+        ? value.showProjectsPanel
+        : DEFAULT_WIDGET_PREFERENCES.showProjectsPanel,
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
     panelSurface: normalizePanelSurface(value?.panelSurface, panelColor),

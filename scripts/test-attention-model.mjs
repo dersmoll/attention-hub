@@ -25,7 +25,7 @@ const capturedAt = new Date().toISOString();
 
 assert.equal(
   model.sourceActivationFailureMessage("Microsoft Outlook"),
-  "Microsoft Outlook isn't available. Start or restore it, then try again.",
+  "Microsoft Outlook couldn't be opened or brought forward. Make sure it is installed, then try again.",
 );
 
 function source(sourceKey, needsAttention, state = "observed") {

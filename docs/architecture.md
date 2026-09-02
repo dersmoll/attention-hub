@@ -4,12 +4,12 @@
 
 Attention Hub is a Windows-only Tauri 2 application. React and TypeScript render
 the WebView surfaces; Rust owns operating-system integration, calendar fetching
-and parsing, secure link activation, local Later Inbox storage, and the app's
+and parsing, secure link activation, unified local workspace storage, and the app's
 own local reminders.
 
 The production bundle is one x64 NSIS installer. The primary window is a
 frameless, fixed-height widget with responsive width based on enabled sources
-and calendar density. Advanced and Later Inbox are created on demand.
+and calendar density. Advanced, Project Hub, Today, and project panels are created on demand.
 
 ## Main surfaces
 
@@ -55,7 +55,7 @@ or convert those pixels into semantic state.
 The widget shows a primary clock and one stored IANA secondary timezone. The
 primary follows the Windows system timezone unless the user stores an explicit
 IANA override. That override affects only the primary clock and converter, not
-calendar selection, Later Inbox follow-ups, notifications, or Windows. Both
+calendar selection, to-do reminders, notifications, or Windows. Both
 live times open the same inline converter. Conversion resolves the entered wall
 time in the selected source zone, handles day rollover, and rejects nonexistent
 DST times. Converter mode keeps the live clock's centered two-column layout,
@@ -89,54 +89,66 @@ The provider never controls Outlook. AppointmentStore, Outlook My Day UI
 Automation, Microsoft Graph, OCR, and generalized calendar providers are not
 part of the production command surface.
 
-### Event settings and project stashes
+### Project Hub, event settings, and to-dos
 
-The Today summary may associate any non-private event with an optional local
-project stash, an optional user-supplied HTTP(S) event link, or both. Recurring
-events use source-scoped series identity; one-off events use source-scoped event
-identity. Different events can map to the same project while retaining separate
-links. Project stashes contain a bounded name, link-aware text segments,
-timestamps, and no arbitrary HTML or attachments.
+One versioned `workspace.json` store owns projects, personal categories and
+lists, useful project links, project/personal to-dos, and calendar bindings.
+The store is created lazily on its first mutation, limited to 4 MiB, validated
+before use, and written through `workspace.pending.json` with one bounded
+`workspace.backup.json`. A first write after backup recovery preserves the
+known-good backup rather than copying a corrupt primary over it.
 
-The native store is versioned, validated, limited to 1 MiB, and committed with
-the same pending-file and bounded-backup pattern as Later Inbox. Removing a
-binding or project uses a destructive write so removed links and notes are not
-retained in the backup. HTTP(S) event and note links are resolved from the saved
-store and revalidated before Windows opens them. Attention Hub holds no external
-service credentials and makes no external service API request.
+Advanced settings can export that workspace into a user-selected, versioned
+JSON transfer file. The transfer excludes widget preferences and the Published
+ICS credential. Import is replacement-only: Rust validates the bounded file,
+returns content counts for confirmation, then re-reads it and verifies both the
+preview digest and current workspace revision before writing. A successful
+import increments the local revision, preserves the previous workspace as the
+bounded backup, and emits `workspace-changed` to every open consumer.
 
-### Later Inbox
+Each mutation increments a monotonic workspace revision and emits
+`workspace-changed`; all mounted consumers refetch the authoritative snapshot.
+Cascading project/list/category/delete-all actions preflight backend-owned
+counts and reject a confirmation whose revision has gone stale. Archive is the
+normal reversible project action; archived project data and calendar bindings
+remain intact, while its to-dos are excluded from global Today/widget attention.
 
-Later Inbox is a local JSON store in the Tauri application-data directory. The
-current schema is versioned and validated before use. Writes use a temporary
-file and replacement flow; the previous valid store is retained as a bounded
-backup except for destructive content removal.
+Projects contain bounded link-aware notes, useful HTTP(S) links, timestamps,
+and a notes-specific revision. Notes autosave optimistically across windows:
+rename/archive/reorder cannot create a false conflict, a rejected save retains
+the user's draft, and edits typed during an in-flight save remain dirty. Saved
+links are looked up and revalidated in Rust immediately before Windows opens
+them; no favicon or service API request is made.
 
-Items contain a title, Work/Private group, optional project/context, bounded
-link-aware text segments, optional HTTP(S) URL, optional follow-up time, state,
-and timestamps. Arbitrary HTML and attachments are not stored. Link activation
-is revalidated against the saved item.
+Every to-do is owned by a project or personal list. It has a title, bounded
+link-aware notes, independent optional `dueOn` (a local `YYYY-MM-DD`) and
+`remindAt` (an RFC3339 instant), and completion/notification timestamps. To-do
+order is derived from completion and the earliest due/reminder value; projects,
+personal categories/lists, and useful links use explicit ordering controls.
+Notifications are one-shot per reminder value and only run while Attention Hub
+is open.
 
-Follow-up notifications are one-shot per due value and are emitted only while
-Attention Hub is running.
-
-The widget reminder action opens the list-first Later Inbox. **Add new
-reminder** starts a three-step What/When/Details flow; new reminders require a
-follow-up time and start at the next quarter-hour. Step labels are direct
-navigation controls; Work/Private and the bounded link-aware notes editor live
-in Details. The wizard writes through the existing store and notification
-lifecycle, never enables notifications automatically, preserves pre-existing
-URL data without exposing a new URL field, and never replaces an existing
-unsaved draft. Single-item deletion requires inline confirmation and uses the
-same privacy-preserving destructive-write path as bulk deletion, so deleted
-content is not retained in the backup.
+Event settings can bind a non-private event to a project and either a selected
+project link or a direct HTTP(S) fallback. Recurring events use source-scoped
+series identity; one-off events use source-scoped event identity. Today can open
+the complete anchored project panel, a Notes-only panel, or a pending-To-dos
+panel. Project Hub has top-level Projects and All To-dos views. Projects uses a
+two-column manager with Projects and grouped Personal lists in the sidebar and
+Notes/Links/To-dos in the detail pane. All To-dos uses the full window for one
+chronological cross-owner list; each row identifies its project or personal
+list and preserves inline completion, notes, edit, and delete actions.
 
 ### Widget composition
 
-The fixed-height widget separates four zones: communication sources, the two
-clocks, calendar content, and a 68 px right-side utility rail. The rail owns
-pin, close, reminders, and Advanced, so source buttons remain source-only and
-calendar width remains available for event text. Full truncated current and
+The fixed-height widget separates communication sources, clocks, flexible
+calendar content, a narrow destination panel, and the original three-control
+close/pin/Settings utility rail. The destination panel has a Today segment and
+a vertically split Projects/All To-dos segment. Today reports meetings and
+actionable to-dos left; All To-dos retains the active count while attention is
+expressed as a stronger tone. Destination labels remain in Recommended mode
+and collapse to icons in Compact single-line. All four optional content panels
+(shortcuts, clocks, Today, and Projects/To-dos) can be hidden independently.
+Full truncated current and
 next event text is available through native hover titles. Recommended mode
 reduces the source strip from 48 px buttons/8 px gaps to 40 px buttons/4 px gaps with
 34 px visual surfaces and reduced padding. Its window height is 68 px, with
@@ -198,19 +210,21 @@ with no selected event continues to show its ordinary empty state.
 ## Persistence
 
 - WebView local storage: widget preferences, appearance, source order, calendar
-  acknowledgement, and Later Inbox UI preferences.
-- Tauri application-data directory: Later Inbox JSON plus meeting-workspace
-  JSON, each with one bounded backup.
+  acknowledgement, to-do notification preference, and floating-window geometry.
+- Tauri application-data directory: one unified `workspace.json` plus pending
+  and bounded-backup files.
+- User-selected files: optional manual workspace exports containing Project Hub
+  and to-do data, written only after an explicit Export action.
 - Windows Credential Manager: the single Published ICS source URL.
 - Process memory only: current meeting URLs and ephemeral join tokens.
 
 No message bodies, notification bodies, calendar publication URLs, raw
-recurrence UIDs, Later Inbox content, meeting-project content, account
+recurrence UIDs, Project Hub content, account
 identifiers, or DWM pixels are written to diagnostics.
 
 Attention Hub does not request Windows Notification Center access, enumerate
 other applications' notifications, or read their notification payloads. The
-meeting sound and Later Inbox notifications are generated locally by Attention
+meeting sound and to-do notifications are generated locally by Attention
 Hub from its own calendar and reminder state.
 
 ## IPC and security

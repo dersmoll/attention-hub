@@ -18,13 +18,16 @@ that still define the public beta.
 6. **Secret-safe calendar links.** The publication URL stays in Windows
    Credential Manager. Meeting URLs stay in Rust memory and cross IPC only as
    ephemeral tokens.
-7. **Four-zone widget with two size presets.** Communication, clocks, calendar,
-   and utility actions retain separate ownership. Recommended is the dense
-   default; Compact single-line is the alternate compact rail. Advanced and
-   Later Inbox open on demand, and native mirrors follow the selected geometry.
-8. **Local Later Inbox.** Bounded structured text and links are stored in a
-   versioned local file. Arbitrary rich HTML, attachments, synchronization, and
-   closed-app reminders are outside the beta.
+7. **Five-zone widget with two size presets.** Communication, clocks, calendar,
+   Today/Projects destinations, and utility actions retain separate ownership.
+   Recommended is the dense default; Compact single-line is the alternate
+   compact rail. Project Hub and Advanced open on demand, and native mirrors
+   follow the selected geometry.
+8. **One local Projects and To-dos workspace.** Projects, personal lists,
+   bounded notes and links, calendar bindings, and to-dos share one versioned
+   local store. Project Hub is the two-column management surface; compact
+   project, note, and to-do views reuse the same records. Arbitrary rich HTML,
+   attachments, synchronization, and closed-app reminders are outside the beta.
 9. **User-controlled lifecycle.** Position, pinning, appearance, enabled
    sources, and app order persist. Autostart, a Hub tray process, updater, and
    signing require separate future decisions.

@@ -11,10 +11,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
-import { LaterInboxDataPanel } from "./LaterInboxDataPanel";
-import { LaterInboxView } from "./LaterInboxView";
+import { WorkspaceDataPanel } from "./WorkspaceDataPanel";
 import { EventSettingsView } from "./EventSettingsView";
-import { ProjectStashView } from "./ProjectStashView";
+import { ManagerView } from "./ManagerView";
+import { ProjectPanelWindow } from "./ProjectPanelWindow";
+import { openManagerWindow } from "./manager-window";
 import { TodayPopupView } from "./TodayPopupView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
@@ -93,7 +94,7 @@ const ADVANCED_PAGES: Array<{
   {
     id: "reminders",
     label: "Reminders",
-    description: "Later Inbox storage and data controls.",
+    description: "Projects and to-do storage controls.",
   },
   {
     id: "updates",
@@ -638,6 +639,11 @@ function AdvancedView() {
           Local-first Windows observer
           {appVersion ? ` · v${appVersion}` : ""}
         </p>
+        {import.meta.env.DEV && (
+          <button onClick={() => void openManagerWindow()} type="button">
+            Preview Project Hub
+          </button>
+        )}
       </aside>
 
       <div className="advanced-content">
@@ -888,6 +894,30 @@ function AdvancedView() {
               />
               Show clocks
             </label>
+            <label>
+              <input
+                checked={widgetPreferences.showTodayPanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showTodayPanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show Today
+            </label>
+            <label>
+              <input
+                checked={widgetPreferences.showProjectsPanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showProjectsPanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show Projects and To-dos
+            </label>
             <small>
               Hidden panels keep their app and timezone configuration. Native
               visual mirrors pause while app shortcuts are hidden.
@@ -902,25 +932,27 @@ function AdvancedView() {
             <div className="widget-clock-layout-control">
               <label htmlFor="widget-clock-layout">Clock layout</label>
               <select
-                disabled={widgetPreferences.widthMode === "slim"}
                 id="widget-clock-layout"
                 onChange={(event) =>
                   applyWidgetPreferences({
                     clockLayout: event.target.value as
                       | "horizontal"
-                      | "vertical",
+                      | "vertical"
+                      | "timeFocus",
                   })
                 }
                 value={widgetPreferences.clockLayout}
               >
                 <option value="horizontal">Horizontal columns</option>
                 <option value="vertical">Vertical list</option>
+                <option value="timeFocus">Time Focus</option>
               </select>
               <small>
                 Horizontal mode grows the clock panel. Vertical mode keeps its
                 current width and shows one compact time-and-city row per zone.
-                Compact single-line always presents time and city horizontally
-                and preserves this choice for the other size presets.
+                Time Focus emphasizes only this PC&apos;s local time and temporarily
+                hides calendar, Today, and Projects. Compact single-line keeps
+                the clock on one row.
               </small>
             </div>
             <label htmlFor="widget-primary-time-zone">Primary timezone</label>
@@ -1233,7 +1265,7 @@ function AdvancedView() {
         className="advanced-page-body"
         hidden={activePage !== "reminders"}
       >
-        <LaterInboxDataPanel />
+        <WorkspaceDataPanel />
       </div>
 
       <section
@@ -1560,17 +1592,17 @@ function App() {
   if (windowLabel === "advanced") {
     return <AdvancedView />;
   }
-  if (windowLabel === "later") {
-    return <LaterInboxView />;
-  }
   if (windowLabel === "update") {
     return <AppUpdatePanel variant="dialog" />;
   }
   if (windowLabel === "event-settings") {
     return <EventSettingsView />;
   }
-  if (windowLabel === "project-stash") {
-    return <ProjectStashView />;
+  if (windowLabel === "project-panel") {
+    return <ProjectPanelWindow />;
+  }
+  if (windowLabel === "manager") {
+    return <ManagerView />;
   }
   if (windowLabel === "today") {
     return <TodayPopupView />;

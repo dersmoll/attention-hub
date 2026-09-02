@@ -17,7 +17,7 @@
 }
 
 /* Chromed utility windows: advanced settings and the updater dialog. */
-@include window-shell("advanced", "update") {
+@include window-shell("advanced", "update", "manager") {
   height: 100%;
   background: var(--color-canvas-sunken);
 }
@@ -30,22 +30,15 @@
   width: 100%;
 }
 
-@include window-body("advanced", "update") {
+@include window-body("advanced", "update", "manager") {
   overflow: hidden;
   color: var(--color-text-chrome);
   font-size: 13px;
   line-height: 1.4;
 }
 
-/* Scrolling document windows. */
-@include window-shell("later") {
-  min-width: 0;
-  min-height: 100%;
-  background: var(--color-canvas);
-}
-
 /* Themed satellite panels that inherit the widget's panel colours. */
-@include window-shell("event-settings", "project-stash") {
+@include window-shell("event-settings", "project-panel") {
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -54,7 +47,7 @@
   overflow: hidden;
 }
 
-@include window-body("event-settings", "project-stash") {
+@include window-body("event-settings", "project-panel") {
   color: var(--widget-panel-foreground);
   background: transparent;
 }

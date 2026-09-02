@@ -55,6 +55,108 @@
   box-shadow: none;
 }
 
+.widget-destinations {
+  z-index: 4;
+  display: grid;
+  width: var(--widget-destinations-width);
+  grid-template-columns: minmax(0, 15fr) minmax(0, 7fr);
+  background: panel-tint(3%);
+
+  &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
+
+  button {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 2px;
+    place-content: center;
+    justify-items: center;
+    gap: 1px;
+    border: 0;
+    border-radius: 0;
+    color: var(--widget-panel-muted);
+    background: transparent;
+
+    + button { border-left: 1px solid panel-border-wash(72%); }
+
+    &:hover:not(:disabled),
+    &:focus-visible,
+    &[aria-pressed="true"] {
+      color: var(--widget-panel-accent);
+      background: color-mix(in srgb, var(--widget-panel-accent) 9%, transparent);
+    }
+
+    &:focus-visible { @include widget-focus-ring; }
+  }
+
+  svg {
+    @include stroke-icon(17px, 1.65);
+  }
+
+  &__label {
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 2px;
+  }
+
+  small {
+    color: var(--widget-panel-muted);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+
+    b { color: var(--widget-panel-accent); font-size: inherit; }
+  }
+
+  &__today { min-width: 0; }
+
+  &__projects {
+    display: grid;
+    min-width: 0;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    border-left: 1px solid panel-border-wash(72%);
+
+    button {
+      padding: 1px;
+      gap: 0;
+
+      + button { border-top: 1px solid panel-border-wash(72%); border-left: 0; }
+    }
+
+    svg { @include stroke-icon(12px, 1.7); }
+    .widget-destinations__label { font-size: 9px; }
+  }
+
+  &[data-segments="1"] &__projects { border-left: 0; }
+
+  &__badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    display: grid;
+    min-width: 10px;
+    height: 10px;
+    padding: 0 2px;
+    place-items: center;
+    border: 1px solid var(--widget-panel-solid);
+    border-radius: var(--radius-pill);
+    color: var(--widget-panel-accent-foreground);
+    background: var(--widget-panel-accent);
+    font-size: 6px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  button[data-due] &__badge { color: #2e1b02; background: #fbbf24; }
+}
+
 .widget-drag-handle {
   position: relative;
   z-index: 4;
@@ -246,6 +348,19 @@
   }
 }
 
+.widget-app-live {
+  position: absolute;
+  right: -2px;
+  top: -2px;
+
+  @include square(9px);
+
+  border: 2px solid var(--widget-panel-solid);
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 1px var(--color-success);
+}
+
 /* Clocks ----------------------------------------------------------------- */
 
 .widget-clock {
@@ -277,12 +392,23 @@
   }
 
   time {
+    display: inline-flex;
+    align-items: baseline;
+    white-space: nowrap;
     font-family: var(--font-numeric);
     font-variant-numeric: tabular-nums;
     font-size: 30px;
     font-weight: 500;
     letter-spacing: 0;
     line-height: 1;
+  }
+
+  &__seconds {
+    margin-left: 1px;
+    color: var(--widget-panel-muted);
+    font-size: 0.46em;
+    font-weight: 650;
+    letter-spacing: 0.02em;
   }
 
   /* The zone picker is an invisible <select> stretched over its label. */
@@ -318,6 +444,34 @@
         color: currentColor;
         background: rgb(255 255 255 / 10%);
       }
+    }
+  }
+
+  &[data-clock-layout="timeFocus"][data-clock-mode="live"] {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 3px 10px;
+    color: var(--widget-panel-interactive-foreground);
+    background: color-mix(
+      in srgb,
+      var(--widget-panel-accent) 14%,
+      var(--widget-panel-solid)
+    );
+    box-shadow: inset 0 0 0 1px var(--widget-panel-accent);
+
+    > .widget-clock__focus {
+      display: grid;
+      width: 100%;
+      place-items: center;
+      border: 0;
+      text-align: center;
+    }
+
+    time {
+    font-size: 49px;
+    font-weight: 750;
+    letter-spacing: 0.02em;
+    color: var(--widget-panel-accent);
+    filter: drop-shadow(0px 3px 6px #000);
     }
   }
 
@@ -476,6 +630,10 @@
   time {
     font-size: 11px;
     line-height: 1;
+  }
+
+  .widget-clock__seconds {
+    font-size: 8px;
   }
 }
 
@@ -636,7 +794,7 @@
   justify-items: center;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: repeat(3, minmax(0, 1fr));
-  gap: 3px;
+  gap: 0;
 
   button {
     position: relative;
@@ -685,7 +843,7 @@
     @include stroke-icon(var(--widget-utility-close-size));
   }
 
-  .widget-reminder-control svg {
+  .widget-pin-control svg {
     @include stroke-icon($stroke-width: 1.8);
   }
 
@@ -707,23 +865,6 @@
 
 .widget-advanced-control svg {
   @include stroke-icon($stroke-width: 1.5);
-}
-
-.widget-reminder__badge {
-  @include count-badge(
-    $size: 8px,
-    $offset: -1px,
-    $font-size: 0px,
-    $font-weight: 800,
-    $padding-inline: 1px
-  );
-
-  background: var(--widget-panel-accent);
-
-  .widget-reminder-control[data-due] & {
-    color: #2e1b02;
-    background: #fbbf24;
-  }
 }
 
 /* Shared close glyph, also used by the detached panels. */
@@ -756,5 +897,22 @@
   .widget-app-surface,
   .widget-utility button[aria-pressed="true"] .widget-utility__surface {
     forced-color-adjust: auto;
+  }
+
+  .widget-app-live {
+    border-color: Canvas;
+    background: Highlight;
+    box-shadow: 0 0 0 1px Highlight;
+  }
+
+  .widget-clock[data-clock-layout="timeFocus"] {
+    border: 1px solid Highlight;
+    color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+
+    time {
+      text-shadow: none;
+    }
   }
 }

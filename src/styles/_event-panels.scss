@@ -1,8 +1,8 @@
 @use "mixins" as *;
 
 /* Detached, draggable panels that hang off a calendar event: the event
- * settings editor and the project stash. Both inherit the widget's panel
- * colours so they read as part of the rail. */
+ * settings editor inherits the widget's panel colours so it reads as part of
+ * the rail. The compact project panel is owned by `_workspace.scss`. */
 
 @mixin event-control {
   min-height: var(--event-control-height);
@@ -32,8 +32,7 @@
   }
 }
 
-.event-settings-shell,
-.project-stash-shell {
+.event-settings-shell {
   --event-control-height: 24px;
   --event-control-radius: var(--radius-chrome);
   --event-accent: var(--widget-panel-accent);
@@ -141,8 +140,7 @@
 }
 
 .event-settings-shell input:focus-visible,
-.event-settings-shell select:focus-visible,
-.project-stash-notes:focus-visible {
+.event-settings-shell select:focus-visible {
   border-color: var(--event-focus);
   outline: 2px solid rgb(37 99 235 / 20%);
   outline-offset: 1px;
@@ -183,71 +181,11 @@
   }
 }
 
-/* Project stash --------------------------------------------------------- */
-
-.project-stash-shell {
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-
-  button {
-    @include event-control;
-    background: none;
-    border: none;
-  }
-
-  header button {
-    @include event-icon-button;
-    color: var(--widget-panel-foreground);
-    position: absolute;
-    top: 0;
-    right: 0;
-
-    &:hover {
-      background: none;
-      color: var(--widget-panel-accent);
-    }
-  }
-}
-
-.project-stash-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-
-  button {
-    color: var(--widget-panel-muted);
-    font-size: 10px;
-    font-weight: 700;
-  }
-}
-
-.project-stash-notes {
-  min-height: 0;
-  padding: 6px;
-  overflow: auto;
-  border: 1px solid var(--widget-panel-border);
-  border-radius: 7px;
-  color: var(--widget-panel-foreground);
-  background: panel-tint(6%);
-  font-size: 12px;
-  line-height: 1.4;
-  white-space: pre-wrap;
-
-  @include empty-placeholder(var(--widget-panel-muted));
-
-  a {
-    color: var(--widget-panel-accent);
-    text-decoration: underline;
-  }
-}
-
 /* Shared status text and notices ----------------------------------------- */
 
 .event-settings-help,
-.project-stash-help,
 .event-settings-status,
-.project-stash-status,
-.event-settings-loading,
-.project-stash-loading {
+.event-settings-loading {
   margin: 0;
   color: var(--widget-panel-muted);
   font-size: 10px;
@@ -255,21 +193,19 @@
 }
 
 .event-settings-error,
-.project-stash-error,
-.project-stash-recovery {
+.event-settings-recovery {
   margin: 0;
   padding: 5px 6px;
   border-radius: var(--event-control-radius);
   font-size: 10px;
 }
 
-.event-settings-error,
-.project-stash-error {
+.event-settings-error {
   color: var(--color-danger);
   background: var(--color-danger-surface);
 }
 
-.project-stash-recovery {
+.event-settings-recovery {
   color: var(--color-caution-text);
   background: var(--color-caution-surface);
 }

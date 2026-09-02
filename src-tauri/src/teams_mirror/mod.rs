@@ -47,6 +47,30 @@ impl AttentionAppSource {
             Self::WhatsApp => "WhatsApp",
         }
     }
+
+    pub(crate) fn app_user_model_ids(self) -> &'static [&'static str] {
+        match self {
+            Self::Teams => &["MSTeams_8wekyb3d8bbwe!MSTeams"],
+            Self::Telegram => &["Telegram.TelegramDesktop"],
+            Self::Outlook => {
+                &["Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows"]
+            }
+            Self::Slack => &["com.squirrel.slack.slack"],
+            Self::Viber => &[],
+            Self::WhatsApp => &["5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App"],
+        }
+    }
+
+    pub(crate) fn launch_targets(self) -> &'static [(&'static str, Option<&'static str>)] {
+        match self {
+            Self::Teams => &[("ms-teams.exe", None), ("msteams:", None)],
+            Self::Telegram => &[("telegram.exe", None), ("tg:", None)],
+            Self::Outlook => &[("olk.exe", None), ("ms-outlook:", None)],
+            Self::Slack => &[("slack.exe", None), ("slack://open", None)],
+            Self::Viber => &[("viber.exe", None), ("viber:", None)],
+            Self::WhatsApp => &[("whatsapp.exe", None), ("whatsapp:", None)],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,5 +239,44 @@ impl TaskbarMirrorState {
 impl Default for TaskbarMirrorState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AttentionAppSource;
+
+    #[test]
+    fn every_attention_source_has_a_bounded_launch_target() {
+        for source in [
+            AttentionAppSource::Teams,
+            AttentionAppSource::Telegram,
+            AttentionAppSource::Outlook,
+            AttentionAppSource::Slack,
+            AttentionAppSource::Viber,
+            AttentionAppSource::WhatsApp,
+        ] {
+            assert!(!source.launch_targets().is_empty(), "{}", source.key());
+            assert!(source
+                .launch_targets()
+                .iter()
+                .all(|(executable, _)| !executable.trim().is_empty()));
+        }
+    }
+
+    #[test]
+    fn packaged_apps_keep_their_bounded_start_menu_identity() {
+        assert_eq!(
+            AttentionAppSource::Teams.app_user_model_ids(),
+            &["MSTeams_8wekyb3d8bbwe!MSTeams"]
+        );
+        assert_eq!(
+            AttentionAppSource::Telegram.app_user_model_ids(),
+            &["Telegram.TelegramDesktop"]
+        );
+        assert_eq!(
+            AttentionAppSource::Slack.app_user_model_ids(),
+            &["com.squirrel.slack.slack"]
+        );
     }
 }

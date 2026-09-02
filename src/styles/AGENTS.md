@@ -19,10 +19,10 @@ share this one bundle.
 | Preference fieldsets: `.widget-preference*`, `.widget-source-control*`, `.widget-app-order`, `.panel-surface-*`, `.widget-color-control`, `.calendar-configuration`, `.calendar-attention-settings` | `_preferences.scss` |
 | Updater prompt: `.app-update-*` | `_app-update.scss` |
 | Advanced settings window: `.advanced-*`, plus its denser re-skin of the shared components | `_advanced-settings.scss` |
-| "Later" inbox window: `.later-*` | `_later-inbox.scss` |
+| Projects Manager: `.manager-*` | `_workspace.scss` |
 | Widget rail: `.widget-shell`, `.widget-zone`, `.widget-app-*`, `.widget-clock*`, `.widget-utility*`, `.widget-error`, `.hub-close-icon` | `_widget-core.scss` |
 | Calendar band + today panel: `.widget-calendar*`, `.widget-calendar-day-panel*`, `.today-popup-shell*` | `_widget-calendar.scss` |
-| Detached panels: `.event-settings-*`, `.project-stash-*` | `_event-panels.scss` |
+| Detached panels: `.event-settings-*`, compact `.manager-*` | `_event-panels.scss`, `_workspace.scss` |
 | `data-width-mode="recommended"` size overrides | `_widget-standard.scss` |
 | `data-width-mode="slim"` size overrides | `_widget-slim.scss` |
 
@@ -36,7 +36,7 @@ your change is specific to that context.
 `App.scss` loads partials in a deliberate order:
 
 1. `tokens`, `base`, `windows` — foundations
-2. `app-main`, `preferences`, `app-update`, `advanced-settings`, `later-inbox`
+2. `app-main`, `preferences`, `app-update`, `advanced-settings`
 3. `widget-core`, `widget-calendar`, `event-panels`
 4. `widget-standard`, `widget-slim` — width-mode overrides, loaded last
 
@@ -142,9 +142,8 @@ Global tokens go in `_tokens.scss`; anything only one component needs is
 declared on that component's root and points at a global token where possible:
 
 ```scss
-.later-shell {
-  --later-accent: var(--color-brand);
-  --later-control-height: 1.75rem;
+.manager-shell {
+  --manager-control-height: 1.75rem;
 }
 ```
 
