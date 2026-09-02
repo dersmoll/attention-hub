@@ -248,5 +248,9 @@ $breakpoint-advanced: 47.5rem;
 
 /* Hover tint used by the widget's icon buttons and clock labels. */
 @function panel-accent-hover() {
-  @return color-mix(in srgb, var(--widget-panel-foreground) 78%, #3b82f6);
+  @return color-mix(
+    in srgb,
+    var(--widget-panel-accent) 78%,
+    var(--widget-panel-foreground)
+  );
 }

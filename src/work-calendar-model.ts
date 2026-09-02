@@ -61,6 +61,26 @@ export interface WorkCalendarDisplay {
   hasOverlap: boolean;
 }
 
+export function retainWorkCalendarSnapshot(
+  current: WorkCalendarSnapshot | null,
+  refreshed: WorkCalendarSnapshot | null,
+  nowMs = Date.now(),
+) {
+  if (
+    refreshed?.status === "observed" ||
+    refreshed?.status === "notConfigured"
+  ) {
+    return refreshed;
+  }
+  if (current?.status !== "observed" || !current.selection) {
+    return refreshed;
+  }
+  const currentEnd = Date.parse(current.selection.end);
+  return Number.isFinite(currentEnd) && currentEnd > nowMs
+    ? current
+    : refreshed;
+}
+
 export function workCalendarSelectionKey(
   selection: WorkCalendarSelection,
   slot: string,

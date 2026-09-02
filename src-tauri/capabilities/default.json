@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for Attention Hub application windows",
-  "windows": ["main", "advanced", "later", "update", "event-settings", "project-stash", "today"],
+  "windows": ["main", "advanced", "update", "event-settings", "project-panel", "manager", "today"],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",
@@ -13,9 +13,12 @@
     "core:window:allow-set-min-size",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-set-size-constraints",
     "core:window:allow-show",
     "core:window:allow-unminimize",
     "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "dialog:default",
     "updater:default"
   ]
 }

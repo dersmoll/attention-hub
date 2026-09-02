@@ -70,6 +70,35 @@ const snapshot = {
   diagnostics: [],
 };
 
+const temporaryFailure = {
+  ...snapshot,
+  status: "unavailable",
+  selection: null,
+  overlappingSelections: [],
+  nextSelection: null,
+};
+assert.equal(
+  calendar.retainWorkCalendarSnapshot(
+    snapshot,
+    temporaryFailure,
+    Date.parse("2026-08-21T10:30:00Z"),
+  ),
+  snapshot,
+);
+assert.equal(
+  calendar.retainWorkCalendarSnapshot(
+    snapshot,
+    temporaryFailure,
+    Date.parse("2026-08-21T11:00:01Z"),
+  ),
+  temporaryFailure,
+);
+const removedCalendar = { ...temporaryFailure, status: "notConfigured" };
+assert.equal(
+  calendar.retainWorkCalendarSnapshot(snapshot, removedCalendar),
+  removedCalendar,
+);
+
 const primaryKey = calendar.workCalendarSelectionKey(activeOne, "primary");
 const overlappingKey = calendar.workCalendarSelectionKey(
   activeTwo,

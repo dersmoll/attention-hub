@@ -359,8 +359,10 @@ pub fn activate_source(source: super::AttentionAppSource) -> Result<(), String> 
 mod windows_probe {
     use std::{
         collections::BTreeMap,
-        ffi::c_void,
-        path::Path,
+        ffi::{c_void, OsStr},
+        iter::once,
+        os::windows::ffi::OsStrExt,
+        path::{Path, PathBuf},
         sync::{
             atomic::{AtomicBool, AtomicIsize, Ordering},
             Arc, Mutex,
@@ -409,6 +411,10 @@ mod windows_probe {
                 HiDpi::{
                     AreDpiAwarenessContextsEqual, GetDpiForWindow, GetThreadDpiAwarenessContext,
                     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                },
+                Shell::{
+                    ApplicationActivationManager, IApplicationActivationManager, ShellExecuteW,
+                    AO_NONE,
                 },
                 WindowsAndMessaging::{
                     AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow,
@@ -799,12 +805,9 @@ mod windows_probe {
     }
 
     pub fn activate_source(source: AttentionAppSource) -> Result<()> {
-        let window = preferred_source_window(source)?.ok_or_else(|| {
-            Error::new(
-                E_FAIL,
-                format!("No running {} window is available", source.display_name()),
-            )
-        })?;
+        let Some(window) = preferred_source_window(source)? else {
+            return launch_source(source);
+        };
 
         let restored_from_hidden = !unsafe { IsWindowVisible(window) }.as_bool();
         if restored_from_hidden {
@@ -829,6 +832,111 @@ mod windows_probe {
             ));
         }
         Ok(())
+    }
+
+    fn launch_source(source: AttentionAppSource) -> Result<()> {
+        for path in source_install_paths(source)
+            .into_iter()
+            .filter(|path| path.is_file())
+        {
+            if shell_execute(path.as_os_str(), None).is_ok() {
+                return Ok(());
+            }
+        }
+
+        for &app_user_model_id in source.app_user_model_ids() {
+            if activate_app_user_model_id(app_user_model_id).is_ok() {
+                return Ok(());
+            }
+        }
+
+        for (executable, arguments) in source.launch_targets() {
+            if shell_execute(OsStr::new(executable), arguments.map(OsStr::new)).is_ok() {
+                return Ok(());
+            }
+        }
+
+        Err(Error::new(
+            E_FAIL,
+            format!(
+                "Windows could not launch {}; make sure it is installed",
+                source.display_name()
+            ),
+        ))
+    }
+
+    fn activate_app_user_model_id(app_user_model_id: &'static str) -> Result<()> {
+        std::thread::spawn(move || {
+            let _apartment = ComApartment::initialize()?;
+            let manager: IApplicationActivationManager = unsafe {
+                CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_INPROC_SERVER)?
+            };
+            let app_user_model_id = app_user_model_id
+                .encode_utf16()
+                .chain(once(0))
+                .collect::<Vec<_>>();
+            unsafe {
+                manager.ActivateApplication(
+                    PCWSTR(app_user_model_id.as_ptr()),
+                    PCWSTR::null(),
+                    AO_NONE,
+                )?;
+            }
+            Ok(())
+        })
+        .join()
+        .map_err(|_| Error::new(E_FAIL, "The Windows app activation thread stopped."))?
+    }
+
+    fn source_install_paths(source: AttentionAppSource) -> Vec<PathBuf> {
+        let local_app_data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+        let roaming_app_data = std::env::var_os("APPDATA").map(PathBuf::from);
+        match source {
+            AttentionAppSource::Telegram => roaming_app_data
+                .map(|root| root.join("Telegram Desktop").join("Telegram.exe"))
+                .into_iter()
+                .collect(),
+            AttentionAppSource::Slack => local_app_data
+                .map(|root| root.join("slack").join("slack.exe"))
+                .into_iter()
+                .collect(),
+            AttentionAppSource::Viber => local_app_data
+                .map(|root| root.join("Viber").join("Viber.exe"))
+                .into_iter()
+                .collect(),
+            AttentionAppSource::WhatsApp => local_app_data
+                .map(|root| root.join("WhatsApp").join("WhatsApp.exe"))
+                .into_iter()
+                .collect(),
+            AttentionAppSource::Teams | AttentionAppSource::Outlook => Vec::new(),
+        }
+    }
+
+    fn shell_execute(executable: &OsStr, arguments: Option<&OsStr>) -> Result<()> {
+        let executable = executable.encode_wide().chain(once(0)).collect::<Vec<_>>();
+        let arguments =
+            arguments.map(|value| value.encode_wide().chain(once(0)).collect::<Vec<_>>());
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                w!("open"),
+                PCWSTR(executable.as_ptr()),
+                arguments
+                    .as_ref()
+                    .map(|value| PCWSTR(value.as_ptr()))
+                    .unwrap_or_else(PCWSTR::null),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(Error::new(
+                E_FAIL,
+                format!("Shell activation failed with code {}", result.0 as isize),
+            ))
+        }
     }
 
     fn select_taskbar_for_source(

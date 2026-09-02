@@ -11,10 +11,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
-import { LaterInboxDataPanel } from "./LaterInboxDataPanel";
-import { LaterInboxView } from "./LaterInboxView";
+import { WorkspaceDataPanel } from "./WorkspaceDataPanel";
 import { EventSettingsView } from "./EventSettingsView";
-import { ProjectStashView } from "./ProjectStashView";
+import { ManagerView } from "./ManagerView";
+import { ProjectPanelWindow } from "./ProjectPanelWindow";
+import { openManagerWindow } from "./manager-window";
 import { TodayPopupView } from "./TodayPopupView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
@@ -39,6 +40,7 @@ import {
   LIVE_VISUAL_APP_KEYS,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
+  panelAccentContrastRatio,
   panelTextContrastRatio,
   readWidgetPreferences,
   writeWidgetPreferences,
@@ -92,7 +94,7 @@ const ADVANCED_PAGES: Array<{
   {
     id: "reminders",
     label: "Reminders",
-    description: "Later Inbox storage and data controls.",
+    description: "Projects and to-do storage controls.",
   },
   {
     id: "updates",
@@ -637,6 +639,11 @@ function AdvancedView() {
           Local-first Windows observer
           {appVersion ? ` · v${appVersion}` : ""}
         </p>
+        {import.meta.env.DEV && (
+          <button onClick={() => void openManagerWindow()} type="button">
+            Preview Project Hub
+          </button>
+        )}
       </aside>
 
       <div className="advanced-content">
@@ -726,6 +733,25 @@ function AdvancedView() {
               </div>
             )}
 
+            <div className="panel-accent-color">
+              <label htmlFor="widget-panel-accent-color">Accent color</label>
+              <div className="widget-color-control">
+                <input
+                  id="widget-panel-accent-color"
+                  onChange={(event) =>
+                    applyWidgetPreferences({
+                      panelAccentColor: event.target.value,
+                    })
+                  }
+                  type="color"
+                  value={widgetPreferences.panelAccentColor}
+                />
+                <output htmlFor="widget-panel-accent-color">
+                  {widgetPreferences.panelAccentColor.toUpperCase()}
+                </output>
+              </div>
+            </div>
+
             <label className="widget-appearance-pin">
               <input
                 checked={widgetPreferences.pinned}
@@ -767,6 +793,12 @@ function AdvancedView() {
                   easier to read together.
                 </small>
               )}
+            {panelAccentContrastRatio(widgetPreferences) < 3 && (
+              <small className="widget-preference-warning" role="status">
+                This accent has low contrast against the panel. Choose a color
+                that keeps emphasized labels easy to distinguish.
+              </small>
+            )}
             {widgetPreferences.panelOpacity < 60 && (
               <small className="widget-preference-warning" role="status">
                 Low opacity may make text and controls difficult to read over a
@@ -779,6 +811,8 @@ function AdvancedView() {
                   panelSurface: DEFAULT_WIDGET_PREFERENCES.panelSurface,
                   panelColor: DEFAULT_WIDGET_PREFERENCES.panelColor,
                   panelTextColor: DEFAULT_WIDGET_PREFERENCES.panelTextColor,
+                  panelAccentColor:
+                    DEFAULT_WIDGET_PREFERENCES.panelAccentColor,
                   panelOpacity: DEFAULT_WIDGET_PREFERENCES.panelOpacity,
                 })
               }
@@ -810,8 +844,25 @@ function AdvancedView() {
             </select>
             <small>
               Recommended uses the dense two-line layout. Compact single-line
-              uses a unified horizontal rail.
+              uses a unified horizontal rail. Drag the widget's left or right
+              edge to adjust the calendar width.
             </small>
+            {(widgetPreferences.widthMode === "recommended"
+              ? widgetPreferences.recommendedCalendarWidth
+              : widgetPreferences.slimCalendarWidth) !== null && (
+              <button
+                onClick={() =>
+                  applyWidgetPreferences(
+                    widgetPreferences.widthMode === "recommended"
+                      ? { recommendedCalendarWidth: null }
+                      : { slimCalendarWidth: null },
+                  )
+                }
+                type="button"
+              >
+                Reset width to automatic
+              </button>
+            )}
           </fieldset>
 
           <fieldset
@@ -843,6 +894,30 @@ function AdvancedView() {
               />
               Show clocks
             </label>
+            <label>
+              <input
+                checked={widgetPreferences.showTodayPanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showTodayPanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show Today
+            </label>
+            <label>
+              <input
+                checked={widgetPreferences.showProjectsPanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showProjectsPanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show Projects and To-dos
+            </label>
             <small>
               Hidden panels keep their app and timezone configuration. Native
               visual mirrors pause while app shortcuts are hidden.
@@ -857,25 +932,27 @@ function AdvancedView() {
             <div className="widget-clock-layout-control">
               <label htmlFor="widget-clock-layout">Clock layout</label>
               <select
-                disabled={widgetPreferences.widthMode === "slim"}
                 id="widget-clock-layout"
                 onChange={(event) =>
                   applyWidgetPreferences({
                     clockLayout: event.target.value as
                       | "horizontal"
-                      | "vertical",
+                      | "vertical"
+                      | "timeFocus",
                   })
                 }
                 value={widgetPreferences.clockLayout}
               >
                 <option value="horizontal">Horizontal columns</option>
                 <option value="vertical">Vertical list</option>
+                <option value="timeFocus">Time Focus</option>
               </select>
               <small>
                 Horizontal mode grows the clock panel. Vertical mode keeps its
                 current width and shows one compact time-and-city row per zone.
-                Compact single-line always presents time and city horizontally
-                and preserves this choice for the other size presets.
+                Time Focus emphasizes only this PC&apos;s local time and temporarily
+                hides calendar, Today, and Projects. Compact single-line keeps
+                the clock on one row.
               </small>
             </div>
             <label htmlFor="widget-primary-time-zone">Primary timezone</label>
@@ -1188,7 +1265,7 @@ function AdvancedView() {
         className="advanced-page-body"
         hidden={activePage !== "reminders"}
       >
-        <LaterInboxDataPanel />
+        <WorkspaceDataPanel />
       </div>
 
       <section
@@ -1515,17 +1592,17 @@ function App() {
   if (windowLabel === "advanced") {
     return <AdvancedView />;
   }
-  if (windowLabel === "later") {
-    return <LaterInboxView />;
-  }
   if (windowLabel === "update") {
     return <AppUpdatePanel variant="dialog" />;
   }
   if (windowLabel === "event-settings") {
     return <EventSettingsView />;
   }
-  if (windowLabel === "project-stash") {
-    return <ProjectStashView />;
+  if (windowLabel === "project-panel") {
+    return <ProjectPanelWindow />;
+  }
+  if (windowLabel === "manager") {
+    return <ManagerView />;
   }
   if (windowLabel === "today") {
     return <TodayPopupView />;

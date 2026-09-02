@@ -43,7 +43,7 @@
   --color-focus-strong: var(--color-info-strong);
 
   /* Status */
-  --color-danger: #991b1b;
+  --color-danger: #ff4141;
   --color-danger-strong: #b91c1c;
   --color-danger-surface: #fee2e2;
   --color-success: #3cc56f;
@@ -93,6 +93,8 @@
   --widget-panel-background: var(--color-surface-subtle);
   --widget-panel-solid: var(--color-surface-subtle);
   --widget-panel-foreground: var(--color-text-strong);
+  --widget-panel-accent: var(--color-focus);
+  --widget-panel-accent-foreground: var(--color-surface-subtle);
   --widget-panel-interactive-foreground: var(--color-surface-subtle);
   --widget-panel-muted: var(--color-text-subtle);
   --widget-panel-border: var(--color-text-subtle);

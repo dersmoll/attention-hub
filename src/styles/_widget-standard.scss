@@ -94,15 +94,23 @@
 
     &__state[data-calendar-progress],
     &__next-header > span[data-calendar-progress] {
-      border-color: #86efac;
+      border-color: var(--color-success);
       color: var(--color-success);
-      background: var(--color-success-surface);
+      background: color-mix(
+        in srgb,
+        var(--color-success) 14%,
+        var(--widget-panel-solid)
+      );
     }
 
     &__state[data-calendar-started] {
-      border-color: #fca5a5;
+      border-color: var(--color-danger);
       color: var(--color-danger);
-      background: var(--color-danger-surface);
+      background: color-mix(
+        in srgb,
+        var(--color-danger) 16%,
+        var(--widget-panel-solid)
+      );
     }
 
     &__hover-actions {

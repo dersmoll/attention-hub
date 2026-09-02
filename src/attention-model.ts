@@ -59,7 +59,7 @@ export interface TaskbarMirrorStatus {
 export type TeamsMirrorStatus = TaskbarMirrorStatus;
 
 export function sourceActivationFailureMessage(displayName: string) {
-  return `${displayName} isn't available. Start or restore it, then try again.`;
+  return `${displayName} couldn't be opened or brought forward. Make sure it is installed, then try again.`;
 }
 
 export type AttentionFreshness = "fresh" | "retrying" | "stale" | "failed";

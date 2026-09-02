@@ -59,6 +59,53 @@
     border-right: 0;
   }
 
+  > .widget-destinations {
+    width: var(--widget-destinations-width);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-left: 1px solid var(--widget-panel-border) !important;
+
+    &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
+
+    button {
+      display: flex;
+      min-width: 0;
+      padding: 0;
+      place-items: center;
+      gap: 0;
+    }
+
+    svg { width: 16px; height: 16px; }
+    .widget-destinations__label { font-size: 10px }
+    small {
+      position: absolute;
+      top: 1px;
+      right: 11px;
+      display: grid;
+      min-width: 9px;
+      height: 9px;
+      padding: 0 2px;
+      place-items: center;
+      border-radius: var(--radius-pill);
+      color: var(--widget-panel-accent-foreground);
+      background: var(--widget-panel-accent);
+      font-size: 6px;
+
+      b { color: inherit; }
+      span { display: none; }
+    }
+
+    .widget-destinations__today small:nth-of-type(2) { top: auto; bottom: 1px; }
+
+    .widget-destinations__projects {
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+
+      button { padding: 0; }
+      svg { width: 11px; height: 11px; display: none;}
+      .widget-destinations__badge { top: -1px; right: -1px; display: none }
+      .widget-destinations__label { font-size: 9px;}
+    }
+  }
+
   > .widget-drag-handle {
     position: relative;
     display: grid;
@@ -176,6 +223,20 @@
       text-align: left;
       transform: none;
     }
+
+    &[data-clock-layout="timeFocus"][data-clock-mode="live"] {
+      padding-inline: 8px;
+
+      > .widget-clock__focus {
+        height: 34px;
+        padding: 0;
+      }
+
+      time {
+        font-size: 28px;
+        font-weight: 750;
+      }
+    }
   }
 
   /* Time-zone converter -------------------------------------------------- */
@@ -245,21 +306,33 @@
   /* Calendar band ------------------------------------------------------- */
 
   > .widget-calendar[data-calendar-attention="soon"] {
-    --widget-calendar-surface: #fffbeb;
+    --widget-calendar-surface: color-mix(
+      in srgb,
+      var(--color-warning) 14%,
+      var(--widget-panel-solid)
+    );
 
-    background: #fffbeb;
+    background: var(--widget-calendar-surface);
   }
 
   > .widget-calendar[data-calendar-attention="imminent"] {
-    --widget-calendar-surface: #fff7d6;
+    --widget-calendar-surface: color-mix(
+      in srgb,
+      var(--color-warning) 18%,
+      var(--widget-panel-solid)
+    );
 
-    background: #fff7d6;
+    background: var(--widget-calendar-surface);
   }
 
   > .widget-calendar[data-calendar-attention="started"] {
-    --widget-calendar-surface: #fef2f2;
+    --widget-calendar-surface: color-mix(
+      in srgb,
+      var(--color-danger-strong) 16%,
+      var(--widget-panel-solid)
+    );
 
-    background: #fef2f2;
+    background: var(--widget-calendar-surface);
   }
 
   .widget-calendar {
@@ -313,9 +386,13 @@
 
     &__state[data-calendar-progress],
     &__next-header > span[data-calendar-progress] {
-      border-color: #4ade80;
-      color: #14532d;
-      background: var(--color-success-surface);
+      border-color: var(--color-success);
+      color: var(--color-success);
+      background: color-mix(
+        in srgb,
+        var(--color-success) 14%,
+        var(--widget-panel-solid)
+      );
     }
 
     &__title--compact {
@@ -423,7 +500,7 @@
 
   /* Utility column ------------------------------------------------------- */
 
-  /* The rail turns the utility column into a single row of three controls. */
+  /* The utility rail returns to its original three-control row. */
   .widget-utility {
     grid-template-columns: repeat(3, var(--widget-slim-control-size));
     grid-template-rows: var(--widget-slim-control-size);
@@ -438,7 +515,7 @@
     }
   }
 
-  .widget-reminder-control {
+  .widget-pin-control {
     order: 1;
   }
 
@@ -450,10 +527,7 @@
     order: 3;
   }
 
-  .widget-reminder__badge {
-    top: -2px;
-    right: -2px;
-  }
+  .widget-destinations__badge { top: -2px; right: -2px; }
 }
 
 /* Day panel placement has to account for the drag handle in slim mode. */
@@ -461,13 +535,13 @@
   .widget-calendar-day-panel {
   top: calc(var(--widget-height, 44px) + 5px);
   right: calc(
-    var(--widget-utility-width, 112px) + var(--widget-drag-handle-width, 18px)
+    var(--widget-destinations-width, 48px) + var(--widget-utility-width, 64px) + var(--widget-drag-handle-width, 18px)
   );
 }
 
 .widget-shell[data-day-panel-placement="above"][data-width-mode="slim"]
   .widget-calendar-day-panel {
   right: calc(
-    var(--widget-utility-width, 112px) + var(--widget-drag-handle-width, 18px)
+    var(--widget-destinations-width, 48px) + var(--widget-utility-width, 64px) + var(--widget-drag-handle-width, 18px)
   );
 }

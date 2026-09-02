@@ -39,13 +39,18 @@ assert.deepEqual(legacy, {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: 120,
   y: -46,
   panelSurface: "light",
   panelColor: "#f8fafc",
   panelTextColor: "#111827",
+  panelAccentColor: "#377fc5",
   panelOpacity: 100,
   widthMode: "recommended",
+  recommendedCalendarWidth: null,
+  slimCalendarWidth: null,
   appOrder: ["teams", "telegram", "outlook", "slack", "viber", "whatsapp"],
   monitoredSources: [
     "teams",
@@ -77,13 +82,18 @@ assert.deepEqual(malformed, {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: null,
   y: null,
   panelSurface: "light",
   panelColor: "#f8fafc",
   panelTextColor: "#111827",
+  panelAccentColor: "#377fc5",
   panelOpacity: 25,
   widthMode: "recommended",
+  recommendedCalendarWidth: null,
+  slimCalendarWidth: null,
   appOrder: preferences.DEFAULT_APP_ORDER,
   monitoredSources: preferences.DEFAULT_APP_ORDER,
   liveVisualSources: preferences.LIVE_VISUAL_APP_KEYS,
@@ -107,6 +117,8 @@ assert.deepEqual(preferences.widgetPanelStyle(darkSurface), {
   "--widget-panel-background": "rgb(17 24 39 / 1)",
   "--widget-panel-solid": "#111827",
   "--widget-panel-foreground": "#f8fafc",
+  "--widget-panel-accent": "#377fc5",
+  "--widget-panel-accent-foreground": "#111827",
   "--widget-panel-muted": "#b3b6bc",
   "--widget-panel-border": "#4d535e",
   "--widget-panel-interactive-foreground": "#111827",
@@ -153,14 +165,20 @@ assert.equal(fresh.clockLayout, "horizontal");
 assert.equal(fresh.meetingStartSoundEnabled, true);
 assert.equal(fresh.showAppsPanel, true);
 assert.equal(fresh.showClocksPanel, true);
+assert.equal(fresh.showTodayPanel, true);
+assert.equal(fresh.showProjectsPanel, true);
 
 const hiddenPanels = preferences.normalizeWidgetPreferences({
   sourceCatalogVersion: 2,
   showAppsPanel: false,
   showClocksPanel: false,
+  showTodayPanel: false,
+  showProjectsPanel: false,
 });
 assert.equal(hiddenPanels.showAppsPanel, false);
 assert.equal(hiddenPanels.showClocksPanel, false);
+assert.equal(hiddenPanels.showTodayPanel, false);
+assert.equal(hiddenPanels.showProjectsPanel, false);
 assert.equal(
   preferences.normalizeWidgetPreferences({
     sourceCatalogVersion: 2,
@@ -209,6 +227,16 @@ assert.deepEqual(multipleClocks.extraTimeZones, [
   "Asia/Tokyo",
 ]);
 assert.equal(multipleClocks.clockLayout, "vertical");
+assert.equal(
+  preferences.normalizeWidgetPreferences({ clockLayout: "timeFocus" })
+    .clockLayout,
+  "timeFocus",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ clockLayout: "unsupported" })
+    .clockLayout,
+  "horizontal",
+);
 
 assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "compact" }).widthMode,
@@ -230,6 +258,34 @@ assert.equal(
   preferences.normalizeWidgetPreferences({ widthMode: "slim" }).widthMode,
   "slim",
 );
+const customGeometry = preferences.normalizeWidgetPreferences({
+  panelAccentColor: "#AABBCC",
+  recommendedCalendarWidth: 412.4,
+  slimCalendarWidth: 10_000,
+});
+assert.equal(customGeometry.panelAccentColor, "#aabbcc");
+assert.equal(customGeometry.recommendedCalendarWidth, 412);
+assert.equal(customGeometry.slimCalendarWidth, 2_400);
+assert.equal(
+  preferences.panelAccentContrastRatio(preferences.DEFAULT_WIDGET_PREFERENCES) >= 3,
+  true,
+);
+assert.equal(
+  preferences.panelAccentContrastRatio(
+    preferences.normalizeWidgetPreferences({
+      panelAccentColor: "#f8fafc",
+    }),
+  ) < 3,
+  true,
+);
+const malformedGeometry = preferences.normalizeWidgetPreferences({
+  panelAccentColor: "transparent",
+  recommendedCalendarWidth: Number.NaN,
+  slimCalendarWidth: "520",
+});
+assert.equal(malformedGeometry.panelAccentColor, "#377fc5");
+assert.equal(malformedGeometry.recommendedCalendarWidth, null);
+assert.equal(malformedGeometry.slimCalendarWidth, null);
 
 const primaryTimeZoneOverride = preferences.normalizeWidgetPreferences({
   sourceCatalogVersion: 2,
@@ -303,13 +359,18 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   meetingStartSoundEnabled: true,
   showAppsPanel: true,
   showClocksPanel: true,
+  showTodayPanel: true,
+  showProjectsPanel: true,
   x: 10,
   y: 20,
   panelSurface: "light",
   panelColor: "#f8fafc",
   panelTextColor: "#111827",
+  panelAccentColor: "#377fc5",
   panelOpacity: 100,
   widthMode: "recommended",
+  recommendedCalendarWidth: null,
+  slimCalendarWidth: null,
   appOrder: [
     "teams",
     "telegram",

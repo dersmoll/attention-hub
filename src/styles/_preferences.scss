@@ -190,6 +190,12 @@
   }
 }
 
+.panel-accent-color {
+  display: grid;
+  width: min(100%, 208px);
+  gap: 6px;
+}
+
 .widget-app-order {
   display: grid;
   gap: 0.5rem;

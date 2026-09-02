@@ -1,6 +1,6 @@
-import type { LaterInboxNoteSegment } from "./later-inbox-model";
+import type { NoteSegment } from "./workspace-model";
 
-export const MAX_LATER_NOTE_CHARACTERS = 4_000;
+export const MAX_NOTE_CHARACTERS = 4_000;
 
 const BLOCK_ELEMENTS = new Set([
   "ADDRESS",
@@ -39,7 +39,7 @@ function safeHttpUrl(value: string | null) {
 }
 
 function appendSegment(
-  segments: LaterInboxNoteSegment[],
+  segments: NoteSegment[],
   text: string,
   href: string | null,
 ) {
@@ -54,7 +54,7 @@ function appendSegment(
   }
 }
 
-function appendBreak(segments: LaterInboxNoteSegment[]) {
+function appendBreak(segments: NoteSegment[]) {
   const previous = segments[segments.length - 1];
   if (!previous || previous.text.endsWith("\n")) {
     return;
@@ -62,7 +62,7 @@ function appendBreak(segments: LaterInboxNoteSegment[]) {
   appendSegment(segments, "\n", null);
 }
 
-function trimOuterBreaks(segments: LaterInboxNoteSegment[]) {
+function trimOuterBreaks(segments: NoteSegment[]) {
   while (segments[0]?.text.startsWith("\n")) {
     segments[0].text = segments[0].text.slice(1);
     if (!segments[0].text) {
@@ -84,7 +84,7 @@ function trimOuterBreaks(segments: LaterInboxNoteSegment[]) {
 
 function collectNode(
   node: Node,
-  segments: LaterInboxNoteSegment[],
+  segments: NoteSegment[],
   inheritedHref: string | null = null,
 ) {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -119,19 +119,19 @@ function collectNode(
 }
 
 export function readRichNoteEditor(editor: HTMLElement) {
-  const segments: LaterInboxNoteSegment[] = [];
+  const segments: NoteSegment[] = [];
   for (const child of editor.childNodes) {
     collectNode(child, segments);
   }
   return trimOuterBreaks(segments);
 }
 
-export function noteCharacterCount(notes: readonly LaterInboxNoteSegment[]) {
+export function noteCharacterCount(notes: readonly NoteSegment[]) {
   return notes.reduce((total, segment) => total + [...segment.text].length, 0);
 }
 
 export function linkifyPlainText(text: string) {
-  const segments: LaterInboxNoteSegment[] = [];
+  const segments: NoteSegment[] = [];
   const pattern = /https?:\/\/[^\s<>]+/giu;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
@@ -156,7 +156,7 @@ export function richNoteSegmentsFromClipboard(clipboard: DataTransfer) {
   const html = clipboard.getData("text/html");
   if (html) {
     const document = new DOMParser().parseFromString(html, "text/html");
-    const segments: LaterInboxNoteSegment[] = [];
+    const segments: NoteSegment[] = [];
     for (const child of document.body.childNodes) {
       collectNode(child, segments);
     }
@@ -180,7 +180,7 @@ function appendTextWithBreaks(parent: Node, text: string) {
   });
 }
 
-export function richNoteFragment(notes: readonly LaterInboxNoteSegment[]) {
+export function richNoteFragment(notes: readonly NoteSegment[]) {
   const fragment = document.createDocumentFragment();
   for (const segment of notes) {
     if (segment.href) {
@@ -198,14 +198,14 @@ export function richNoteFragment(notes: readonly LaterInboxNoteSegment[]) {
 
 export function setRichNoteEditor(
   editor: HTMLElement,
-  notes: readonly LaterInboxNoteSegment[],
+  notes: readonly NoteSegment[],
 ) {
   editor.replaceChildren(richNoteFragment(notes));
 }
 
 export function insertRichNoteAtSelection(
   editor: HTMLElement,
-  notes: readonly LaterInboxNoteSegment[],
+  notes: readonly NoteSegment[],
 ) {
   const selection = window.getSelection();
   const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
