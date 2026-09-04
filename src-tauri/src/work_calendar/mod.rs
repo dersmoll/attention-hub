@@ -294,27 +294,7 @@ pub async fn save_source(
 pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
     let guard = match tokio::time::timeout(GATE_WAIT, state.request_gate.lock()).await {
         Ok(guard) => guard,
-        Err(_) => {
-            let configuration = get_configuration();
-            state.clear_join_targets();
-            return WorkCalendarSnapshot {
-                status: WorkCalendarStatus::Busy,
-                configured: configuration.configured,
-                storage_available: configuration.storage_available,
-                source_identity_state: SOURCE_IDENTITY_STATE,
-                captured_at_unix_ms: now_unix_ms(),
-                selection: None,
-                overlapping_selections: Vec::new(),
-                next_selection: None,
-                day_selections: Vec::new(),
-                stop_reason: None,
-                request_ms: 0,
-                parse_ms: 0,
-                diagnostics: vec![
-                    "Another bounded work-calendar request is already in progress.".to_owned(),
-                ],
-            };
-        }
+        Err(_) => return busy_snapshot(get_configuration()),
     };
 
     let published_url = match credential_store::read() {
@@ -366,6 +346,26 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
     let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
     drop(guard);
     snapshot_from_probe(state, probe, true, Some(&source_scope))
+}
+
+fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapshot {
+    WorkCalendarSnapshot {
+        status: WorkCalendarStatus::Busy,
+        configured: configuration.configured,
+        storage_available: configuration.storage_available,
+        source_identity_state: SOURCE_IDENTITY_STATE,
+        captured_at_unix_ms: now_unix_ms(),
+        selection: None,
+        overlapping_selections: Vec::new(),
+        next_selection: None,
+        day_selections: Vec::new(),
+        stop_reason: None,
+        request_ms: 0,
+        parse_ms: 0,
+        diagnostics: vec![
+            "Another bounded work-calendar request is already in progress.".to_owned(),
+        ],
+    }
 }
 
 pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfiguration {
@@ -612,6 +612,34 @@ mod tests {
         assert!(snapshot.selection.is_none());
         assert!(snapshot.next_selection.is_none());
         assert!(snapshot.configured);
+        assert_eq!(
+            join_url(&state, "join-1").unwrap(),
+            "https://teams.microsoft.com/meet/1"
+        );
+    }
+
+    #[test]
+    fn busy_snapshot_keeps_existing_join_targets() {
+        let state = WorkCalendarState::new();
+        state
+            .join_targets
+            .lock()
+            .unwrap()
+            .targets
+            .insert("join-1".into(), "https://teams.microsoft.com/meet/1".into());
+
+        let snapshot = busy_snapshot(WorkCalendarConfiguration {
+            configured: true,
+            storage_available: true,
+            source_identity_state: SOURCE_IDENTITY_STATE,
+            diagnostics: Vec::new(),
+        });
+
+        assert!(matches!(snapshot.status, WorkCalendarStatus::Busy));
+        assert_eq!(
+            snapshot.diagnostics,
+            vec!["Another bounded work-calendar request is already in progress."]
+        );
         assert_eq!(
             join_url(&state, "join-1").unwrap(),
             "https://teams.microsoft.com/meet/1"

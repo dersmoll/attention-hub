@@ -33,12 +33,14 @@ import {
   nextWorkCalendarRefreshDelay,
   retainWorkCalendarSnapshot,
   selectWorkCalendarDisplay,
+  workCalendarRetryNotice,
   workCalendarJoinLabel,
   workCalendarOccupiedMinutes,
   WORK_CALENDAR_POLL_INTERVAL_MS,
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
+import { createCalendarPollController } from "./calendar-poll-controller";
 import {
   convertZonedTimeToInstant,
   formatZonedConversion,
@@ -373,25 +375,6 @@ function calendarEventProgress(
   );
 }
 
-async function invokeWorkCalendarSnapshot() {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      invoke<WorkCalendarSnapshot>("get_work_calendar_snapshot"),
-      new Promise<WorkCalendarSnapshot>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("work calendar deadline")),
-          WORK_CALENDAR_UI_DEADLINE_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-}
-
 function mirrorLabel(status: TaskbarMirrorStatus | null) {
   if (status?.visible) {
     return status.taskbarCount > 1
@@ -673,8 +656,12 @@ export function WidgetView() {
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
-  const [workCalendarRefreshDegraded, setWorkCalendarRefreshDegraded] =
-    useState(false);
+  const [workCalendarCheckSlow, setWorkCalendarCheckSlow] = useState(false);
+  const [workCalendarRefreshHealth, setWorkCalendarRefreshHealth] = useState({
+    consecutiveFailures: 0,
+    lastSuccessfulAtUnixMs: null as number | null,
+    stopReason: null as string | null,
+  });
   const workCalendarRef = useRef<WorkCalendarSnapshot | null>(null);
   const [calendarDayPanelOpen, setCalendarDayPanelOpen] = useState(false);
   const [calendarDayPanelPlacement, setCalendarDayPanelPlacement] = useState<
@@ -1010,16 +997,45 @@ export function WidgetView() {
     }
     workCalendarInFlight.current = true;
     setWorkCalendarRefreshing(true);
+    const slowTimer = window.setTimeout(
+      () => setWorkCalendarCheckSlow(true),
+      WORK_CALENDAR_UI_DEADLINE_MS,
+    );
     try {
-      const snapshot = await invokeWorkCalendarSnapshot();
+      const snapshot = await invoke<WorkCalendarSnapshot>(
+        "get_work_calendar_snapshot",
+      );
       const displaySnapshot = retainWorkCalendarSnapshot(
         workCalendarRef.current,
         snapshot,
       );
       workCalendarRef.current = displaySnapshot;
       setWorkCalendar(displaySnapshot);
-      setWorkCalendarRefreshDegraded(displaySnapshot !== snapshot);
       setWorkCalendarTransportFailed(false);
+      setWorkCalendarRefreshHealth((current) => {
+        if (snapshot.status === "observed") {
+          return {
+            consecutiveFailures: 0,
+            lastSuccessfulAtUnixMs: snapshot.capturedAtUnixMs,
+            stopReason: null,
+          };
+        }
+        if (snapshot.status === "notConfigured") {
+          return {
+            consecutiveFailures: 0,
+            lastSuccessfulAtUnixMs: null,
+            stopReason: null,
+          };
+        }
+        if (snapshot.status === "busy") {
+          return current;
+        }
+        return {
+          ...current,
+          consecutiveFailures: current.consecutiveFailures + 1,
+          stopReason: snapshot.stopReason,
+        };
+      });
       return snapshot;
     } catch {
       const displaySnapshot = retainWorkCalendarSnapshot(
@@ -1028,12 +1044,18 @@ export function WidgetView() {
       );
       workCalendarRef.current = displaySnapshot;
       setWorkCalendar(displaySnapshot);
-      setWorkCalendarRefreshDegraded(displaySnapshot !== null);
       setWorkCalendarTransportFailed(true);
+      setWorkCalendarRefreshHealth((current) => ({
+        ...current,
+        consecutiveFailures: current.consecutiveFailures + 1,
+        stopReason: null,
+      }));
       return null;
     } finally {
+      clearTimeout(slowTimer);
       workCalendarInFlight.current = false;
       setWorkCalendarRefreshing(false);
+      setWorkCalendarCheckSlow(false);
     }
   }, []);
 
@@ -1115,39 +1137,27 @@ export function WidgetView() {
   }, []);
 
   useEffect(() => {
+    const controller = createCalendarPollController({
+      refresh: refreshWorkCalendar,
+      nextDelay: nextWorkCalendarRefreshDelay,
+    });
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let stopListening: (() => void) | undefined;
 
-    const poll = async () => {
-      const snapshot = await refreshWorkCalendar();
-      if (!disposed) {
-        timer = setTimeout(
-          () => void poll(),
-          nextWorkCalendarRefreshDelay(snapshot),
-        );
-      }
-    };
-
-    void listen("work-calendar-changed", () => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-      void poll();
-    }).then((unlisten) => {
-      if (disposed) {
-        unlisten();
-      } else {
-        stopListening = unlisten;
-      }
-    });
-    void poll();
+    void listen("work-calendar-changed", controller.requestRefresh).then(
+      (unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          stopListening = unlisten;
+        }
+      },
+    );
+    controller.start();
 
     return () => {
       disposed = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
+      controller.dispose();
       stopListening?.();
     };
   }, [refreshWorkCalendar]);
@@ -2344,9 +2354,15 @@ export function WidgetView() {
     },
     [],
   );
+  const calendarRetryNotice = workCalendarRetryNotice({
+    ...workCalendarRefreshHealth,
+    nowMs: now.getTime(),
+  });
   const calendarState = calendarSelection
-    ? workCalendarRefreshDegraded
-      ? "Calendar retrying"
+    ? calendarRetryNotice
+      ? calendarRetryNotice.state
+      : workCalendarCheckSlow
+        ? "Calendar checking"
       : calendarStartedNeedsAttention
       ? "Meeting started"
       : calendarStartingSoon
@@ -2368,8 +2384,10 @@ export function WidgetView() {
         : "No fresh work-calendar event";
   const calendarDetail = calendarSelection
     ? `${formatCalendarDetail(calendarSelection, now)}${
-        workCalendarRefreshDegraded
-          ? " · Last refresh unavailable; retrying"
+        calendarRetryNotice
+          ? ` · ${calendarRetryNotice.detail}`
+          : workCalendarCheckSlow
+            ? " · Refresh is taking longer than expected"
           : ""
       }`
     : workCalendarRefreshing
@@ -2905,7 +2923,7 @@ export function WidgetView() {
                 className="widget-calendar__state"
                 data-calendar-status={
                   calendarSelection
-                    ? workCalendarRefreshDegraded
+                    ? calendarRetryNotice
                       ? "retrying"
                       : "observed"
                     : undefined
