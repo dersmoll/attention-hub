@@ -1042,7 +1042,34 @@ fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Release builds only, and registered first as the plugin requires: a
+    // second launch must be intercepted before the rest of the app starts.
+    //
+    // Two processes sharing a data directory are two uncoordinated writers. The
+    // in-process mutexes serialize windows, not launches, so both could load the
+    // same revision and write over each other. Rather than coordinate across
+    // processes, a second launch surfaces the window that already exists.
+    //
+    // Debug builds are deliberately exempt. The plugin keys its guard on the
+    // bundle identifier, which debug and release share, so enabling it here
+    // would stop a development build starting while the installed app runs —
+    // and the reason for the guard does not apply, because debug builds already
+    // use their own data directory and credential (`local_store::profile_dir`).
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        // Best effort: a widget that fails to raise is a nuisance, but the guard
+        // has already done its real job by refusing to start a second writer.
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }));
+
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

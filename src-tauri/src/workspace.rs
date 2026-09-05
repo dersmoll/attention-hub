@@ -256,6 +256,7 @@ fn id() -> String {
 fn path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
+        .map(local_store::profile_dir)
         .map(|d| d.join("workspace.json"))
         .map_err(|_| "Attention Hub could not resolve its local data directory.".into())
 }

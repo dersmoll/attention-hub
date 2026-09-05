@@ -36,8 +36,30 @@ pub fn backup_path(path: &Path) -> PathBuf {
     sibling_path(path, "backup")
 }
 
+/// Pending writes are per-process.
+///
+/// With one shared name, two processes writing at once both target the same
+/// file: the second overwrites the first's bytes, and the first's atomic
+/// replace then commits content it never composed while the second is told its
+/// write failed. A process-scoped name makes that impossible. The cost is that
+/// a crash *during* a write can leave one small orphan behind instead of it
+/// being overwritten next time.
 pub fn pending_path(path: &Path) -> PathBuf {
-    sibling_path(path, "pending")
+    sibling_path(path, &format!("pending-{}", std::process::id()))
+}
+
+/// Development builds keep their own data directory.
+///
+/// Debug and release share a bundle identifier, so without this a dev build
+/// reads and writes the same `workspace.json` and `medicine.json` as the
+/// installed app — two writers on one store, and test runs mutating real
+/// treatments and to-dos.
+pub fn profile_dir(base: PathBuf) -> PathBuf {
+    if cfg!(debug_assertions) {
+        base.join("dev")
+    } else {
+        base
+    }
 }
 
 pub fn read_portable<T, F>(path: &Path, schema_version: u32, valid: F) -> Result<T, ReadError>
@@ -350,9 +372,13 @@ mod tests {
         let loaded = read::<Fixture, _>(&path, 1, valid).unwrap().unwrap();
         assert!(loaded.recovered_from_backup);
         assert_eq!(loaded.store.value, "safe");
-        assert_eq!(
-            pending_path(&path).file_name().unwrap(),
-            "workspace.pending.json"
+        let pending = pending_path(&path);
+        let pending_name = pending.file_name().unwrap().to_string_lossy();
+        assert!(pending_name.starts_with("workspace.pending-"));
+        assert!(pending_name.ends_with(".json"));
+        assert!(
+            pending_name.contains(&std::process::id().to_string()),
+            "pending writes must be scoped to this process: {pending_name}"
         );
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

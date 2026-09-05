@@ -34,6 +34,7 @@ iana-time-zone = "0.1"
 uuid = { version = "1", features = ["v4"] }
 rrule = "0.14"
 windows-timezones = { version = "0.5", features = ["chrono-tz"] }
+tauri-plugin-single-instance = "2.4.4"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

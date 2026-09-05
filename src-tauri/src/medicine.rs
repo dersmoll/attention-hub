@@ -165,6 +165,7 @@ fn empty() -> Store {
 fn path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
+        .map(local_store::profile_dir)
         .map(|p| p.join("medicine.json"))
         .map_err(|_| "Attention Hub could not resolve its local medicine directory.".into())
 }
