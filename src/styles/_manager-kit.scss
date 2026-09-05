@@ -42,6 +42,24 @@
   }
 }
 
+/* Square icon-only action. Same visual language as manager-action-button, but
+ * fixed-size with a centred glyph and no text padding.
+ *
+ * One size for every manager window. Project Hub used 30px with a 15px glyph
+ * and Medicine used 24px with a 13px glyph, which is the difference you notice
+ * when the two windows are open side by side. */
+@mixin manager-icon-button($size: 28px, $glyph: 14px) {
+  @include icon-button($size, var(--radius-field));
+  @include manager-action-button;
+
+  /* After manager-action-button, which sets text padding. A fixed-size button
+   * with 5px 8px padding squashes its glyph. */
+  padding: 0;
+  flex: 0 0 auto;
+
+  svg { @include stroke-icon($glyph, 1.8); }
+}
+
 /* Primary action: brand fill. Needs --color-text-inverse, which is a global
  * token; it used to be defined only for the compact manager, so a filled
  * control elsewhere fell back to inherited dark text on the dark fill. */

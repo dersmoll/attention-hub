@@ -111,23 +111,42 @@
   &__treatment-groups section { display: grid; gap: 4px; }
   &__treatment-groups h3 { display: flex; align-items: center; justify-content: space-between; padding-inline: 2px; color: var(--medicine-quiet); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
   &__treatment-groups h3 span { font-weight: 400; letter-spacing: normal; }
-  &__treatment-row { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 3px; align-items: stretch; }
+  // The grip sits inside the row's own border, so the two read as one control
+  // rather than a detached button next to a card.
+  &__treatment-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px 2px 2px;
+    border: 1px solid var(--medicine-border-soft);
+    border-radius: var(--radius-field);
+    background: var(--medicine-raised);
+  }
+  &__treatment-row:has([aria-current="page"]) {
+    @include manager-selected-row;
+
+    .medicine-manager__drag-handle { color: currentColor; }
+    .medicine-manager__course-progress { background: color-mix(in srgb, var(--color-text-inverse) 35%, transparent); }
+    .medicine-manager__course-progress i { background: var(--color-text-inverse); }
+  }
   &__treatment-select {
     display: grid;
     width: 100%;
-    min-height: 40px;
+    min-height: 36px;
     gap: 2px;
-    padding: 5px 7px;
-    border-color: var(--medicine-border-soft);
-    background: var(--medicine-raised);
+    padding: 4px 5px;
+    border-color: transparent;
+    background: transparent;
     text-align: left;
   }
 
   &__treatment-select > span:first-child { font-weight: 600; overflow-wrap: anywhere; }
   &__treatment-select small { color: var(--medicine-quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
-  // Selected rows read the same here as in Project Hub's sidebar.
-  &__treatment-select[aria-current="page"] { @include manager-selected-row; }
-  &__course-progress { display: block; width: 100%; height: 2px; margin-top: 1px; overflow: hidden; border-radius: var(--radius-field); background: color-mix(in srgb, var(--medicine-border) 65%, transparent); }
+  &__treatment-select[aria-current="page"] { color: inherit; border-color: transparent; background: transparent; }
+  &__treatment-select[aria-current="page"] small { color: currentColor; }
+  &__course-progress { display: block; width: 100%; height: 3px; margin-top: 4px; overflow: hidden; border-radius: var(--radius-field); background: color-mix(in srgb, var(--medicine-border) 65%, transparent); }
   &__course-progress i { display: block; height: 100%; border-radius: inherit; background: var(--medicine-accent); }
   &__new { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--medicine-border); }
   &__new h3 { font-size: 14px; }
@@ -144,18 +163,23 @@
   &__detail { display: grid; min-width: 0; min-height: 0; align-content: start; gap: 10px; padding: 12px 16px; overflow: auto; }
   &__treatment { display: grid; gap: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--medicine-border); }
   &__treatment-actions, &__row-actions, &__dose-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
-  &__icon-action, &__drag-handle {
-    @include icon-button(24px, 4px);
-    min-height: 24px;
-    flex: 0 0 auto;
-    padding: 0;
-    color: var(--medicine-quiet);
+  // Nested so it outranks the generic `button` rule above.
+  .manager-icon-action { @include manager-icon-button; }
+
+  // Icon actions come from the shared kit; only the grip is Medicine's own.
+  &__drag-handle {
+    @include manager-icon-button(22px, 13px);
+
+    align-self: center;
+    border-color: transparent;
     background: transparent;
-    svg { @include stroke-icon(13px, 1.8); }
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
-  &__drag-handle { align-self: center; border-color: transparent; cursor: grab; touch-action: none; user-select: none; }
+  &__drag-handle:hover:not(:disabled) { border-color: var(--medicine-border-soft); }
   &__drag-handle:active { cursor: grabbing; }
-  &__icon-action, &__row-actions button, &__treatment-actions button, &__dose-actions button { @include manager-action-button; }
+  &__row-actions button, &__treatment-actions button, &__dose-actions button { @include manager-action-button; }
   &__range { color: var(--medicine-text); font-size: var(--medicine-text-size); font-variant-numeric: tabular-nums; }
   &__range span { margin-right: 6px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__hint, &__metadata, &__privacy { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 400; overflow-wrap: anywhere; }
@@ -191,8 +215,8 @@
   &__schedule > li {
     display: grid;
     position: relative;
-    grid-template-columns: 24px 72px minmax(0, 1fr) 50px;
-    align-items: center;
+    grid-template-columns: 22px 72px minmax(0, 1fr) auto;
+    align-items: start;
     gap: 6px;
     min-height: 46px;
     padding: 4px 6px;
@@ -202,8 +226,8 @@
   }
 
   &__schedule li > div { min-width: 0; }
-  &__time { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: var(--medicine-text-size); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-  &__medicine-name { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  &__time { display: flex; flex-wrap: wrap; padding-top: 2px; gap: 2px 8px; font-size: var(--medicine-text-size); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  &__medicine-name { display: block; padding-top: 1px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
   &__metadata { padding-top: 1px; font-size: 10px; }
   &__schedule > &__schedule-editor { display: block; min-height: 0; padding: 0; border: 0; background: transparent; }
   &__today { gap: 8px; }
@@ -247,7 +271,8 @@
   @include forced-colors {
     button, input, select, textarea { border-color: ButtonText; color: CanvasText; background: Canvas; }
     button.medicine-manager__primary { border-color: Highlight; color: HighlightText; background: Highlight; }
-    .medicine-manager__treatment-select[aria-current="page"] { border-color: Highlight; color: HighlightText; background: Highlight; }
+    .medicine-manager__treatment-row:has([aria-current="page"]) { border-color: Highlight; color: HighlightText; background: Highlight; }
+    .medicine-manager__treatment-row:has([aria-current="page"]) button { color: HighlightText; }
     .medicine-manager__treatment-row[data-drop-edge]::after, .medicine-manager__schedule > li[data-drop-edge]::after { background: Highlight; }
     button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: Highlight; }
   }
