@@ -1464,6 +1464,185 @@ pub fn delete_all(
 mod tests {
     use super::*;
 
+    /// The 10 000-occurrence cap is a usability limit, not a size proof.
+    ///
+    /// The plan originally justified it with a per-row byte estimate and
+    /// concluded the store would sit "comfortably inside 4 MiB". That reasoning
+    /// was wrong: the entity caps are individually reasonable but **not jointly
+    /// bounded**, so several maximums at once produce a file `local_store` will
+    /// refuse to write. These tests measure real serialized output rather than
+    /// estimating it, and they fail if the row shape grows enough to move any
+    /// of those conclusions.
+    mod byte_budget {
+        use super::*;
+
+        const MIB: usize = 1024 * 1024;
+
+        /// `entities` scales treatments and medicines to their own caps, which is
+        /// what the "every maximum at once" case needs. Holding them at one was
+        /// the mistake in the first draft of this test.
+        fn sized_store(dose_count: usize, touched: bool, fat_notes: bool, entities: bool) -> Store {
+            let notes = if fat_notes {
+                // The documented notes ceiling: 4 000 characters in 256 segments.
+                (0..256)
+                    .map(|index| NoteSegment {
+                        text: "x".repeat(if index == 0 { 4_000 - 255 } else { 1 }),
+                        href: None,
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            let make_treatment = || Treatment {
+                id: id(),
+                name: "Treatment".into(),
+                notes: notes.clone(),
+                notes_revision: 0,
+                start_on: "2026-01-01".into(),
+                end_on: "2026-06-30".into(),
+                completed_at: None,
+                archived_at: None,
+                sort_index: 0,
+                created_at: now(),
+                updated_at: now(),
+            };
+            let treatments: Vec<Treatment> = (0..if entities { MAX_TREATMENTS } else { 1 })
+                .map(|_| make_treatment())
+                .collect();
+            let owner = treatments[0].id.clone();
+            let make_medicine = || Medicine {
+                id: id(),
+                treatment_id: owner.clone(),
+                name: "Medicine".into(),
+                strength: "500 mg".into(),
+                form: "tablet".into(),
+                dose_amount: "1".into(),
+                food_rule: "any".into(),
+                times: vec!["08:00".into(), "20:00".into()],
+                day_pattern: DayPattern::EveryDay,
+                start_on: "2026-01-01".into(),
+                end_on: "2026-06-30".into(),
+                schedule_revision: 1,
+                notes: notes.clone(),
+                sort_index: 0,
+                created_at: now(),
+                updated_at: now(),
+            };
+            let medicines: Vec<Medicine> = (0..if entities { MAX_MEDICINES } else { 1 })
+                .map(|_| make_medicine())
+                .collect();
+            let carrier = medicines[0].id.clone();
+            let doses = (0..dose_count)
+                .map(|index| Dose {
+                    medicine_id: carrier.clone(),
+                    slot_day: format!("2026-{:02}-{:02}", index % 12 + 1, index % 28 + 1),
+                    slot_time: "08:00".into(),
+                    schedule_revision: 1,
+                    taken_at: touched.then(now),
+                    skipped_at: None,
+                    notified_at: touched.then(now),
+                    updated_at: now(),
+                })
+                .collect();
+            Store {
+                schema_version: SCHEMA_VERSION,
+                revision: 1,
+                treatments,
+                medicines,
+                doses,
+            }
+        }
+
+        fn serialized_bytes(store: &Store) -> usize {
+            // The same serializer local_store::write measures against.
+            serde_json::to_vec_pretty(store)
+                .expect("store serializes")
+                .len()
+        }
+
+        #[test]
+        fn a_full_occurrence_log_alone_stays_under_the_file_limit() {
+            for touched in [false, true] {
+                let bytes = serialized_bytes(&sized_store(MAX_OCCURRENCES, touched, false, false));
+                assert!(
+                    (bytes as u64) < local_store::MAX_FILE_BYTES,
+                    "{MAX_OCCURRENCES} {} occurrences serialized to {:.3} MiB, which no \
+                     longer fits the {:.0} MiB file limit",
+                    if touched { "touched" } else { "untouched" },
+                    bytes as f64 / MIB as f64,
+                    local_store::MAX_FILE_BYTES as f64 / MIB as f64,
+                );
+            }
+        }
+
+        #[test]
+        fn touched_occurrences_cost_more_than_untouched_ones() {
+            let untouched = serialized_bytes(&sized_store(MAX_OCCURRENCES, false, false, false));
+            let touched = serialized_bytes(&sized_store(MAX_OCCURRENCES, true, false, false));
+            assert!(
+                touched > untouched,
+                "recording a dose writes timestamps, so a touched log cannot be smaller"
+            );
+        }
+
+        #[test]
+        fn the_caps_are_not_jointly_bounded() {
+            // The point of the whole module: satisfying every logical cap does
+            // not guarantee a writable file, which is why the prospective
+            // serialized check in local_store::write is the real guard.
+            let bytes = serialized_bytes(&sized_store(MAX_OCCURRENCES, true, true, true));
+            assert!(
+                (bytes as u64) > local_store::MAX_FILE_BYTES,
+                "a store within every logical cap serialized to only {:.3} MiB. If this \
+                 now fits, the caps have become jointly bounded and the claim in the \
+                 plan's limits section needs revisiting.",
+                bytes as f64 / MIB as f64,
+            );
+        }
+
+        /// Not an assertion: prints the three figures quoted in the plan so
+        /// they can be refreshed from measurement rather than memory.
+        /// `cargo test -- --ignored --nocapture byte_budget::report`
+        #[test]
+        #[ignore = "reporting helper"]
+        fn report() {
+            for (label, store) in [
+                (
+                    "untouched occurrences",
+                    sized_store(MAX_OCCURRENCES, false, false, false),
+                ),
+                (
+                    "touched occurrences",
+                    sized_store(MAX_OCCURRENCES, true, false, false),
+                ),
+                (
+                    "every maximum at once",
+                    sized_store(MAX_OCCURRENCES, true, true, true),
+                ),
+            ] {
+                println!(
+                    "{label}: {:.3} MiB",
+                    serialized_bytes(&store) as f64 / MIB as f64
+                );
+            }
+        }
+
+        #[test]
+        fn a_dose_row_stays_cheap() {
+            // Occurrences are the part that scales, so guard their unit cost.
+            // Adding a field to Dose, or denormalizing a name onto it, breaks
+            // this before it breaks a user's store.
+            let base = serialized_bytes(&sized_store(0, false, false, false));
+            let with_rows = serialized_bytes(&sized_store(1_000, false, false, false));
+            let per_row = (with_rows - base) as f64 / 1_000.0;
+            assert!(
+                (150.0..300.0).contains(&per_row),
+                "a dose row now serializes to {per_row:.0} bytes; the 10 000 cap was \
+                 sized against roughly 265"
+            );
+        }
+    }
+
     /// Paired with the `resolveMedicineSlot` cases in
     /// `scripts/test-medicine-model.mjs`; the same zone, dates and expectations
     /// are asserted on both sides so the two resolvers cannot drift.

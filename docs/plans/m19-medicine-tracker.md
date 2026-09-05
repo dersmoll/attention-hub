@@ -395,11 +395,23 @@ serialized sizes for the row shape in §1c:
 
 | Content | Serialized size |
 | --- | --- |
-| 10 000 untouched occurrences | ≈ **2.689 MiB** |
-| 10 000 touched / notified occurrences | ≈ **3.109 MiB** |
-| 10 000 occurrences **plus** maximum notes and entity counts | ≈ **5.812 MiB** |
+| 10 000 untouched occurrences | **2.595 MiB** |
+| 10 000 touched / notified occurrences | **2.938 MiB** |
+| 10 000 occurrences **plus** maximum notes and entity counts | **15.207 MiB** |
 
-The third row exceeds 4 MiB. So the occurrence caps and the entity caps in the
+These are measured, not estimated: `medicine::tests::byte_budget` builds each
+store, serializes it with the same serializer `local_store::write` measures
+against, and asserts the conclusions below. The reporting helper that prints
+the table is `cargo test -- --ignored --nocapture byte_budget::report`.
+
+Earlier revisions of this table carried 2.689 / 3.109 / 5.812 MiB from a
+one-off measurement. The first two were close; **the third was wrong by a
+factor of about 2.6**, because it did not scale treatments and medicines to
+their own caps at the same time — 100 treatments and 500 medicines each
+carrying the full 4 000-character notes ceiling dominate everything else. The
+conclusion is unchanged and now holds by a much wider margin.
+
+The third row exceeds 4 MiB nearly four times over. So the occurrence caps and the entity caps in the
 table above are individually reasonable but **not jointly bounded** — reaching
 several maximums at once produces a file the store will refuse to write.
 
@@ -1468,6 +1480,8 @@ stands and still applies: nothing silently deletes planned doses as a side
 effect of editing an unrelated field.
 
 **2. The 10 000 occurrence cap: keep it, but it is not a size proof.**
+*Closed by measurement: see `medicine::tests::byte_budget`, which now fails if
+any of these conclusions stops holding.*
 *Resolved: retained as a logical cap, with the prospective serialized 4 MiB
 check authoritative* (§1g). Measurement replaced the earlier estimate:
 ≈ 2.689 MiB for 10 000 untouched rows, ≈ 3.109 MiB once touched or notified,
