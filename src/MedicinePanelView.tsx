@@ -7,10 +7,12 @@ import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
 import { medicinePanelPosition } from "./medicine-panel-window";
 import { boundedMedicinePanelGroups, medicineDailyTreatments, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
+import { useMedicineGraceMinutes } from "./use-medicine-grace-minutes";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 
 export function MedicinePanelView() {
   const panelStyle = useWidgetPanelStyle();
+  const graceMinutes = useMedicineGraceMinutes();
   const [payload, setPayload] = useState<MedicinePanelPayload | null>(null);
   const [snapshot, setSnapshot] = useState<MedicineSnapshot | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -37,7 +39,7 @@ export function MedicinePanelView() {
     return () => { disposed = true; stops.forEach((stop) => stop()); };
   }, []);
 
-  const bounded = useMemo(() => boundedMedicinePanelGroups(snapshot ? medicineDailyTreatments(snapshot, now) : []), [snapshot, now]);
+  const bounded = useMemo(() => boundedMedicinePanelGroups(snapshot ? medicineDailyTreatments(snapshot, now, graceMinutes) : []), [snapshot, now, graceMinutes]);
   useEffect(() => {
     if (!payload) return;
     const naturalHeight = medicinePanelHeight(bounded.groups.length, bounded.visibleRows, bounded.hiddenRows > 0);

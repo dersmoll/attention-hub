@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test:attention-model": "node scripts/test-attention-model.mjs",
-    "test:medicine": "node scripts/test-medicine-model.mjs && node scripts/test-medicine-panel.mjs",
+    "test:medicine": "node scripts/test-medicine-model.mjs && node scripts/test-medicine-panel.mjs && node scripts/test-medicine-preferences.mjs",
     "test:meeting-workspace": "node scripts/test-meeting-workspace.mjs",
     "test:preferences": "node scripts/test-widget-preferences.mjs",
     "test:time-zone": "node scripts/test-time-zone-converter.mjs",

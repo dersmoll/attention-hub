@@ -287,6 +287,34 @@ fn delete_all_medicine_data(
     emit_medicine_changed(&app);
     Ok(snapshot)
 }
+#[tauri::command]
+fn notify_due_doses(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    grace_minutes: i64,
+) -> Result<MedicineSnapshot, String> {
+    // Compute the body before mutating, because marking the doses notified is
+    // what makes them stop counting as due.
+    let notification_body =
+        medicine::due_dose_notification_body(&app, state.inner(), grace_minutes)?;
+    let before = medicine::get_snapshot(&app, state.inner())?;
+    let snapshot = medicine::notify_due_doses(&app, state.inner(), grace_minutes)?;
+    if snapshot.revision != before.revision {
+        if let Some(body) = notification_body {
+            // Title carries no medicine name either; see due_dose_notification_body.
+            app.notification()
+                .builder()
+                .title("Attention Hub")
+                .body(body)
+                .show()
+                .map_err(|_| {
+                    "Windows could not show the medicine reminder notification.".to_owned()
+                })?;
+        }
+        emit_medicine_changed(&app);
+    }
+    Ok(snapshot)
+}
 
 #[tauri::command]
 fn get_workspace_snapshot(
@@ -1045,6 +1073,7 @@ pub fn run() {
             delete_treatment,
             delete_medicine,
             delete_all_medicine_data,
+            notify_due_doses,
             export_workspace_data,
             preview_workspace_import,
             import_workspace_data,

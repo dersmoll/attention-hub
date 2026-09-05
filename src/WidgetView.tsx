@@ -93,6 +93,7 @@ import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { isActionable, isFromActiveOwner, isVisibleInToday, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { activeMedicineTreatments, boundedMedicinePanelGroups, medicineDailyTreatments, type MedicineSnapshot } from "./medicine-model";
+import { MEDICINE_PREFERENCES_CHANGED_EVENT, readMedicinePreferences, type MedicinePreferences } from "./medicine-preferences";
 import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, MEDICINE_PANEL_WIDTH, MEDICINE_PANEL_WINDOW_LABEL, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
 import { createMedicinePanelWindow } from "./medicine-panel-window";
 import type { PopupAnchor } from "./event-workspace-model";
@@ -128,6 +129,7 @@ const WORK_CALENDAR_IMMINENT_MS = 60 * 1_000;
 const SOURCE_ACTIVATION_NOTICE_MS = 4_000;
 const WIDGET_NOTICE_MS = 4_500;
 const TODO_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
+const MEDICINE_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const WIDGET_RESIZE_EDGE_SIZE = 6;
 const WIDGET_HEIGHT_SNAP_THRESHOLD = 46.5;
 const WIDGET_RESIZE_SETTLE_MS = 500;
@@ -677,6 +679,8 @@ export function WidgetView() {
   const [medicineLoadState, setMedicineLoadState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [todoPreferences, setTodoPreferences] =
     useState<TodoPreferences>(readTodoPreferences);
+  const [medicinePreferences, setMedicinePreferences] =
+    useState<MedicinePreferences>(readMedicinePreferences);
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
     string | null
   >(null);
@@ -1303,6 +1307,69 @@ export function WidgetView() {
       stopListening?.();
     };
   }, [todoPreferences.dueNotificationsEnabled, showWidgetNotice]);
+
+  // Dose reminders mirror the to-do path: the widget polls, and the Rust
+  // command raises the toast only when it actually marked something notified.
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopListening: (() => void) | undefined;
+
+    const checkDueDoses = async () => {
+      if (medicinePreferences.doseNotificationsEnabled) {
+        try {
+          const snapshot = await invoke<MedicineSnapshot>("notify_due_doses", {
+            graceMinutes: medicinePreferences.graceMinutes,
+          });
+          if (!disposed) {
+            setMedicine(snapshot);
+            setMedicineLoadState("ready");
+          }
+        } catch {
+          if (!disposed) {
+            showWidgetNotice(
+              "medicine",
+              "A dose reminder notification could not be shown.",
+            );
+          }
+        }
+      }
+      if (!disposed) {
+        timer = setTimeout(
+          () => void checkDueDoses(),
+          MEDICINE_NOTIFICATION_POLL_INTERVAL_MS,
+        );
+      }
+    };
+
+    void listen<MedicinePreferences>(
+      MEDICINE_PREFERENCES_CHANGED_EVENT,
+      ({ payload }) => {
+        if (!disposed) {
+          setMedicinePreferences(payload);
+        }
+      },
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    void checkDueDoses();
+
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      stopListening?.();
+    };
+  }, [
+    medicinePreferences.doseNotificationsEnabled,
+    medicinePreferences.graceMinutes,
+    showWidgetNotice,
+  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -2613,7 +2680,9 @@ export function WidgetView() {
     "--widget-grid-template": gridSegments.join(" "),
   } as CSSProperties;
   const calendarDaySelections = workCalendar?.daySelections ?? [];
-  const dailyMedicineGroups = medicine ? medicineDailyTreatments(medicine, now) : [];
+  const dailyMedicineGroups = medicine
+    ? medicineDailyTreatments(medicine, now, medicinePreferences.graceMinutes)
+    : [];
   const todayMedicineRows = dailyMedicineGroups.flatMap((group) => group.rows);
   const medicineLeftCount = todayMedicineRows.filter((row) => row.state !== "taken" && row.state !== "skipped").length;
   const medicineAttentionCount = todayMedicineRows.filter((row) => row.state === "due" || row.state === "missed").length;

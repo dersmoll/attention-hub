@@ -1147,7 +1147,16 @@ surfaces after toggling the segment.
 ### PR 5 — Reminders, docs, and the human-test gate
 
 - `medicine-preferences.ts` (enabled flag + grace window), the two Reminders
-  toggles, and the `notify_due_doses` call in the widget poll loop (§5).
+  controls, and the `notify_due_doses` call in the widget poll loop (§5).
+- `<MedicineDataPanel>` on Advanced / Reminders (§4g), carrying the §6
+  plaintext disclosure, the counts and storage path, Open Medicine, and the
+  revision-guarded Clear all. It lands here rather than in checkpoint 2 as
+  originally sequenced, because it is what makes `delete_all_medicine_data`
+  reachable and the at-rest disclosure visible in the product.
+- `useMedicineGraceMinutes`, so the widget, Today popup, medicine panel, and
+  manager all classify doses against the same live grace value instead of the
+  built-in default. Without this the surfaces silently disagree with the
+  notifier the moment the user changes the window.
 - `architecture.md` and `privacy.md` updates, including the §6 at-rest
   disclosure, and release notes for the next beta.
 - **`REVIEW-M19-MEDICINE-TRACKER.cmd`** — the human-test launcher, following

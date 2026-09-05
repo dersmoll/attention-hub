@@ -96,8 +96,31 @@ echo      marker, never a completed check. This fault state is automated-only;
 echo      do not alter your local files to force it during this review.
 echo  49. Open Meds and confirm Manage medicines is always visible in the popup
 echo      header, beside the close control. Select it and confirm the manager opens.
+echo  50. Open Settings / Reminders and confirm a Medicine storage block appears
+echo      below the workspace block, showing treatment, medicine and dose counts,
+echo      the data file path, and the plaintext warning that medicine data is
+echo      stored unencrypted and is excluded from the workspace export.
+echo  51. Export the workspace from that same page. Open the exported JSON in a
+echo      text editor and confirm it contains no treatment or medicine names.
+echo  52. Enable "Show Windows notifications when a scheduled dose is due", then
+echo      add a medicine with a dose time one or two minutes ahead. Wait for it.
+echo      Confirm exactly one toast appears, that it names no medicine and reads
+echo      "A scheduled dose is due.", and that no second toast follows for it.
+echo  53. Set the grace window to its 15-minute minimum, then try 5 and 999 and
+echo      confirm both clamp into the 15 to 240 range when the field loses focus.
+echo  54. With reminders enabled, leave a dose unrecorded until it is past the
+echo      grace window. Confirm it becomes Missed and raises no further toast.
+echo  55. Close Attention Hub, let a scheduled dose time pass with the app closed,
+echo      then reopen. Confirm the dose shows as Missed and no late toast appears.
+echo  56. Turn the reminder setting off and confirm no further toasts appear while
+echo      doses continue to become due.
+echo  57. In Settings / Reminders, select "Delete all medicine data" on a
+echo      disposable dataset. Confirm the confirmation names the treatment,
+echo      medicine and dose-record counts before you approve it.
 echo.
-echo This checkpoint does not yet include dose reminders.
+echo Do not change your Windows clock or timezone for step 52; add a dose time a
+echo couple of minutes ahead instead. Daylight-saving behaviour is covered by
+echo automated fixtures, not by this review.
 echo Native regression tests and human observations are separate from frontend checks.
 echo Close the app or press Ctrl+C in the launch console when finished.
 echo.

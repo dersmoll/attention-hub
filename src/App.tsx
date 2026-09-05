@@ -12,6 +12,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
 import { WorkspaceDataPanel } from "./WorkspaceDataPanel";
+import { MedicineDataPanel } from "./MedicineDataPanel";
 import { EventSettingsView } from "./EventSettingsView";
 import { ManagerView } from "./ManagerView";
 import { ProjectPanelWindow } from "./ProjectPanelWindow";
@@ -97,7 +98,7 @@ const ADVANCED_PAGES: Array<{
   {
     id: "reminders",
     label: "Reminders",
-    description: "Projects and to-do storage controls.",
+    description: "Projects, to-do, and medicine storage controls.",
   },
   {
     id: "updates",
@@ -1284,6 +1285,7 @@ function AdvancedView() {
         hidden={activePage !== "reminders"}
       >
         <WorkspaceDataPanel />
+        <MedicineDataPanel />
       </div>
 
       <section

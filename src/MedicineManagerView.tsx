@@ -12,6 +12,7 @@ import {
   type MedicineSnapshot, type MedicineTreatment, type MedicineTreatmentGroup,
 } from "./medicine-model";
 import { linkifyPlainText, MAX_NOTE_CHARACTERS } from "./rich-notes";
+import { useMedicineGraceMinutes } from "./use-medicine-grace-minutes";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { WIDGET_PREFERENCES_CHANGED_EVENT, normalizeWidgetPreferences, readWidgetPreferences, writeWidgetPreferences, type WidgetPreferences } from "./widget-preferences";
 
@@ -98,6 +99,7 @@ function MedicineEditor({ draft, onChange, onSubmit, onCancel, pending, medicine
 
 export function MedicineManagerView() {
   const panelStyle = useWidgetPanelStyle();
+  const graceMinutes = useMedicineGraceMinutes();
   const [snapshot, setSnapshot] = useState<MedicineSnapshot>(emptySnapshot);
   const [now, setNow] = useState(() => new Date());
   const [selectedTreatmentId, setSelectedTreatmentId] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function MedicineManagerView() {
   const orderedTreatments = sortMedicineEntities(snapshot.treatments);
   const selected = orderedTreatments.find((item) => item.id === selectedTreatmentId) ?? orderedTreatments[0] ?? null;
   const medicines = sortMedicineEntities(snapshot.medicines.filter((item) => item.treatmentId === selected?.id));
-  const doseRows = selected ? medicineManagerDoseRows(snapshot, selected.id, now) : { today, todayRows: [], recentRows: [] };
+  const doseRows = selected ? medicineManagerDoseRows(snapshot, selected.id, now, graceMinutes) : { today, todayRows: [], recentRows: [] };
   useEffect(() => {
     if (!selected) { setNoteTreatmentId(null); setNoteBaseline(null); setNoteDirty(false); setNoteConflict(false); setNoteText(""); noteTextRef.current = ""; return; }
     const storedText = selected.notes.map((segment) => segment.text).join("");

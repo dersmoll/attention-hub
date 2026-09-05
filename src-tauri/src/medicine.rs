@@ -1041,6 +1041,115 @@ pub fn set_dose_skipped(
     })
 }
 
+pub const MIN_GRACE_MINUTES: i64 = 15;
+pub const MAX_GRACE_MINUTES: i64 = 240;
+
+/// The webview supplies the shared grace preference; clamp rather than trust it.
+fn clamp_grace_minutes(grace_minutes: i64) -> i64 {
+    grace_minutes.clamp(MIN_GRACE_MINUTES, MAX_GRACE_MINUTES)
+}
+
+/// A dose is eligible for one reminder while it sits inside its grace window.
+///
+/// Deliberately bounded on both sides. A dose whose window elapsed while
+/// Attention Hub was closed shows as `missed` and never raises a late toast,
+/// which is what keeps this inside the app's "no closed-app reminder service"
+/// lifecycle boundary.
+fn dose_is_notifiable(store: &Store, dose: &Dose, grace_minutes: i64, at: DateTime<Utc>) -> bool {
+    if dose.taken_at.is_some() || dose.skipped_at.is_some() || dose.notified_at.is_some() {
+        return false;
+    }
+    let Some(medicine) = store.medicines.iter().find(|m| m.id == dose.medicine_id) else {
+        return false;
+    };
+    let treatment_is_live = store
+        .treatments
+        .iter()
+        .find(|t| t.id == medicine.treatment_id)
+        .is_some_and(|t| t.archived_at.is_none() && t.completed_at.is_none());
+    if !treatment_is_live {
+        return false;
+    }
+    resolve_slot(&dose.slot_day, &dose.slot_time).is_some_and(|slot| {
+        slot <= at && at <= slot + Duration::minutes(clamp_grace_minutes(grace_minutes))
+    })
+}
+
+fn notifiable_dose_count(store: &Store, grace_minutes: i64, at: DateTime<Utc>) -> usize {
+    store
+        .doses
+        .iter()
+        .filter(|dose| dose_is_notifiable(store, dose, grace_minutes, at))
+        .count()
+}
+
+/// Body text for the due-dose toast.
+///
+/// Names nothing. A Windows toast can appear on a lock screen and persists in
+/// notification history, so neither this body nor the title carries a medicine
+/// name, a strength, or a treatment name. This is a considered divergence from
+/// the to-do path, which does put to-do titles in bodies.
+pub fn due_dose_notification_body(
+    app: &AppHandle,
+    state: &MedicineState,
+    grace_minutes: i64,
+) -> Result<Option<String>, String> {
+    let _guard = lock(state)?;
+    let (_, store, _) = load(app)?;
+    Ok(
+        match notifiable_dose_count(&store, grace_minutes, Utc::now()) {
+            0 => None,
+            1 => Some("A scheduled dose is due.".to_owned()),
+            count => Some(format!("{count} scheduled doses are due.")),
+        },
+    )
+}
+
+/// Mark every dose inside its grace window as notified, one shot per dose.
+pub fn notify_due_doses(
+    app: &AppHandle,
+    state: &MedicineState,
+    grace_minutes: i64,
+) -> Result<MedicineSnapshot, String> {
+    let at = Utc::now();
+    {
+        let _guard = lock(state)?;
+        let (path, store, _) = load(app)?;
+        if notifiable_dose_count(&store, grace_minutes, at) == 0 {
+            // Nothing due: return without writing, so an idle poll never
+            // bumps the revision or wakes the other windows.
+            return Ok(snapshot(path, store, false));
+        }
+    }
+    mutate(app, state, true, |store| {
+        let timestamp = now();
+        let notifiable = store
+            .doses
+            .iter()
+            .filter(|dose| dose_is_notifiable(store, dose, grace_minutes, at))
+            .map(|dose| {
+                (
+                    dose.medicine_id.clone(),
+                    dose.slot_day.clone(),
+                    dose.slot_time.clone(),
+                )
+            })
+            .collect::<HashSet<_>>();
+        for dose in &mut store.doses {
+            let key = (
+                dose.medicine_id.clone(),
+                dose.slot_day.clone(),
+                dose.slot_time.clone(),
+            );
+            if notifiable.contains(&key) {
+                dose.notified_at = Some(timestamp.clone());
+                dose.updated_at = timestamp.clone();
+            }
+        }
+        Ok(())
+    })
+}
+
 pub fn set_treatment_archived(
     app: &AppHandle,
     state: &MedicineState,
@@ -1452,6 +1561,134 @@ mod tests {
             sort_index,
             created_at: "2026-03-01T00:00:00Z".into(),
             updated_at: "2026-03-01T00:00:00Z".into(),
+        }
+    }
+
+    /// Eligibility for the one-shot due-dose reminder (§5).
+    ///
+    /// Slot instants are derived from `resolve_slot` rather than hard-coded, so
+    /// these assertions hold in any host timezone without touching the clock.
+    mod due_dose_notifications {
+        use super::*;
+
+        const SLOT_DAY: &str = "2026-03-29";
+        const SLOT_TIME: &str = "09:00";
+
+        fn slot_instant() -> DateTime<Utc> {
+            resolve_slot(SLOT_DAY, SLOT_TIME).expect("slot resolves")
+        }
+
+        fn store_with_one_dose() -> Store {
+            let item = medicine(DayPattern::EveryDay, vec![SLOT_TIME]);
+            let dose = Dose {
+                medicine_id: item.id.clone(),
+                slot_day: SLOT_DAY.into(),
+                slot_time: SLOT_TIME.into(),
+                schedule_revision: item.schedule_revision,
+                taken_at: None,
+                skipped_at: None,
+                notified_at: None,
+                updated_at: now(),
+            };
+            Store {
+                schema_version: SCHEMA_VERSION,
+                revision: 1,
+                treatments: vec![Treatment {
+                    id: "treatment-1".into(),
+                    name: "Example".into(),
+                    notes: vec![],
+                    notes_revision: 0,
+                    start_on: "2026-03-27".into(),
+                    end_on: "2026-03-31".into(),
+                    completed_at: None,
+                    archived_at: None,
+                    sort_index: 0,
+                    created_at: now(),
+                    updated_at: now(),
+                }],
+                medicines: vec![item],
+                doses: vec![dose],
+            }
+        }
+
+        #[test]
+        fn only_notifies_inside_the_grace_window() {
+            let store = store_with_one_dose();
+            let slot = slot_instant();
+            assert_eq!(
+                notifiable_dose_count(&store, 60, slot - Duration::minutes(1)),
+                0,
+                "a dose is not due before its slot"
+            );
+            assert_eq!(notifiable_dose_count(&store, 60, slot), 1);
+            assert_eq!(
+                notifiable_dose_count(&store, 60, slot + Duration::minutes(60)),
+                1,
+                "the window is inclusive at its end"
+            );
+            assert_eq!(
+                notifiable_dose_count(&store, 60, slot + Duration::minutes(61)),
+                0,
+                "a dose missed while the app was closed must not fire late"
+            );
+        }
+
+        #[test]
+        fn grace_is_clamped_to_the_supported_range() {
+            let store = store_with_one_dose();
+            let slot = slot_instant();
+            // Below the floor clamps up to 15, not down to the raw value.
+            assert_eq!(
+                notifiable_dose_count(&store, 0, slot + Duration::minutes(14)),
+                1
+            );
+            assert_eq!(
+                notifiable_dose_count(&store, 0, slot + Duration::minutes(16)),
+                0
+            );
+            // Above the ceiling clamps down to 240.
+            assert_eq!(
+                notifiable_dose_count(&store, 10_000, slot + Duration::minutes(240)),
+                1
+            );
+            assert_eq!(
+                notifiable_dose_count(&store, 10_000, slot + Duration::minutes(241)),
+                0
+            );
+        }
+
+        #[test]
+        fn acted_on_and_already_notified_doses_are_skipped() {
+            let slot = slot_instant();
+            for mutate_dose in [
+                |dose: &mut Dose| dose.taken_at = Some(now()),
+                |dose: &mut Dose| dose.skipped_at = Some(now()),
+                |dose: &mut Dose| dose.notified_at = Some(now()),
+            ] {
+                let mut store = store_with_one_dose();
+                mutate_dose(&mut store.doses[0]);
+                assert_eq!(notifiable_dose_count(&store, 60, slot), 0);
+            }
+        }
+
+        #[test]
+        fn archived_and_completed_treatments_are_skipped() {
+            let slot = slot_instant();
+            for mutate_treatment in [
+                |t: &mut Treatment| t.archived_at = Some(now()),
+                |t: &mut Treatment| t.completed_at = Some(now()),
+            ] {
+                let mut store = store_with_one_dose();
+                mutate_treatment(&mut store.treatments[0]);
+                assert_eq!(notifiable_dose_count(&store, 60, slot), 0);
+            }
+        }
+
+        #[test]
+        fn an_orphaned_dose_never_notifies() {
+            let mut store = store_with_one_dose();
+            store.medicines.clear();
+            assert_eq!(notifiable_dose_count(&store, 60, slot_instant()), 0);
         }
     }
 

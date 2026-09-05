@@ -19,6 +19,7 @@ import {
 } from "./today-popup-model";
 import type { WorkCalendarDaySelection } from "./work-calendar-model";
 import { todayPopupPosition } from "./today-popup-window";
+import { useMedicineGraceMinutes } from "./use-medicine-grace-minutes";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { HubCloseIcon } from "./HubCloseIcon";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
@@ -68,6 +69,7 @@ async function currentPopupAnchor(): Promise<PopupAnchor | null> {
 
 export function TodayPopupView() {
   const panelStyle = useWidgetPanelStyle();
+  const graceMinutes = useMedicineGraceMinutes();
   const [payload, setPayload] = useState<TodayPopupPayload | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [error, setError] = useState<string | null>(null);
@@ -200,7 +202,7 @@ export function TodayPopupView() {
   const ownerName = (kind: "project" | "list", id: string) => kind === "project"
     ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
     : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
-  const todayDoses = medicine ? medicineDailyRows(medicine, now) : [];
+  const todayDoses = medicine ? medicineDailyRows(medicine, now, graceMinutes) : [];
   const visibleDoses = todayDoses.slice(0, TODAY_DOSE_MAX_ITEMS);
 
   useEffect(() => {
