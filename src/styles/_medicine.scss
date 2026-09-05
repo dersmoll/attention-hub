@@ -39,7 +39,12 @@
   h1, h2, h3, h4 { font-weight: 650; line-height: 1.25; }
 
   // Field values must not inherit the smaller label font or its emphasis.
-  button, input, select, textarea {
+  //
+  // :where() zeroes this rule's specificity to (0,1,0), so it behaves as a base
+  // that any class can override. Without it the rule is (0,1,1) and silently
+  // beats every `&__thing` class at (0,1,0) — which is how the drag grip ended
+  // up wearing a filled control background.
+  :where(button, input, select, textarea) {
     min-height: var(--medicine-control-height);
     border: 1px solid var(--medicine-border);
     border-radius: var(--radius-field);
@@ -53,15 +58,15 @@
     text-transform: none;
   }
 
-  input, select, textarea {
+  :where(input, select, textarea) {
     width: 100%;
     min-width: 0;
     padding: 4px 7px;
     &::placeholder { color: var(--medicine-quiet); opacity: 1; }
   }
 
-  input[type="date"], input[type="time"] { font-variant-numeric: tabular-nums; }
-  button { padding: 4px 8px; }
+  :where(input[type="date"], input[type="time"]) { font-variant-numeric: tabular-nums; }
+  :where(button) { padding: 4px 8px; }
   button:hover:not(:disabled) { border-color: var(--medicine-accent); background: color-mix(in srgb, var(--medicine-accent) 8%, var(--medicine-raised)); }
   textarea { padding: 8px 9px; resize: vertical; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { @include widget-focus-ring; }
@@ -131,7 +136,7 @@
     .medicine-manager__course-progress { background: color-mix(in srgb, var(--color-text-inverse) 35%, transparent); }
     .medicine-manager__course-progress i { background: var(--color-text-inverse); }
   }
-  &__treatment-select {
+  .medicine-manager__treatment-select {
     display: grid;
     width: 100%;
     min-height: 36px;
@@ -146,7 +151,7 @@
   &__treatment-select small { color: var(--medicine-quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
   &__treatment-select[aria-current="page"] { color: inherit; border-color: transparent; background: transparent; }
   &__treatment-select[aria-current="page"] small { color: currentColor; }
-  &__course-progress { display: block; width: 100%; height: 3px; margin-top: 4px; overflow: hidden; border-radius: var(--radius-field); background: color-mix(in srgb, var(--medicine-border) 65%, transparent); }
+  &__course-progress { display: block; width: 100%; height: 2px; margin-top: 5px; overflow: hidden; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--medicine-border) 22%, transparent); }
   &__course-progress i { display: block; height: 100%; border-radius: inherit; background: var(--medicine-accent); }
   &__new { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--medicine-border); }
   &__new h3 { font-size: 14px; }
@@ -167,7 +172,10 @@
   .manager-icon-action { @include manager-icon-button; }
 
   // Icon actions come from the shared kit; only the grip is Medicine's own.
-  &__drag-handle {
+  // Nested literally, not via `&__`, so it outranks the generic `button` rule.
+  // As a concatenated class it lost, and the grip inherited a filled control
+  // background: a boxed handle on light rows, a white blob on a selected one.
+  .medicine-manager__drag-handle {
     @include manager-icon-button(22px, 13px);
 
     align-self: center;
@@ -176,9 +184,10 @@
     cursor: grab;
     touch-action: none;
     user-select: none;
+
+    &:hover:not(:disabled) { border-color: var(--medicine-border-soft); }
+    &:active { cursor: grabbing; }
   }
-  &__drag-handle:hover:not(:disabled) { border-color: var(--medicine-border-soft); }
-  &__drag-handle:active { cursor: grabbing; }
   &__row-actions button, &__treatment-actions button, &__dose-actions button { @include manager-action-button; }
   &__range { color: var(--medicine-text); font-size: var(--medicine-text-size); font-variant-numeric: tabular-nums; }
   &__range span { margin-right: 6px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }

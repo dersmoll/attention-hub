@@ -284,10 +284,8 @@
   .manager-icon-action { @include manager-icon-button; }
   .is-primary { @include manager-primary-button; }
 
-  button,
-  input,
-  select,
-  textarea {
+  // :where() keeps this a base rule: (0,1,0), so any class can override it.
+  :where(button, input, select, textarea) {
     min-height: 28px;
     border-radius: var(--radius-field);
     color: var(--manager-text);
@@ -295,14 +293,12 @@
     font-size: 13px;
   }
 
-  input,
-  select,
-  textarea {
+  :where(input, select, textarea) {
     padding: 4px 7px;
     &::placeholder { color: var(--manager-quiet); opacity: 1; }
   }
 
-  button {
+  :where(button) {
     padding: 3px 8px;
     &:hover:not(:disabled) { border-color: var(--manager-accent); color: var(--manager-text); background: var(--manager-hover); }
   }
