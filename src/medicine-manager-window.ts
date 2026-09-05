@@ -1,6 +1,6 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/window";
-import { readStoredFloatingGeometry } from "./event-workspace-window";
+import { LogicalSize } from "@tauri-apps/api/window";
+import { readStoredFloatingGeometry, reachableStoredPosition } from "./event-workspace-window";
 
 export const MEDICINE_MANAGER_WINDOW_LABEL = "medicine";
 export const MEDICINE_MANAGER_WINDOW_GEOMETRY = {
@@ -32,9 +32,8 @@ export async function openMedicineManagerWindow() {
   window.once("tauri://created", () => {
     void (async () => {
       await window.setMinSize(new LogicalSize(MEDICINE_MANAGER_WINDOW_GEOMETRY.minWidth, MEDICINE_MANAGER_WINDOW_GEOMETRY.minHeight));
-      if (typeof stored.x === "number" && typeof stored.y === "number") {
-        await window.setPosition(new PhysicalPosition(stored.x, stored.y)).catch(() => undefined);
-      }
+      const position = await reachableStoredPosition(stored);
+      if (position) await window.setPosition(position).catch(() => undefined);
       await window.show();
       await window.setFocus();
     })();

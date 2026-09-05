@@ -76,6 +76,19 @@ export function MedicinePanelView() {
     await emitTo("main", MEDICINE_PANEL_CLOSED_EVENT).catch(() => undefined);
     await getCurrentWindow().close();
   };
+  useEffect(() => {
+    // Escape closes lightweight popups. Both windows are read-and-record
+    // surfaces with no form to cancel first, so the key is unambiguous here.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        void close();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
   const record = async (row: MedicineDailyDoseRow, action: "taken" | "skipped" | "undo") => {
     const key = `${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`;
     if (pendingKey) return;

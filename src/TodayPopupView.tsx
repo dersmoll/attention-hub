@@ -135,6 +135,19 @@ export function TodayPopupView() {
     await getCurrentWindow().close();
   };
 
+  useEffect(() => {
+    // Escape closes lightweight popups. Both windows are read-and-record
+    // surfaces with no form to cancel first, so the key is unambiguous here.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        void close();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
   const openEventSettings = async (selection: WorkCalendarDaySelection) => {
     if (!selection.eventToken) return;
     const anchor = await currentPopupAnchor();

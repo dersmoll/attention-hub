@@ -1,7 +1,7 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/window";
 import { emitTo } from "@tauri-apps/api/event";
-import { readStoredFloatingGeometry } from "./event-workspace-window";
+import { readStoredFloatingGeometry, reachableStoredPosition } from "./event-workspace-window";
 
 export const MANAGER_WINDOW_LABEL = "manager";
 export const MANAGER_FOCUS_EVENT = "manager-focus-requested";
@@ -17,9 +17,8 @@ export async function openManagerWindow(focus: "projects" | "todos" = "projects"
   const window = new WebviewWindow(MANAGER_WINDOW_LABEL, { url: `/?${params}`, title: MANAGER_WINDOW_TITLE, width: Math.max(MANAGER_WINDOW_GEOMETRY.minWidth, stored.width ?? MANAGER_WINDOW_GEOMETRY.width), height: Math.max(MANAGER_WINDOW_GEOMETRY.minHeight, stored.height ?? MANAGER_WINDOW_GEOMETRY.height), minWidth: MANAGER_WINDOW_GEOMETRY.minWidth, minHeight: MANAGER_WINDOW_GEOMETRY.minHeight, decorations: true, resizable: true, visible: false });
   window.once("tauri://created", () => { void (async () => {
     await window.setMinSize(new LogicalSize(MANAGER_WINDOW_GEOMETRY.minWidth, MANAGER_WINDOW_GEOMETRY.minHeight));
-    if (typeof stored.x === "number" && typeof stored.y === "number") {
-      await window.setPosition(new PhysicalPosition(stored.x, stored.y)).catch(() => undefined);
-    }
+    const position = await reachableStoredPosition(stored);
+    if (position) await window.setPosition(position).catch(() => undefined);
     await window.show();
     await window.setFocus();
   })(); });
