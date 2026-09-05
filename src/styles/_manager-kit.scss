@@ -106,6 +106,36 @@
   }
 }
 
+/* Inline error region. Bordered rather than a bare tint, so it survives on
+ * both the chrome canvas and the darker panel surface. */
+@mixin manager-error {
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 65%, var(--color-border));
+  border-radius: var(--radius-field);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--color-canvas));
+  overflow-wrap: anywhere;
+}
+
+/* Optimistic-concurrency conflict prompt: your text is still here, choose. */
+@mixin manager-conflict {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 70%, var(--color-border));
+  border-radius: var(--radius-field);
+  color: var(--color-warning-text);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-canvas));
+
+  p { margin: 0; }
+  button { color: var(--color-warning-text); border-color: currentColor; background: transparent; }
+}
+
+/* Quiet placeholder for an empty list or an unselected detail pane. */
+@mixin manager-empty {
+  color: var(--color-text-muted);
+}
+
 /* Destructive confirmation block, shown with its impact counts. */
 @mixin manager-confirm {
   padding: 12px;

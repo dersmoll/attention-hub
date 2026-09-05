@@ -529,7 +529,7 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
         </div>}
         <form onSubmit={(event) => { event.preventDefault(); void createOwner("project"); }}>
           <input aria-label="New project name" onChange={(event) => setNewProject(event.target.value)} placeholder="New project name" value={newProject}/>
-          <button aria-label="Add project" type="submit">Add new project</button>
+          <button aria-label="Add project" className="manager-icon-action is-primary" title="Add project" type="submit"><ActionIcon name="add"/></button>
         </form>
       </section>
       <section className="manager-items__section manager-items__personal">
@@ -549,9 +549,9 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
         <form onSubmit={(event) => { event.preventDefault(); void createOwner("list"); }}>
           <input aria-label="New personal list name" onChange={(event) => setNewList(event.target.value)} placeholder="New list" value={newList}/>
           <select aria-label="New list category" onChange={(event) => setNewListCategoryId(event.target.value)} value={newListCategoryId}><option value="">General</option>{personalCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>
-          <button aria-label="Add personal list" type="submit">+</button>
+          <button aria-label="Add personal list" className="manager-icon-action is-primary" title="Add personal list" type="submit"><ActionIcon name="add"/></button>
         </form>
-        <form className="manager-category-create" onSubmit={(event) => { event.preventDefault(); void createCategory(); }}><input aria-label="New personal category name" onChange={(event) => setNewCategory(event.target.value)} placeholder="New category" value={newCategory}/><button aria-label="Add personal category" type="submit">+</button></form>
+        <form className="manager-category-create" onSubmit={(event) => { event.preventDefault(); void createCategory(); }}><input aria-label="New personal category name" onChange={(event) => setNewCategory(event.target.value)} placeholder="New category" value={newCategory}/><button aria-label="Add personal category" className="manager-icon-action is-primary" title="Add personal category" type="submit"><ActionIcon name="add"/></button></form>
       </section>
     </aside>}
     <section aria-labelledby={!compact ? `manager-main-tab-${managerSection}` : undefined} className={`manager-detail${!compact && managerSection === "all-todos" ? " manager-all-todos" : ""}`} id={!compact && managerSection === "all-todos" ? "manager-all-todos-section" : "manager-projects-section"} role={!compact ? "tabpanel" : undefined}>

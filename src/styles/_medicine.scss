@@ -183,7 +183,7 @@
   &__range { color: var(--medicine-text); font-size: var(--medicine-text-size); font-variant-numeric: tabular-nums; }
   &__range span { margin-right: 6px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__hint, &__metadata, &__privacy { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 400; overflow-wrap: anywhere; }
-  &__empty { color: var(--medicine-quiet); font-size: var(--medicine-text-size); }
+  &__empty { @include manager-empty; font-size: var(--medicine-text-size); }
   &__rename { display: grid; gap: 8px; margin-top: 5px; }
   &__editor { display: grid; min-width: 0; gap: 10px; padding: 10px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); background: var(--medicine-sunken); }
   &__editor h4 { font-size: 14px; }
@@ -210,7 +210,7 @@
   &__tab-panel { display: grid; gap: 8px; min-width: 0; }
 
   // Match the scoped button specificity so primary actions keep their accent.
-  button.medicine-manager__primary { @include manager-primary-button; }
+  .is-primary { @include manager-primary-button; }
 
   &__schedule > li {
     display: grid;
@@ -245,13 +245,12 @@
   &__notes > label { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__notes > textarea { min-height: 230px; }
   &__notes-status { display: flex; justify-content: space-between; gap: 12px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); }
-  &__notes-conflict, &__delete-confirm { display: grid; gap: 7px; padding: 9px; border: 1px solid color-mix(in srgb, var(--color-warning) 70%, var(--medicine-border)); border-radius: var(--radius-field); background: color-mix(in srgb, var(--color-warning) 9%, var(--medicine-surface)); }
-  &__notes-conflict p, &__delete-confirm p { margin: 0; }
+  &__notes-conflict, &__delete-confirm { @include manager-conflict; }
   &__delete-confirm { border-color: color-mix(in srgb, var(--color-danger) 55%, var(--medicine-border)); }
   &__empty { display: grid; gap: 6px; }
-  &__empty h2 { color: var(--medicine-text); font-size: 18px; }
+  &__empty h2 { color: var(--medicine-text); font-size: 18px; font-weight: 650; }
   &__privacy { padding-top: 10px; border-top: 1px solid var(--medicine-border); }
-  &__error { padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--color-danger) 65%, var(--medicine-border)); border-radius: var(--radius-field); color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, var(--medicine-surface)); font-size: var(--medicine-text-size); overflow-wrap: anywhere; }
+  &__error { @include manager-error; font-size: var(--medicine-text-size); }
 
   &__treatment-row[data-dragging], &__schedule > li[data-dragging] { opacity: .45; }
   &__treatment-row[data-drop-edge]::after, &__schedule > li[data-drop-edge]::after {
@@ -270,7 +269,7 @@
 
   @include forced-colors {
     button, input, select, textarea { border-color: ButtonText; color: CanvasText; background: Canvas; }
-    button.medicine-manager__primary { border-color: Highlight; color: HighlightText; background: Highlight; }
+    .is-primary { border-color: Highlight; color: HighlightText; background: Highlight; }
     .medicine-manager__treatment-row:has([aria-current="page"]) { border-color: Highlight; color: HighlightText; background: Highlight; }
     .medicine-manager__treatment-row:has([aria-current="page"]) button { color: HighlightText; }
     .medicine-manager__treatment-row[data-drop-edge]::after, .medicine-manager__schedule > li[data-drop-edge]::after { background: Highlight; }

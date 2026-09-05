@@ -25,7 +25,8 @@
   header { display: flex; align-items: baseline; justify-content: space-between; }
   header p { margin: 0; }
   header span { color: var(--color-text-muted); font-size: 11px; }
-  form { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 6px; margin-top: 8px; }
+  // `auto` so the column tracks the shared icon button's own size.
+  form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-top: 8px; align-items: center; }
   input { width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-field); background: var(--color-canvas); color: inherit;   border-bottom: 1px solid #fff;
   border-width: 0 0 1px;
   border-radius: 0;}
@@ -126,16 +127,14 @@
 .manager-row-meta small { white-space: nowrap; }
 .manager-row-actions { margin-left: 4px; }
 
-.manager-empty { color: var(--color-text-muted); }
-.manager-error { margin-top: 16px; padding: 8px; border-radius: var(--radius-field); color: var(--color-danger); background: var(--color-danger-surface); }
+.manager-empty { @include manager-empty; }
+.manager-error { margin-top: 16px; @include manager-error; }
 
 .manager-notes { display: grid; gap: 10px; }
 .manager-notes textarea { min-height: 220px; padding: 10px; resize: vertical; border: 1px solid var(--color-border); border-radius: var(--radius-field); color: inherit; background: var(--color-canvas); font: inherit; }
 .manager-notes button, .manager-links form button:first-of-type { justify-self: start; padding: 8px 12px; border: 0; border-radius: var(--radius-field); color: var(--color-text-inverse); background: var(--color-brand); }
 .manager-notes__status { margin: 0; color: var(--color-text-muted); font-size: 11px; }
-.manager-notes__conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border: 1px solid var(--color-warning); border-radius: var(--radius-field); color: var(--color-warning-text); background: var(--color-warning-surface); }
-.manager-notes__conflict p { flex: 1 0 100%; margin: 0; }
-.manager-notes__conflict button { padding: 5px 8px; color: var(--color-warning-text); border: 1px solid currentColor; background: transparent; }
+.manager-notes__conflict { @include manager-conflict; }
 
 .manager-links {
   display: grid;
@@ -281,8 +280,9 @@
 
   section + section { margin-top: 0; }
 
-  // Nested so it outranks the generic `button` rule below.
+  // Nested so they outrank the generic `button` rule below.
   .manager-icon-action { @include manager-icon-button; }
+  .is-primary { @include manager-primary-button; }
 
   button,
   input,
