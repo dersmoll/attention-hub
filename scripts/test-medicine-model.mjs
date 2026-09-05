@@ -181,4 +181,37 @@ assert.equal(bounded.groups.length, 3);
 assert.equal(bounded.visibleRows, 8);
 assert.equal(bounded.hiddenRows, 4);
 
+// Budgeting favours rows you can still act on. Taking the first N
+// chronologically let recorded morning doses hide an evening dose that was
+// actually due, which is the opposite of what the surface is for.
+const row = (id, state) => ({ id, state });
+const overBudget = [
+  row("a", "taken"), row("b", "taken"), row("c", "skipped"),
+  row("d", "due"), row("e", "taken"), row("f", "missed"),
+];
+// Both unresolved rows claim the budget; one recorded row fills the remainder.
+// The result is still in arrival order, so only which rows show has changed.
+const picked = medicine.boundedDoseRows(overBudget, 3);
+assert.deepEqual(picked.visible.map((item) => item.id), ["a", "d", "f"]);
+assert.equal(picked.hidden, 3);
+// Under budget nothing is reordered or dropped.
+assert.deepEqual(medicine.boundedDoseRows(overBudget, 99).visible.map((item) => item.id), ["a", "b", "c", "d", "e", "f"]);
+assert.equal(medicine.boundedDoseRows(overBudget, 99).hidden, 0);
+assert.equal(medicine.boundedDoseRows(overBudget, 0).visible.length, 0);
+assert.equal(medicine.boundedDoseRows(overBudget, 0).hidden, 6);
+assert.equal(medicine.isUnresolvedDose("due"), true);
+assert.equal(medicine.isUnresolvedDose("missed"), true);
+assert.equal(medicine.isUnresolvedDose("upcoming"), true);
+assert.equal(medicine.isUnresolvedDose("taken"), false);
+assert.equal(medicine.isUnresolvedDose("skipped"), false);
+
+// The panel spends its budget across treatments, so a first treatment full of
+// recorded doses cannot crowd out a second treatment's due dose.
+const recordedGroup = { ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id: "recorded" }, rows: Array.from({ length: 8 }, (_, index) => ({ ...dailyGroups[0].rows[0], state: "taken", dose: { ...dailyGroups[0].rows[0].dose, slotTime: `0${index}:00` } })) };
+const dueGroup = { ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id: "still-due" }, rows: [{ ...dailyGroups[0].rows[0], state: "due", dose: { ...dailyGroups[0].rows[0].dose, slotTime: "21:00" } }] };
+const shared = medicine.boundedMedicinePanelGroups([recordedGroup, dueGroup]);
+assert.ok(shared.groups.some((group) => group.treatment.id === "still-due"), "a due dose must survive a busier treatment");
+assert.equal(shared.visibleRows, 8);
+assert.equal(shared.hiddenRows, 1);
+
 console.log("medicine model checks passed");

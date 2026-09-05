@@ -25,7 +25,7 @@ import { HubCloseIcon } from "./HubCloseIcon";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
-import { medicineDailyRows, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
+import { boundedDoseRows, medicineDailyRows, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
 import { deferActionItemToTomorrow, isFromActiveOwner, isVisibleInToday, sortActionItems, type ActionItem, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { todayPopupHeight, TODAY_DOSE_MAX_ITEMS, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
 
@@ -203,7 +203,7 @@ export function TodayPopupView() {
     ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
     : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
   const todayDoses = medicine ? medicineDailyRows(medicine, now, graceMinutes) : [];
-  const visibleDoses = todayDoses.slice(0, TODAY_DOSE_MAX_ITEMS);
+  const { visible: visibleDoses, hidden: hiddenDoses } = boundedDoseRows(todayDoses, TODAY_DOSE_MAX_ITEMS);
 
   useEffect(() => {
     if (!payload) return;
@@ -312,7 +312,7 @@ export function TodayPopupView() {
       </ol>
       {todayDoses.length > 0 && <section className="today-popup-todos today-popup-medicine" aria-labelledby="today-medicine-heading">
         <header><strong id="today-medicine-heading">MEDICINE</strong><span>{todayDoses.filter((row) => row.state !== "taken" && row.state !== "skipped").length} left</span></header>
-        <ol>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{todayDoses.length > visibleDoses.length && <li className="today-popup-todos__more"><button onClick={() => void openMedicineManagerWindow()} type="button">+{todayDoses.length - visibleDoses.length} more</button></li>}</ol>
+        <ol>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{hiddenDoses > 0 && <li className="today-popup-todos__more"><button onClick={() => void openMedicineManagerWindow()} type="button">+{hiddenDoses} more</button></li>}</ol>
       </section>}
       {todayTodos.length > 0 && <section className="today-popup-todos" aria-labelledby="today-todos-heading">
         <header><strong id="today-todos-heading">TODO</strong><span>{openTodayTodos.length} need attention</span></header>

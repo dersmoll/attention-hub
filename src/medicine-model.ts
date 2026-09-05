@@ -409,17 +409,48 @@ export function medicineDailyRows(snapshot: MedicineSnapshot, now = new Date(), 
       || left.medicine.id.localeCompare(right.medicine.id));
 }
 
+/** A dose still awaiting a decision today. */
+export function isUnresolvedDose(state: MedicineDoseState) {
+  return state !== "taken" && state !== "skipped";
+}
+
+/** Choose which rows survive a row budget, favouring the ones you can still act on.
+ *
+ * Taking the first N chronologically meant that once enough morning doses were
+ * recorded, an evening dose that was actually due could sit behind `+N more` —
+ * the surface meant to show what needs attention was filled with what did not.
+ *
+ * Unresolved rows claim the budget first, but the rows that survive are then
+ * shown in their original order, so only *which* rows appear changes, never the
+ * order they appear in. */
+export function boundedDoseRows<T extends { state: MedicineDoseState }>(
+  rows: readonly T[],
+  limit: number,
+) {
+  const budget = Math.max(0, Math.trunc(limit));
+  if (rows.length <= budget) return { visible: [...rows], hidden: 0 };
+  const claimed = new Set(
+    [
+      ...rows.filter((row) => isUnresolvedDose(row.state)),
+      ...rows.filter((row) => !isUnresolvedDose(row.state)),
+    ].slice(0, budget),
+  );
+  const visible = rows.filter((row) => claimed.has(row));
+  return { visible, hidden: rows.length - visible.length };
+}
+
 export function boundedMedicinePanelGroups(groups: readonly MedicineDailyTreatment[]) {
-  const visible: MedicineDailyTreatment[] = [];
-  let remainingBudget = MEDICINE_PANEL_MAX_DOSES;
-  let visibleRows = 0;
-  for (const group of groups.slice(0, MEDICINE_PANEL_MAX_TREATMENTS)) {
-    if (remainingBudget <= 0) break;
-    const rows = group.rows.slice(0, remainingBudget);
-    if (rows.length) visible.push({ ...group, rows });
-    remainingBudget -= rows.length;
-    visibleRows += rows.length;
-  }
+  // Allocate the row budget across treatments rather than per treatment in
+  // turn: an early treatment's recorded doses should not crowd out a later
+  // treatment's dose that is due now.
+  const eligible = groups.slice(0, MEDICINE_PANEL_MAX_TREATMENTS);
+  const claimed = new Set(
+    boundedDoseRows(eligible.flatMap((group) => group.rows), MEDICINE_PANEL_MAX_DOSES).visible,
+  );
+  const visible = eligible
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => claimed.has(row)) }))
+    .filter((group) => group.rows.length > 0);
+  const visibleRows = visible.reduce((sum, group) => sum + group.rows.length, 0);
   const totalRows = groups.reduce((sum, group) => sum + group.rows.length, 0);
   return { groups: visible, visibleRows, hiddenRows: Math.max(0, totalRows - visibleRows) };
 }
