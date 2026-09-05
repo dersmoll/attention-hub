@@ -30,11 +30,20 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
-      - name: Enable pinned pnpm
+      # One native command per step, deliberately.
+      #
+      # GitHub's pwsh wrapper only exits with the *final* $LASTEXITCODE, and
+      # $ErrorActionPreference does not govern native command exit codes. A step
+      # running several commands therefore reports only the last one: a failing
+      # `pnpm test` followed by a passing `pnpm run build` published anyway.
+      # Keep these split, or check $LASTEXITCODE after every command.
+      - name: Enable corepack
         shell: pwsh
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.17.1 --activate
+        run: corepack enable
+
+      - name: Activate pinned pnpm
+        shell: pwsh
+        run: corepack prepare pnpm@10.17.1 --activate
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
@@ -49,18 +58,25 @@ jobs:
         shell: pwsh
         run: pnpm run verify:release-version -- $env:GITHUB_REF_NAME
 
-      - name: Run frontend tests and build
+      - name: Run frontend tests
         shell: pwsh
-        run: |
-          pnpm test
-          pnpm run build
+        run: pnpm test
 
-      - name: Run Rust release gates
+      - name: Build frontend
         shell: pwsh
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-          cargo test --manifest-path src-tauri/Cargo.toml --all-targets
-          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+        run: pnpm run build
+
+      - name: Check Rust formatting
+        shell: pwsh
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Run Rust tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Run Clippy
+        shell: pwsh
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 
       - name: Build signed updater artifacts and publish prerelease
         id: tauri_release
