@@ -1,6 +1,6 @@
 # M19 — Medicine tracker
 
-> **Status: IMPLEMENTING — approved for M19 implementation; human visual testing in progress.**
+> **Status: IMPLEMENTING — partial delivery; reliability follow-up implemented, native and human validation pending.**
 > Numbered M19 because **M18 is the active calendar-reliability repair**. See
 > §0 for the prerequisite that gates any M19 implementation work.
 
@@ -47,7 +47,7 @@ milestones, which is precisely the cost this prerequisite avoids.
 | Dose history | **Materialized planned occurrences.** Every planned dose is a stored row, written when the schedule is created or edited. Not derived on read. |
 | Schedule edits | Apply to **future untouched occurrences only**. Past occurrences and any occurrence that was taken, skipped, or notified are frozen (§1b). |
 | Treatment span | **Finite in V1.** `startOn` and `endOn` are both required on treatments and on medicines. |
-| Medicine window | Must lie **within** its treatment's range, validated in Rust on every write (§1e). |
+| Medicine window | The treatment range is **derived** from the earliest start and latest end of its medicines, so containment holds by construction (§1e). Supersedes the original containment-with-rejection rule. |
 | Scheduling | Fixed local **times of day**, plus a **day pattern**: every day, every N days, or selected weekdays. Nothing else in V1. |
 | Deferred schedules | Open-ended courses, as-needed (PRN), every-N-hours interval dosing, and tapering. All out of V1 (§10). |
 | Slot times | Local wall-clock `HH:MM`, not instants. `08:00` means 08:00 wherever you are. This is the opposite call from `remindAt` and it is intentional. |
@@ -287,14 +287,36 @@ indeterminate state and no invented total. The bar is **day progress** —
 - A medicine must reference an existing treatment.
 - A dose must reference an existing medicine.
 - `treatment.startOn <= treatment.endOn`; `medicine.startOn <= medicine.endOn`.
-- **`medicine.startOn >= treatment.startOn` and `medicine.endOn <=
-  treatment.endOn`.** Validated in Rust on every medicine write and on every
-  treatment range change.
-- A treatment range change that would put any medicine outside the new range is
-  **rejected**, with a message naming how many medicines would fall outside.
-  V1 does not silently clamp medicine windows: clamping deletes future planned
-  doses as a side effect of editing something else, and for health data an
-  explicit "adjust these two medicines first" is the safer failure.
+- **The treatment range is derived, not asserted.** A treatment's `startOn` and
+  `endOn` are kept equal to the earliest start and latest end of its medicines,
+  recomputed in Rust (`sync_treatment_range`) after every medicine create,
+  update, move, and delete. Containment therefore holds by construction and
+  cannot be violated.
+
+  This **supersedes the earlier containment-with-rejection rule** and the
+  §11.1 resolution that went with it. Both assumed the user maintains two
+  ranges that must be kept consistent by hand; deriving one from the other
+  removes the class of error rather than reporting it. There is no rejection to
+  write, no count of blocking medicines to name, and no way for the two to
+  disagree.
+
+  Consequences, all intentional:
+  - The range a user types when **creating** a treatment seeds the first
+    medicine's dates and holds until a medicine exists. From then on it follows
+    the medicines.
+  - `update_treatment` accepts `startOn`/`endOn` in its input but they are
+    overwritten by the derived values whenever the treatment has medicines. The
+    manager never offers those fields for an existing treatment — rename edits
+    the name alone — so no UI path can type a range that is then discarded.
+  - The UI states the rule where the user meets it: *"Dates adjust when you add
+    medicines."* on the create form, and *"Course dates come from the earliest
+    start and latest end of your medicines."* on the treatment header.
+  - Deleting the last medicine leaves the treatment at its final derived range
+    rather than restoring the originally typed one.
+
+  The one loose end is that `update_treatment` still takes range fields it may
+  ignore. Left as-is because the notes command shares the input shape, but a
+  future revision should either reject a differing range or drop the fields.
 - Deleting a treatment cascades its medicines and all their occurrences.
 - Deleting a medicine cascades all its occurrences, history included.
 - Both are revision-guarded and preflighted with counts, reusing the M17
@@ -663,8 +685,13 @@ produce a zero badge, a zero left count, and no `data-due`.
 
 | Mode | Today | Medicine | Projects | All three |
 | --- | --- | --- | --- | --- |
-| Recommended | 60 px | **+28 px** | 28 px | **116 px** |
+| Recommended | 60 px | **+44 px** | 28 px | **132 px** |
 | Compact single-line | 33 px | **+33 px** | 33 px | **99 px** |
+
+Recommended medicine is **44 px, not the 28 px this table first specified**. The
+Projects segment is a bare glyph pair; the medicine segment carries a glyph, the
+**Meds** label, and a dose badge, and 28 px truncates the label. Compact is
+unchanged at 33 px because it drops to glyph-only there.
 
 Compact's current expression is `(WIDGET_SLIM_DESTINATIONS_WIDTH / 2) ×
 segmentCount`, which yields 33 px per segment. Replace it with an explicit
@@ -1140,10 +1167,11 @@ surfaces after toggling the segment.
      displays the new name and strength. That retroactive relabelling is §1b's
      documented limitation, so the check is that it behaves as documented, not
      that it fails to happen. Confirm the manager states this beside the field.
-  5. Try to set a medicine window outside its treatment range; confirm the
-     rejection names the reason.
-  6. Try to shrink the treatment range past a medicine; confirm the rejection
-     names how many medicines block it.
+  5. Add a medicine whose window starts before or ends after the treatment's
+     current course dates. Confirm the treatment's **Course dates** widen to
+     cover it, and that the header states where those dates come from (§1e).
+  6. Delete that medicine and confirm the course dates recompute from the
+     medicines that remain.
   7. Open Today: confirm the order is Events → Medicine → To-dos, and that
      completing a dose strikes it through and updates the count.
   8. Enable **Show in widget** from the Medicine manager header; confirm the
@@ -1236,6 +1264,22 @@ host timezone** (§7).
 
 Both suites assert both tables, so the Rust generator and resolver cannot drift
 from the TypeScript preview and resolver (§1h).
+
+**How each side pins the zone.** The two languages need different mechanisms,
+and the Rust one constrains the code's shape:
+
+- TypeScript sets `process.env.TZ` around the assertions and restores it in a
+  `finally`, which Node honours.
+- Rust **cannot** use that route: `chrono::Local` reads the Windows system
+  timezone and ignores `TZ`. So `resolve_slot` is split into a
+  `resolve_slot_in(zone, …)` that takes the zone as a parameter and a thin
+  `resolve_slot(…)` that passes `Local`. Tests call the former with
+  `chrono_tz::America::New_York`, which is deterministic on any host. This is
+  the only reason the function is generic — and it is a better shape anyway,
+  since it makes the "resolve in the *current* zone" policy an explicit argument
+  rather than an ambient read.
+
+Neither route touches the host clock or timezone, per §7.
 
 **`scripts/test-widget-layout.mjs` (updated).** `widgetDestinationsWidth` and
 `widgetWidth` for all eight combinations of the three panel flags in both width
@@ -1350,12 +1394,15 @@ The five questions this section previously held open are now decided. They are
 kept, with their resolutions, so the audit can see what was considered rather
 than only what was chosen.
 
-**1. Treatment range changes that orphan medicines: reject, do not clamp.**
-*Resolved: rejection stands* (§1e). Clamping would delete future planned
-occurrences as a side effect of editing something else, which is a silent
-destructive act on health data triggered by an unrelated field. The rejection
-names how many medicines block the change, so the user knows exactly what to
-fix. No "shrink and clamp" action in V1.
+**1. Treatment range changes that orphan medicines: superseded during
+implementation.**
+*Originally resolved as "reject, do not clamp". The implementation took a third
+option — deriving the treatment range from its medicines — which dissolves the
+question instead of answering it.* Neither rejection nor clamping is needed when
+the two ranges cannot disagree. See §1e for the derived rule, its consequences,
+and the in-UI copy that states it. The reasoning that rejected clamping still
+stands and still applies: nothing silently deletes planned doses as a side
+effect of editing an unrelated field.
 
 **2. The 10 000 occurrence cap: keep it, but it is not a size proof.**
 *Resolved: retained as a logical cap, with the prospective serialized 4 MiB
@@ -1466,3 +1513,211 @@ medicine still has bounded start and end dates.
 - Human testing confirmed the optional widget segment, width/divider, Today
   row ordering, palette inheritance, food timing, and derived treatment-range
   behaviour.
+
+## 13. Repository audit and continuation — 2026-09-05
+
+This record describes the live implementation, rather than treating the five
+planned checkpoints as completed. The derived treatment-range amendment in §12
+remains authoritative.
+
+| Checkpoint | Actual state |
+| --- | --- |
+| 1 — Foundation | Separate store, materialized doses, regeneration, lifecycle/delete commands and visibility preference exist. Native per-medicine and per-treatment limits, enum validation, canonical schedule ordering and deterministic history-preservation tests are now covered. Failed-write and shared DST fixture coverage still need completion. |
+| 2 — Manager | The balanced manager now includes grouped treatment navigation and progress, complete schedule and medicine-note editing, Today and Recent dose views, revision-guarded treatment Notes, lifecycle actions, atomic reorder and preflighted cascading deletion. The Advanced data panel remains. |
+| 3 — Today | Medicine rows and Take/Skip/Undo are connected. Due/missed/upcoming presentation and broader acceptance coverage remain. |
+| 4 — Widget/popup | Optional Meds segment and today's remaining count exist. It currently opens the manager. Anchored popup, progress and due-attention presentation remain. |
+| 5 — Reminders/closeout | Reminder preferences, notification command/polling, data controls and final privacy/architecture documentation are not delivered. Current review launcher covers only implemented behaviour. |
+
+The M18 repair is checkpointed at `bb2bf16`; M19 implementation and its initial
+record are committed at `f9e75ce` and `906013d`. This audit did not independently
+verify M18 installed-build sign-off. It found no concrete reason to interrupt
+M19 for a Hub-wide core, styling, or AI refactor. Medicine should keep using the
+existing shared palette, native persistence and local-first architecture.
+
+### Reliability follow-up implemented
+
+- Undo now clears either Take or Skip while retaining the notification guard.
+  Repeated Take/Skip preserves the original dose timestamps. The existing store
+  transaction still advances its revision; this is record-level idempotency.
+- Treatment metadata updates preserve notes and their notes revision. Notes
+  changes continue through the dedicated revision-guarded command.
+- The manager now uses shared medicine types and preserves medicine notes while
+  editing. Its full schedule editor covers strength/concentration, form, dose
+  amount, food timing, one to twelve removable times, every day, every N days,
+  selected weekdays and a finite medicine window. A live preview counts planned
+  doses and blocks invalid or over-limit schedules before submission.
+- Rust enforces the same 365-day window and 2,000-dose medicine limit, plus 30
+  medicines and 4,000 planned doses per treatment. Form and food values are
+  closed enums, and time/weekday ordering is normalized so order-only edits do
+  not create a new schedule revision.
+- Schedule edits retain past, taken, skipped or notified rows and regenerate only
+  untouched future rows. Descriptive-only edits keep the schedule revision and
+  materialized doses byte-identical.
+- The manager groups treatments as Active, Upcoming, Finished and Archived with
+  archived taking precedence, then completion/end date, then future start date.
+  Treatment and medicine Up/Down actions swap both positions in one native
+  transaction, so a partial reorder cannot leave duplicate positions.
+- Schedule, Today and Notes are keyboard-operable tabs. Today joins the selected
+  treatment's current medicine labels to civil dose rows and exposes Take, Skip
+  and Undo. Recent shows the latest 20 taken, skipped or missed scheduled rows;
+  older missed rows remain visible there while only current-day records can Undo.
+- Treatment Notes use the same 4,000-character, 256-segment, 25-link HTTP(S)
+  normalization contract as workspace notes. Autosave keeps a separate hydration
+  baseline and offers Keep mine / Load theirs after a revision conflict. Medicine
+  notes are available in the schedule editor and use the same native bounds. The
+  shared Project Notes save entry point now enforces that existing contract too;
+  this is a bounded core reliability correction rather than a new M19 behavior.
+- Complete/Reopen and Archive/Restore preserve their independent timestamps.
+  Cascading deletion always reads a fresh impact first, passes that revision to
+  Rust, and refreshes the counts after a stale-revision rejection. Active
+  treatments must still be completed or archived before deletion.
+- Date defaults use the local calendar day, and date addition uses civil-day
+  arithmetic. Tests change only their own process timezone, never the host.
+- The manager subscribes to visibility preference changes from Advanced and
+  cleans up listeners even if the window closes during subscription setup.
+  Unchanged treatment metadata no longer resets a draft after a dose event.
+- Today reserves space for eight doses **and** the overflow row when present.
+  Medicine row limits now have their own named layout constants.
+- Human review found the prototype manager hierarchy too compressed. The
+  approved balanced manager keeps the 940×640 window and 220 px sidebar while
+  using 13 px body/control text, 12 px helper text, 32 px controls and 64 px
+  medicine rows. The selected treatment name is the detail heading; course
+  dates are secondary information. Add, Edit and Rename reveal labeled forms
+  on demand, with two-column medicine fields that fit the 820 px minimum width.
+  The themed Hub palette and storage behavior are unchanged.
+
+### Next bounded slices, in order
+
+1. **Complete daily presentation.** Reuse the shared civil-slot resolver and
+   dose-state selection for distinct
+   upcoming/due/missed/taken/skipped states, bounded anchored Medicine popup,
+   course progress and today's due-attention indicator.
+2. **Reminders and closeout.** Generic opt-in native toasts with one shared grace
+   preference, Advanced data controls, accurate privacy/architecture docs and
+   the full automated and installed-build human acceptance gates. Add the
+   remaining failed-write, stale-delete and shared deterministic DST fixtures
+   before closeout.
+
+The 30-day history matrix, open-ended/PRN schedules, export/import and medical
+or AI advice remain outside this milestone.
+
+### Verification of this follow-up
+
+- All eleven frontend test scripts passed after the edits, including the new
+  medicine and widget-layout regressions. TypeScript `--noEmit` also passed.
+  The scripts were run directly with Node because `pnpm` was not on this
+  session's PATH; no package installation or environment change was needed.
+- The full schedule preview has frontend coverage for daily, interval and weekday
+  counting, civil/leap dates, unique time/weekday validation, Unicode-aware text
+  limits, the 365-day window and the 2,000-dose cap.
+- Seventeen focused Rust medicine tests pass. They cover repeated actions, Undo,
+  action switching, treatment notes preservation, enums and input bounds,
+  per-entity occurrence caps, canonical schedule ordering, frozen history during
+  schedule edits, byte-identical doses during descriptive-only edits, atomic
+  reorder, bounded note normalization, stale note protection and guarded cascade
+  deletion. Rust formatting passes.
+- The full Rust library suite passes: 76 tests across Medicine and the existing
+  Hub modules. This includes the shared Project Notes normalization entry-point
+  correction without changing its UI contract.
+- No production build, installer, live-app test, commit or publication was
+  performed. Human review uses the updated root-level
+  `REVIEW-M19-MEDICINE-TRACKER.cmd` from this checkout.
+
+### Approved compact manager amendment — 2026-09-05
+
+The balanced manager density was visually accepted as an intermediate step,
+then superseded by an approved compact pass aligned with Projects and To-dos:
+
+- The 940×640 default window, 820×520 minimum and 220 px sidebar remain. The
+  application header is 48 px, detail padding is 12×16 px, treatment rows are
+  about 40 px, medicine rows are 46 px, controls are 28 px, and persistent row
+  actions use 24 px icon buttons.
+- Add, edit, rename, lifecycle, delete and dose-record controls use labeled SVG
+  icons with native tooltips. Save, Cancel, conflict resolution and permanent
+  delete confirmation remain explicit text actions.
+- Treatment and medicine Up/Down buttons are removed. Six-dot handles provide
+  insertion drag-and-drop with an accent drop marker. Alt+Up/Down on a focused
+  handle provides the same operation for keyboard users.
+- Treatment dragging is bounded to its current lifecycle group. Medicine
+  dragging is bounded to the selected treatment. New native reorder commands
+  validate the submitted scope and update all affected sort positions in one
+  store transaction; incomplete or duplicate medicine orders are rejected.
+
+The full frontend suite, production frontend build, 77 Rust tests, strict
+Clippy, `cargo fmt -- --check`, and `git diff --check` pass after this amendment.
+Live visual and drag behavior still require the human review launcher.
+
+The first live drag test showed that WebView2 focused the draggable button but
+did not reliably deliver the HTML drag/drop sequence. The handles now use
+pointer capture and hit-test the row under the pointer before committing on
+release. This keeps the same insertion marker, native transaction and keyboard
+fallback while avoiding browser drag behavior on buttons.
+
+Human retest confirmed the pointer-capture drag interaction changes and
+persists item order. The compact manager visual and functional follow-up is
+accepted; checkpoint 2 no longer blocks the daily-presentation slice.
+
+### Daily presentation implementation — 2026-09-05
+
+- Shared medicine-model selection now joins active treatments, medicines and
+  materialized doses, resolves each local slot, assigns the five dose states,
+  and sorts rows by time then medicine order. Widget, Today and the dedicated
+  popup consume this contract, so yesterday's missed rows cannot leak into the
+  current-day badge or attention state.
+- Today names Upcoming, Due, Missed, Taken and Skipped in the row, preserves
+  Take / Skip / Undo behavior, and gives due and missed rows a non-colour-only
+  boundary in forced-colour mode.
+- The Meds destination now opens an anchored `medicine-panel` overlay for an
+  active treatment, shows a check after all of today's doses are recorded, and
+  applies attention only for today's due or missed rows. With no active
+  treatment it opens the manager directly.
+- The new popup shows treatment day progress, up to three treatment headings
+  and eight shared dose rows, then one `+N more` manager link. It supports Take,
+  Skip and Undo, resizes from bounded counts, follows the widget panel theme,
+  and includes routing, capability and transparent-window shell entries.
+- Focused model tests cover shared grouping/order/state and the hard popup
+  bounds. A separate popup-height test pins the maximum window geometry.
+
+TypeScript checking, `test:medicine`, `test:widget-layout`, the production
+frontend build and `git diff --check` pass. Live anchoring, forced-colour
+presentation and taskbar-mirror alignment remain human review items. Dose
+reminders and Advanced data controls remain the next bounded slice.
+
+Initial live review exposed two popup defects. Global button geometry leaked
+into the frameless surface, and reopening could race the previous window's
+destroy callback, clearing readiness for the new instance. Popup buttons now
+have an explicit compact reset, and the widget uses true toggle semantics with
+all payload, ready and positioned refs cleared together on close.
+
+### Reliability follow-up from cross-audit — 2026-09-05
+
+The external audit was verified against this checkout. The following scoped
+repairs are now implemented before the reminder slice:
+
+- Treatment notes flush before treatment selection and before closing the
+  manager. A sequence guard prevents an older save completion from overwriting
+  the current note state.
+- Local destructive writes retain the backup until the replacement file has
+  committed. A failed primary replacement therefore cannot first delete the
+  only recovery copy.
+- The Meds badge now distinguishes loading, unavailable, no scheduled doses,
+  remaining doses and all-recorded states. A load failure cannot be presented
+  as a completed day.
+- Treatment and medicine ordering is normalized during reorder, repairing old
+  duplicate indexes; new medicines use the next index within their treatment.
+  A regression fixture covers the delete-then-create collision.
+- The dedicated Medicine panel retains treatment groups, while Today now uses
+  a separate globally time-sorted daily selector. Popup anchors use monitor
+  work areas, constrained surfaces scroll, and Medicine only focuses when first
+  shown rather than after a background refresh.
+
+Focused checks pass: TypeScript `--noEmit`, `npm run test:medicine`,
+`npm run test:widget-layout`, production `npm run build`, `cargo test medicine
+--lib`, and `git diff --check`. The updated review launcher adds notes,
+cross-treatment order, collision reorder, work-area/scroll, and no-focus-steal
+checks. The injected failed-write/recovery test and recovered-data UI signal
+remain part of the storage/reminder closeout slice.
+
+The popup's footer-level manager link was not reliably discoverable in live
+use. The manager action is therefore now a persistent header control labelled
+**Manage medicines**, with the footer retained only as record context.

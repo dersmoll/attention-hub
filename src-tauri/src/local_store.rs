@@ -146,11 +146,16 @@ pub fn write<T: Serialize>(
     if preserve_previous && path.exists() && !source_recovered_from_backup {
         fs::copy(path, &backup)
             .map_err(|_| format!("{label} could not update its local backup."))?;
-    } else if !preserve_previous && backup.exists() {
+    }
+    replace_file(&pending, path, label)?;
+    // A destructive write may retire its recovery copy only after its replacement
+    // has committed.  Otherwise a failed replacement can turn one write failure
+    // into data loss when this store was already running from its backup.
+    if !preserve_previous && backup.exists() {
         fs::remove_file(&backup)
             .map_err(|_| format!("{label} could not remove its prior local backup."))?;
     }
-    replace_file(&pending, path, label)
+    Ok(())
 }
 
 fn read_file<T, F>(path: &Path, schema_version: u32, valid: F) -> Result<T, ReadError>

@@ -92,7 +92,9 @@ import {
 import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { isActionable, isFromActiveOwner, isVisibleInToday, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
-import { type MedicineSnapshot } from "./medicine-model";
+import { activeMedicineTreatments, boundedMedicinePanelGroups, medicineDailyTreatments, type MedicineSnapshot } from "./medicine-model";
+import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, MEDICINE_PANEL_WIDTH, MEDICINE_PANEL_WINDOW_LABEL, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
+import { createMedicinePanelWindow } from "./medicine-panel-window";
 import type { PopupAnchor } from "./event-workspace-model";
 import {
   openEventSettingsWindow,
@@ -156,6 +158,7 @@ type WidgetNoticeScope =
   | "advanced"
   | "menu"
   | "calendar"
+  | "medicine"
   | "sound";
 const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "teams",
@@ -671,6 +674,7 @@ export function WidgetView() {
   >("below");
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
+  const [medicineLoadState, setMedicineLoadState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [todoPreferences, setTodoPreferences] =
     useState<TodoPreferences>(readTodoPreferences);
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
@@ -701,6 +705,10 @@ export function WidgetView() {
   const todayPopupPayloadRef = useRef<TodayPopupPayload | null>(null);
   const todayPopupReadyRef = useRef(false);
   const todayPopupPositionedRef = useRef(false);
+  const medicinePanelPayloadRef = useRef<MedicinePanelPayload | null>(null);
+  const medicinePanelReadyRef = useRef(false);
+  const medicinePanelPositionedRef = useRef(false);
+  const [medicinePanelOpen, setMedicinePanelOpen] = useState(false);
   const widgetInitialLayoutRef = useRef(true);
   const suppressPositionPersistenceRef = useRef(false);
   const resizeDirectionRef = useRef<WidgetResizeDirection | null>(null);
@@ -833,6 +841,29 @@ export function WidgetView() {
       stopClosed?.();
     };
   }, [publishTodayPopup]);
+
+  const publishMedicinePanel = useCallback(() => {
+    const payload = medicinePanelPayloadRef.current;
+    if (!payload || !medicinePanelReadyRef.current || !medicinePanelPositionedRef.current) return;
+    void emitTo(MEDICINE_PANEL_WINDOW_LABEL, MEDICINE_PANEL_OPEN_EVENT, payload);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopReady: (() => void) | undefined;
+    let stopClosed: (() => void) | undefined;
+    void Promise.all([
+      listen(MEDICINE_PANEL_READY_EVENT, () => { if (!disposed) { medicinePanelReadyRef.current = true; publishMedicinePanel(); } }),
+      listen(MEDICINE_PANEL_CLOSED_EVENT, () => {
+        if (disposed) return;
+        setMedicinePanelOpen(false);
+        medicinePanelPayloadRef.current = null;
+        medicinePanelReadyRef.current = false;
+        medicinePanelPositionedRef.current = false;
+      }),
+    ]).then(([ready, closed]) => { if (disposed) { ready(); closed(); } else { stopReady = ready; stopClosed = closed; } });
+    return () => { disposed = true; stopReady?.(); stopClosed?.(); };
+  }, [publishMedicinePanel]);
   const systemTimeZone = canonicalTimeZone(
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
@@ -1207,9 +1238,9 @@ export function WidgetView() {
     const refresh = async () => {
       try {
         const snapshot = await invoke<MedicineSnapshot>("get_medicine_snapshot");
-        if (!disposed) setMedicine(snapshot);
+        if (!disposed) { setMedicine(snapshot); setMedicineLoadState("ready"); }
       } catch {
-        if (!disposed) setMedicine(null);
+        if (!disposed) { setMedicine(null); setMedicineLoadState("unavailable"); }
       }
     };
     void listen("medicine-changed", () => void refresh()).then((unlisten) => {
@@ -2031,7 +2062,8 @@ export function WidgetView() {
         anchor,
         placement,
         width: (anchor.right - anchor.left) / anchor.scaleFactor,
-        height: calendarDayPanelLogicalHeight,
+        height: Math.min(calendarDayPanelLogicalHeight, Math.max(160, Math.floor((anchor.monitorBottom - anchor.monitorTop) / anchor.scaleFactor - 12))),
+        maxHeight: Math.max(160, Math.floor((anchor.monitorBottom - anchor.monitorTop) / anchor.scaleFactor - 12)),
         occupiedMinutes: workCalendarOccupiedMinutes(
           workCalendar?.daySelections ?? [],
           dayStart,
@@ -2184,11 +2216,64 @@ export function WidgetView() {
       right,
       bottom,
       scaleFactor,
-      monitorLeft: monitor.position.x,
-      monitorTop: monitor.position.y,
-      monitorRight: monitor.position.x + monitor.size.width,
-      monitorBottom: monitor.position.y + monitor.size.height,
+      monitorLeft: monitor.workArea.position.x,
+      monitorTop: monitor.workArea.position.y,
+      monitorRight: monitor.workArea.position.x + monitor.workArea.size.width,
+      monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
     };
+  };
+
+  const openMedicinePanel = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!hasActiveMedicineTreatment) {
+      await openMedicineManagerWindow();
+      return;
+    }
+    const button = event.currentTarget;
+    try {
+      const existing = await WebviewWindow.getByLabel(MEDICINE_PANEL_WINDOW_LABEL);
+      if (existing) {
+        await existing.close();
+        setMedicinePanelOpen(false);
+        medicinePanelPayloadRef.current = null;
+        medicinePanelReadyRef.current = false;
+        medicinePanelPositionedRef.current = false;
+        return;
+      }
+      const [position, scaleFactor, monitors] = await Promise.all([
+        widgetWindow.outerPosition(), widgetWindow.scaleFactor(), availableMonitors(),
+      ]);
+      const rect = button.getBoundingClientRect();
+      const centerX = position.x + (rect.left + rect.width / 2) * scaleFactor;
+      const centerY = position.y + (rect.top + rect.height / 2) * scaleFactor;
+      const monitor = monitors.find((item) => centerX >= item.position.x && centerX <= item.position.x + item.size.width && centerY >= item.position.y && centerY <= item.position.y + item.size.height) ?? monitors[0];
+      if (!monitor) throw new Error("Monitor unavailable");
+      const bounded = boundedMedicinePanelGroups(dailyMedicineGroups);
+      const naturalHeight = medicinePanelHeight(bounded.groups.length, bounded.visibleRows, bounded.hiddenRows > 0);
+      const anchor: PopupAnchor = {
+        left: Math.round(position.x + rect.left * scaleFactor),
+        top: Math.round(position.y + rect.top * scaleFactor),
+        right: Math.round(position.x + rect.right * scaleFactor),
+        bottom: Math.round(position.y + rect.bottom * scaleFactor),
+        scaleFactor,
+        monitorLeft: monitor.workArea.position.x,
+        monitorTop: monitor.workArea.position.y,
+        monitorRight: monitor.workArea.position.x + monitor.workArea.size.width,
+        monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
+      };
+      const height = Math.min(naturalHeight, Math.max(120, Math.floor((anchor.monitorBottom - anchor.monitorTop) / scaleFactor - 12)));
+      const placement = anchor.top - anchor.monitorTop >= anchor.monitorBottom - anchor.bottom ? "above" : "below";
+      const payload: MedicinePanelPayload = { anchor, placement, width: MEDICINE_PANEL_WIDTH, height };
+      medicinePanelPayloadRef.current = payload;
+      medicinePanelReadyRef.current = false;
+      medicinePanelPositionedRef.current = false;
+      setMedicinePanelOpen(true);
+      await createMedicinePanelWindow(payload, () => { medicinePanelPositionedRef.current = true; publishMedicinePanel(); }, () => {
+        setMedicinePanelOpen(false); medicinePanelPayloadRef.current = null; medicinePanelReadyRef.current = false; medicinePanelPositionedRef.current = false;
+      }, () => showWidgetNotice("medicine", "Medicine panel could not be opened."));
+    } catch {
+      setMedicinePanelOpen(false);
+      showWidgetNotice("medicine", "Medicine panel could not be opened.");
+    }
   };
 
   const openCalendarEventSettings = async (
@@ -2528,19 +2613,14 @@ export function WidgetView() {
     "--widget-grid-template": gridSegments.join(" "),
   } as CSSProperties;
   const calendarDaySelections = workCalendar?.daySelections ?? [];
-  const localMedicineDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const activeMedicineTreatmentIds = new Set(
-    (medicine?.treatments ?? [])
-      .filter((treatment) => treatment.archivedAt === null && treatment.completedAt === null && treatment.startOn <= localMedicineDay && treatment.endOn >= localMedicineDay)
-      .map((treatment) => treatment.id),
-  );
-  const activeMedicineIds = new Set(
-    (medicine?.medicines ?? [])
-      .filter((item) => activeMedicineTreatmentIds.has(item.treatmentId))
-      .map((item) => item.id),
-  );
-  const todayMedicineDoses = (medicine?.doses ?? []).filter((dose) => dose.slotDay === localMedicineDay && activeMedicineIds.has(dose.medicineId));
-  const medicineLeftCount = todayMedicineDoses.filter((dose) => dose.takenAt === null && dose.skippedAt === null).length;
+  const dailyMedicineGroups = medicine ? medicineDailyTreatments(medicine, now) : [];
+  const todayMedicineRows = dailyMedicineGroups.flatMap((group) => group.rows);
+  const medicineLeftCount = todayMedicineRows.filter((row) => row.state !== "taken" && row.state !== "skipped").length;
+  const medicineAttentionCount = todayMedicineRows.filter((row) => row.state === "due" || row.state === "missed").length;
+  const hasActiveMedicineTreatment = medicine ? activeMedicineTreatments(medicine, now).length > 0 : false;
+  const medicineHasScheduledDoses = todayMedicineRows.length > 0;
+  const medicineBadge = medicineLoadState === "loading" ? "…" : medicineLoadState === "unavailable" ? "!" : !medicineHasScheduledDoses ? "–" : medicineLeftCount ? medicineLeftCount > 99 ? "99+" : medicineLeftCount : "✓";
+  const medicineBadgeLabel = medicineLoadState === "loading" ? "Medicine data is loading" : medicineLoadState === "unavailable" ? "Medicine data is unavailable" : !medicineHasScheduledDoses ? "No doses scheduled today" : medicineLeftCount ? `${medicineLeftCount} doses left today` : "All doses recorded today";
   const remainingCalendarEventCount = calendarDaySelections.filter((selection) => {
     if (selection.cancelled) return false;
     const end = Date.parse(selection.end);
@@ -3228,15 +3308,18 @@ export function WidgetView() {
           </button>
         </div>}
         {medicinePanelVisible && <button
-          aria-label={`Open Medicine, ${medicineLeftCount} doses left today`}
+          aria-label={`Open Medicine, ${medicineBadgeLabel}${medicineAttentionCount ? `, ${medicineAttentionCount} due or missed` : ""}`}
+          aria-pressed={medicinePanelOpen}
           className="widget-destinations__medicine"
-          onClick={() => void openMedicineManagerWindow()}
+          data-due={medicineLoadState === "ready" && medicineAttentionCount > 0 || undefined}
+          data-unavailable={medicineLoadState === "unavailable" || undefined}
+          onClick={(event) => void openMedicinePanel(event)}
           title="Open Medicine"
           type="button"
         >
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 5h10v14H7z"/><path d="M9 9h6M9 13h6"/></svg>
           <span className="widget-destinations__label">Meds</span>
-          <span className="widget-destinations__badge">{medicineLeftCount > 99 ? "99+" : medicineLeftCount}</span>
+          <span aria-label={medicineBadgeLabel} className="widget-destinations__badge">{medicineBadge}</span>
         </button>}
       </aside>}
 

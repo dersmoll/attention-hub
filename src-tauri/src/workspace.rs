@@ -662,7 +662,7 @@ fn name(value: String, label: &str) -> Result<String, String> {
     }
 }
 
-fn notes(notes: Vec<NoteSegment>) -> Result<Vec<NoteSegment>, String> {
+pub(crate) fn normalize_notes(notes: Vec<NoteSegment>) -> Result<Vec<NoteSegment>, String> {
     if notes.len() > 256 {
         return Err("Notes must contain 256 text segments or fewer.".into());
     }
@@ -1121,7 +1121,7 @@ pub fn create_action_item(
     }
     let input = ActionItemInput {
         title,
-        notes: notes(input.notes)?,
+        notes: normalize_notes(input.notes)?,
         due_on: due_on(input.due_on)?,
         remind_at: remind_at(input.remind_at)?,
         ..input
@@ -1165,7 +1165,7 @@ pub fn update_action_item(
     if title.is_empty() || title.chars().count() > 160 {
         return Err("To-do title must be 1 to 160 characters.".into());
     }
-    let normalized_notes = notes(input.notes)?;
+    let normalized_notes = normalize_notes(input.notes)?;
     let due = due_on(input.due_on)?;
     let reminder = remind_at(input.remind_at)?;
     mutate(app, state, true, |store| {
@@ -1474,6 +1474,7 @@ pub fn save_project_notes(
     notes: Vec<NoteSegment>,
     expected_notes_revision: u64,
 ) -> Result<WorkspaceSnapshot, String> {
+    let notes = normalize_notes(notes)?;
     let timestamp = now();
     mutate(app, state, true, |store| {
         save_project_notes_in_store(store, project_id, notes, expected_notes_revision, timestamp)

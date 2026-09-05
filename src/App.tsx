@@ -19,6 +19,7 @@ import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { TodayPopupView } from "./TodayPopupView";
 import { MedicineManagerView } from "./MedicineManagerView";
+import { MedicinePanelView } from "./MedicinePanelView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
 import {
@@ -1626,6 +1627,9 @@ function App() {
   }
   if (windowLabel === "medicine") {
     return <MedicineManagerView />;
+  }
+  if (windowLabel === "medicine-panel") {
+    return <MedicinePanelView />;
   }
   return <WidgetView />;
 }

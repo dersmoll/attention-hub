@@ -30,6 +30,9 @@ export const CALENDAR_DAY_PANEL_MAX_EVENTS = 24;
 export const TODAY_TODO_SECTION_BASE_HEIGHT = 30;
 export const TODAY_TODO_ROW_HEIGHT = 30;
 export const TODAY_TODO_MAX_ITEMS = 8;
+export const TODAY_DOSE_SECTION_BASE_HEIGHT = 30;
+export const TODAY_DOSE_ROW_HEIGHT = 30;
+export const TODAY_DOSE_MAX_ITEMS = 8;
 
 export type WidgetWidthMode = "recommended" | "slim";
 
@@ -181,9 +184,10 @@ export function widgetCalendarWidth(
 }
 
 export function todayPopupHeight(eventCount: number, doseCount = 0, todoCount = 0) {
-  const boundedDoses = Math.min(TODAY_TODO_MAX_ITEMS, Math.max(0, Math.trunc(doseCount)));
+  const boundedDoses = Math.min(TODAY_DOSE_MAX_ITEMS, Math.max(0, Math.trunc(doseCount)));
+  const doseRows = boundedDoses + Number(doseCount > TODAY_DOSE_MAX_ITEMS);
   const boundedTodos = Math.min(TODAY_TODO_MAX_ITEMS, Math.max(0, Math.trunc(todoCount)));
-  return calendarDayPanelHeight(eventCount) + (boundedDoses > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedDoses * TODAY_TODO_ROW_HEIGHT : 0) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
+  return calendarDayPanelHeight(eventCount) + (doseRows > 0 ? TODAY_DOSE_SECTION_BASE_HEIGHT + doseRows * TODAY_DOSE_ROW_HEIGHT : 0) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
 }
 
 export function widgetFixedWidth(

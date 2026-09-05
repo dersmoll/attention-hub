@@ -65,6 +65,30 @@ fn update_treatment(
 }
 
 #[tauri::command]
+fn move_treatment(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    other_treatment_id: String,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot =
+        medicine::move_treatment(&app, state.inner(), &treatment_id, &other_treatment_id)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn reorder_treatments(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    ordered_ids: Vec<String>,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::reorder_treatments(&app, state.inner(), ordered_ids)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
 fn create_medicine(
     app: tauri::AppHandle,
     state: tauri::State<'_, MedicineState>,
@@ -83,6 +107,29 @@ fn update_medicine(
     input: MedicineInput,
 ) -> Result<MedicineSnapshot, String> {
     let snapshot = medicine::update_medicine(&app, state.inner(), &medicine_id, input)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn move_medicine(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    other_medicine_id: String,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::move_medicine(&app, state.inner(), &medicine_id, &other_medicine_id)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn reorder_medicines(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    ordered_ids: Vec<String>,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::reorder_medicines(&app, state.inner(), ordered_ids)?;
     emit_medicine_changed(&app);
     Ok(snapshot)
 }
@@ -169,6 +216,34 @@ fn save_treatment_notes(
     )?;
     emit_medicine_changed(&app);
     Ok(snapshot)
+}
+#[tauri::command]
+fn open_treatment_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&medicine::treatment_note_url(
+        &app,
+        state.inner(),
+        &treatment_id,
+        &url,
+    )?)
+}
+#[tauri::command]
+fn open_medicine_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&medicine::medicine_note_url(
+        &app,
+        state.inner(),
+        &medicine_id,
+        &url,
+    )?)
 }
 #[tauri::command]
 fn get_medicine_delete_impact(
@@ -953,13 +1028,19 @@ pub fn run() {
             get_medicine_snapshot,
             create_treatment,
             update_treatment,
+            move_treatment,
+            reorder_treatments,
             create_medicine,
             update_medicine,
+            move_medicine,
+            reorder_medicines,
             set_medicine_dose_taken,
             set_medicine_dose_skipped,
             set_treatment_archived,
             set_treatment_completed,
             save_treatment_notes,
+            open_treatment_note_url,
+            open_medicine_note_url,
             get_medicine_delete_impact,
             delete_treatment,
             delete_medicine,

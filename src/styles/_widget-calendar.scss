@@ -785,6 +785,8 @@
     width: 100%;
     height: 100%;
     margin: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
     grid-template-rows: auto auto auto;
     align-content: start;
   }
@@ -882,6 +884,11 @@
       .today-popup-medicine__skip:hover, .today-popup-medicine__skip:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(7%)}; }
 
       li[data-completed] .today-popup-medicine__title { color: var(--widget-panel-muted); opacity: .68; text-decoration: line-through; text-decoration-thickness: 1px; }
+      li[data-state="due"], li[data-state="missed"] { border: 1px solid color-mix(in srgb, var(--color-danger) 50%, var(--widget-panel-border)); border-radius: var(--radius-chrome); }
+
+      @include forced-colors {
+        li[data-state="due"], li[data-state="missed"] { border-style: double; border-color: Highlight; }
+      }
     }
 
     li.today-popup-todos__more {

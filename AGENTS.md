@@ -30,6 +30,13 @@ overrides them. Read this file before acting; also follow any more-specific
 - Establish the current checkout, branch or detached HEAD, and `git status`
   before proposing changes. Existing changes and untracked files belong to the
   user unless their authorship is known.
+- The default milestone workspace is `D:\Work\PetProjects\attention-hub`.
+  Use it for normal sequential Attention Hub work so the human partner and
+  collaborating AI agents share one obvious project location.
+- Do not create a Codex/Git worktree for an ordinary milestone. Use one only
+  when the user explicitly requests parallel implementation, a hotfix beside
+  unfinished work, a risky isolated experiment, or a clean release/review
+  baseline. State the reason and expected lifetime before creating it.
 - For a new feature, unclear report, feedback triage, or design discussion,
   begin read-only. Do not edit, install, build, launch, clean caches, commit,
   push, tag, or publish until the user approves one bounded proposal.
@@ -56,22 +63,22 @@ overrides them. Read this file before acting; also follow any more-specific
   checks in plain language, pause so the tester can read them, and then call
   `RUN-ATTENTION-HUB.cmd` from the same directory.
 - Keep `RUN-ATTENTION-HUB.cmd` generic: it starts the development build from
-  the checkout containing the launcher. It may stop an earlier local
+  the active project folder containing the launcher. It may stop an earlier local
   Attention Hub development run, so its console must stay open; `Ctrl+C` stops
   the test run.
-- A review launcher is tied to its checkout. Do not use a launcher in another
-  worktree to test uncommitted work here.
+- A review launcher is tied to the active project folder. Do not use a launcher
+  from another folder or a retired worktree to test uncommitted work here.
 - Never claim a human test passed without the tester's observation or recorded
   evidence.
 
-## Storage, temporary output, and retired worktrees
+## Storage, temporary output, and exceptional worktrees
 
 - Build output is disposable but not automatically disposable: Cargo `target`,
   `node_modules`, `dist`, installers, and temporary launcher files may be
   regenerated, but do not delete them merely because they are large.
 - If C: is low on space, first perform a read-only, staged audit: report free
-  space; inspect registered worktrees with `git worktree list`; identify dirty
-  or active checkouts; and measure exact large directories such as each
+  space; inspect registered worktrees only if any exist; identify dirty or
+  active checkouts; and measure exact large directories such as each
   `src-tauri/target`. Do not start with a broad recursive scan of the whole
   profile.
 - Never clean an active worktree or one with uncommitted work without the
@@ -82,7 +89,8 @@ overrides them. Read this file before acting; also follow any more-specific
 - Retire a worktree only after its branch, uncommitted changes, untracked
   artifacts, and any needed backups have been reviewed. Use Git's worktree
   workflow for an explicitly named target; never delete a worktree directory
-  by hand. Deleting a branch or remote ref is a separate explicit decision.
+  by hand. Return to the default project folder when the isolation need ends.
+  Deleting a branch or remote ref is a separate explicit decision.
 - Do not delete the whole `.codex` directory or manually remove browser
   profiles, Outlook data, Windows packages, or WSL virtual disks as a shortcut
   to free space.
