@@ -188,6 +188,10 @@
   }
 }
 
+/* The compact project panel is a frameless satellite of the widget, so it keeps
+ * the widget's panel theme. Remapping the --color-* tokens here is enough: the
+ * --manager-* layer is defined in terms of them, and the shared manager-kit
+ * mixins read them directly, so both follow without further overrides. */
 .manager-shell[data-compact] {
   --color-canvas: var(--widget-panel-solid);
   --color-canvas-sunken: color-mix(in srgb, var(--widget-panel-solid) 94%, var(--widget-panel-foreground));
@@ -196,7 +200,16 @@
   --color-text-muted: var(--widget-panel-muted);
   --color-text-inverse: var(--widget-panel-accent-foreground);
   --color-border: var(--widget-panel-border);
+  --color-border-muted: #{panel-border-wash(45%)};
   --color-brand: var(--widget-panel-accent);
+  --color-brand-hover: #{panel-accent-hover()};
+
+  /* The satellite stays denser than the full window. */
+  font-size: 12px;
+  line-height: 1.3;
+
+  button, input, select, textarea { min-height: 26px; border-radius: var(--radius-pill); font-size: 11px; }
+  button { padding: 3px 8px; }
 
   box-sizing: border-box;
   grid-template-columns: minmax(0, 1fr);
@@ -230,15 +243,27 @@
 }
 
 /* Project Hub uses the same themed, compact surface language as the widget. */
+/* Project Hub renders in two places: the decorated `manager` window, and the
+ * frameless `project-panel` satellite via <ManagerView compact />. The palette
+ * follows that split, which is the same line `_windows.scss` already draws —
+ * chromed windows use the app chrome tokens, frameless overlays inherit the
+ * widget's panel theme.
+ *
+ * Everything below paints through this --manager-* layer, so a mode only has
+ * to redefine the layer rather than restyle 37 selectors. Medicine uses the
+ * identical pattern with --medicine-*. */
 .manager-shell {
-  --color-canvas: var(--widget-panel-solid);
-  --color-canvas-sunken: #{panel-tint(4%)};
-  --color-text: var(--widget-panel-foreground);
-  --color-text-chrome: var(--widget-panel-foreground);
-  --color-text-muted: var(--widget-panel-muted);
-  --color-text-inverse: var(--widget-panel-accent-foreground);
-  --color-border: var(--widget-panel-border);
-  --color-brand: var(--widget-panel-accent);
+  --manager-surface: var(--color-canvas);
+  --manager-sunken: var(--color-canvas-sunken);
+  --manager-raised: var(--color-canvas);
+  --manager-hover: color-mix(in srgb, var(--color-brand) 8%, var(--color-canvas));
+  --manager-text: var(--color-text-chrome);
+  --manager-quiet: var(--color-text-muted);
+  --manager-border: var(--color-border);
+  --manager-border-soft: var(--color-border-muted);
+  --manager-accent: var(--color-brand);
+  --manager-accent-fg: var(--color-text-inverse);
+  --manager-accent-hover: var(--color-brand-hover);
 
   grid-template-columns: 220px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -248,10 +273,10 @@
   min-height: 100%;
   margin: 0;
   padding: 0;
-  color: var(--widget-panel-foreground);
-  background: var(--widget-panel-solid);
-  font-size: 12px;
-  line-height: 1.3;
+  color: var(--manager-text);
+  background: var(--manager-surface);
+  font-size: 13px;
+  line-height: 1.45;
   overflow: hidden;
 
   section + section { margin-top: 0; }
@@ -260,23 +285,23 @@
   input,
   select,
   textarea {
-    min-height: 26px;
-    border-radius: var(--radius-pill);
-    color: var(--widget-panel-foreground);
-    background: #{panel-tint(7%)};
-    font-size: 11px;
+    min-height: 28px;
+    border-radius: var(--radius-field);
+    color: var(--manager-text);
+    background: var(--manager-raised);
+    font-size: 13px;
   }
 
   input,
   select,
   textarea {
     padding: 4px 7px;
-    &::placeholder { color: var(--widget-panel-muted); opacity: 1; }
+    &::placeholder { color: var(--manager-quiet); opacity: 1; }
   }
 
   button {
     padding: 3px 8px;
-    &:hover:not(:disabled) { border-color: var(--widget-panel-accent); color: var(--widget-panel-foreground); background: #{panel-tint(13%)}; }
+    &:hover:not(:disabled) { border-color: var(--manager-accent); color: var(--manager-text); background: var(--manager-hover); }
   }
 
   button:focus-visible,
@@ -287,15 +312,15 @@
   aside {
     min-width: 0;
     padding: 10px;
-    border-right-color: var(--widget-panel-border);
-    background: color-mix(in srgb, var(--widget-panel-solid) 94%, var(--widget-panel-foreground));
+    border-right-color: var(--manager-border);
+    background: color-mix(in srgb, var(--manager-surface) 94%, var(--manager-text));
     overflow: auto;
   }
 
   aside p,
   .manager-detail header p {
     margin: 0;
-    color: var(--widget-panel-muted);
+    color: var(--manager-quiet);
     font-size: 9px;
     letter-spacing: .12em;
   }
@@ -307,8 +332,8 @@
   grid-row: 1;
   gap: 4px;
   padding: 7px 10px 0;
-  border-bottom: 1px solid var(--widget-panel-border);
-  background: color-mix(in srgb, var(--widget-panel-solid) 96%, var(--widget-panel-foreground));
+  border-bottom: 1px solid var(--manager-border);
+  background: color-mix(in srgb, var(--manager-surface) 96%, var(--manager-text));
 
   button {
     min-height: 30px;
@@ -316,12 +341,12 @@
     border: 0;
     border-bottom: 2px solid transparent;
     border-radius: var(--radius-pill) var(--radius-pill) 0 0;
-    color: var(--widget-panel-muted);
+    color: var(--manager-quiet);
     background: transparent;
   }
 
-  button[aria-selected="true"] { color: var(--widget-panel-foreground); border-bottom-color: var(--widget-panel-accent); }
-  button span { margin-left: 4px; color: var(--widget-panel-accent); font-size: 9px; }
+  button[aria-selected="true"] { color: var(--manager-text); border-bottom-color: var(--manager-accent); }
+  button span { margin-left: 4px; color: var(--manager-accent); font-size: 9px; }
 }
 
 .manager-items {
@@ -332,7 +357,7 @@
 
   &__section { min-width: 0; }
   header { min-height: 22px; padding-inline: 4px; }
-  header span { color: var(--widget-panel-muted); font-size: 10px; }
+  header span { color: var(--manager-quiet); font-size: 10px; }
   form { grid-template-columns: minmax(0, 1fr) 80px; gap: 6px; margin-top: 6px; }
   &__personal > form:first-of-type { grid-template-columns: minmax(0, 1fr) 88px 32px; }
   select { min-width: 0; min-height: 32px; }
@@ -341,15 +366,15 @@
     min-width: 32px;
     min-height: 25px;
     padding: 0;
-    border-color: var(--widget-panel-accent);
-    color: var(--widget-panel-accent-foreground);
-    background: var(--widget-panel-accent);
+    border-color: var(--manager-accent);
+    color: var(--manager-accent-fg);
+    background: var(--manager-accent);
     font-size: 9px;
     line-height: 1;
-    &:hover:not(:disabled) { color: var(--widget-panel-accent-foreground); background: #{panel-accent-hover()}; }
+    &:hover:not(:disabled) { color: var(--manager-accent-fg); background: var(--manager-accent-hover); }
   }
   nav { gap: 0px; margin-top: 8px; margin-bottom: 10px; }
-  &__personal { padding-top: 14px; border-top-color: panel-border-wash(65%); }
+  &__personal { padding-top: 14px; border-top-color: var(--manager-border-soft); }
 }
 
 .manager-category-create { margin-top: 6px !important; }
@@ -357,7 +382,7 @@
   margin-top: 9px;
 
   > p { padding-inline: 4px; }
-  nav:empty::after { display: block; padding: 4px 8px; color: var(--widget-panel-muted); font-size: 9px; content: "No lists"; }
+  nav:empty::after { display: block; padding: 4px 8px; color: var(--manager-quiet); font-size: 9px; content: "No lists"; }
 
   &__header {
     display: flex;
@@ -369,7 +394,7 @@
 
     > p { margin: 0; }
     > span { display: flex; gap: 2px; }
-    > span button { @include icon-button(20px, var(--radius-pill)); padding: 3px; border: 1px solid transparent; color: var(--widget-panel-muted); background: transparent; }
+    > span button { @include icon-button(20px, var(--radius-pill)); padding: 3px; border: 1px solid transparent; color: var(--manager-quiet); background: transparent; }
     > span button svg { @include stroke-icon(12px, 1.8); }
     > form { width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; }
     > form button { min-width: 0; padding-inline: 6px; font-size: 9px; }
@@ -378,10 +403,10 @@
   &__confirm {
     padding: 6px;
     margin-top: 8px;
-    border: 1px solid color-mix(in srgb, var(--color-danger) 70%, var(--widget-panel-border));
+    border: 1px solid color-mix(in srgb, var(--color-danger) 70%, var(--manager-border));
     border-radius: var(--radius-pill);
     color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 9%, var(--widget-panel-solid));
+    background: color-mix(in srgb, var(--color-danger) 9%, var(--manager-surface));
     font-size: 9px;
 
     p { margin: 0 0 5px; }
@@ -394,7 +419,7 @@
   align-items: center;
   gap: 6px;
   margin: 6px 0 0;
-  color: var(--widget-panel-muted);
+  color: var(--manager-quiet);
   font-size: 9px;
 
   select { min-height: 24px; }
@@ -404,29 +429,29 @@
   --radius-pill: 0;
   min-height: 34px;
   padding: 6px 9px;
-  border-color: panel-border-wash(25%);
+  border-color: var(--manager-border-soft);
   border-radius: var(--radius-pill);
-  color: var(--widget-panel-foreground);
-  background: color-mix(in srgb, var(--widget-panel-foreground) 3%, transparent);
+  color: var(--manager-text);
+  background: color-mix(in srgb, var(--manager-text) 3%, transparent);
 
-  &:hover:not(:disabled) { border-color: var(--widget-panel-border); background: #{panel-tint(12%)}; }
-  &[aria-current="page"] { color: var(--widget-panel-foreground); border-color: color-mix(in srgb, var(--widget-panel-accent) 55%, var(--widget-panel-border)); background: color-mix(in srgb, var(--widget-panel-accent) 12%, #{panel-tint(9%)}); box-shadow: inset 2px 0 0 var(--widget-panel-accent); }
+  &:hover:not(:disabled) { border-color: var(--manager-border); background: #{panel-tint(12%)}; }
+  &[aria-current="page"] { color: var(--manager-text); border-color: color-mix(in srgb, var(--manager-accent) 55%, var(--manager-border)); background: color-mix(in srgb, var(--manager-accent) 12%, var(--manager-hover)); box-shadow: inset 2px 0 0 var(--manager-accent); }
   &[aria-current="page"] small { color: currentColor; }
-  &[data-due] { border-color: color-mix(in srgb, var(--widget-panel-accent) 70%, var(--widget-panel-border)); }
-  &[data-attention] { border-color: color-mix(in srgb, var(--color-warning) 70%, var(--widget-panel-border)); }
-  small { color: var(--widget-panel-muted); font-size: 10px; }
+  &[data-due] { border-color: color-mix(in srgb, var(--manager-accent) 70%, var(--manager-border)); }
+  &[data-attention] { border-color: color-mix(in srgb, var(--color-warning) 70%, var(--manager-border)); }
+  small { color: var(--manager-quiet); font-size: 10px; }
 }
 
 .manager-archived {
   margin-top: 6px;
-  > button { min-height: 22px; padding: 2px 4px; color: var(--widget-panel-muted); font-size: 10px; }
+  > button { min-height: 22px; padding: 2px 4px; color: var(--manager-quiet); font-size: 10px; }
 }
 
 .manager-detail {
   grid-row: 2;
   min-height: 0;
   padding: 16px 24px;
-  color: var(--widget-panel-foreground);
+  color: var(--manager-text);
   background: transparent;
   overflow: auto;
 }
@@ -436,7 +461,7 @@
 
   grid-column: 1 / -1;
 
-  &__summary { align-self: end; color: var(--widget-panel-muted); font-size: 10px; }
+  &__summary { align-self: end; color: var(--manager-quiet); font-size: 10px; }
 }
 
 .manager-detail h1 { margin: 2px 0 0; font-size: 20px; font-weight: 650; line-height: 1.2; }
@@ -456,13 +481,13 @@
 .manager-links form > button:not(:first-of-type) {
   min-height: 24px;
   padding: 2px 7px;
-  border-color: var(--widget-panel-border);
+  border-color: var(--manager-border);
   border-radius: var(--radius-pill);
-  color: var(--widget-panel-muted);
-  background: #{panel-tint(7%)};
+  color: var(--manager-quiet);
+  background: var(--manager-raised);
   font-size: 10px;
 
-  &.is-danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 70%, var(--widget-panel-border)); background: color-mix(in srgb, var(--color-danger) 9%, var(--widget-panel-solid)); }
+  &.is-danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 70%, var(--manager-border)); background: color-mix(in srgb, var(--color-danger) 9%, var(--manager-surface)); }
 }
 
 .manager-icon-action {
@@ -470,30 +495,30 @@
   svg { @include stroke-icon(15px, 1.8); }
 }
 
-.manager-rename input { min-width: 210px; min-height: 26px; padding: 4px 7px; color: var(--widget-panel-foreground); background: #{panel-tint(7%)}; }
+.manager-rename input { min-width: 210px; min-height: 26px; padding: 4px 7px; color: var(--manager-text); background: var(--manager-raised); }
 
 .manager-confirm {
   margin-top: 8px;
   padding: 8px;
-  border-color: color-mix(in srgb, var(--color-danger) 70%, var(--widget-panel-border));
+  border-color: color-mix(in srgb, var(--color-danger) 70%, var(--manager-border));
   border-radius: var(--radius-pill);
   color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 9%, var(--widget-panel-solid));
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--manager-surface));
   p { margin: 0 0 5px; }
-  button.is-danger { color: var(--color-danger); border-color: currentColor; background: color-mix(in srgb, var(--color-danger) 10%, var(--widget-panel-solid)); }
+  button.is-danger { color: var(--color-danger); border-color: currentColor; background: color-mix(in srgb, var(--color-danger) 10%, var(--manager-surface)); }
 }
 
-.manager-tabs { gap: 12px; margin: 14px 0 12px; border-bottom-color: panel-border-wash(65%); }
+.manager-tabs { gap: 12px; margin: 14px 0 12px; border-bottom-color: var(--manager-border-soft); }
 .manager-tabs button {
   min-height: 32px;
   padding: 5px 8px;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: var(--radius-pill) var(--radius-pill) 0 0;
-  color: var(--widget-panel-muted);
+  color: var(--manager-quiet);
   background: transparent;
 
-  &[aria-selected="true"] { color: var(--widget-panel-foreground); border-color: var(--widget-panel-accent); background: transparent; }
+  &[aria-selected="true"] { color: var(--manager-text); border-color: var(--manager-accent); background: transparent; }
 }
 
 .manager-tab-panel { min-width: 0; }
@@ -502,12 +527,12 @@
 .manager-todo-filters button {
   min-height: 22px;
   padding: 2px 6px;
-  border-color: var(--widget-panel-border);
+  border-color: var(--manager-border);
   border-radius: var(--radius-pill);
-  color: var(--widget-panel-muted);
-  background: #{panel-tint(5%)};
+  color: var(--manager-quiet);
+  background: var(--manager-sunken);
   font-size: 9px;
-  &[aria-pressed="true"] { color: var(--widget-panel-accent); border-color: var(--widget-panel-accent); background: color-mix(in srgb, var(--widget-panel-accent) 12%, var(--widget-panel-solid)); }
+  &[aria-pressed="true"] { color: var(--manager-accent); border-color: var(--manager-accent); background: color-mix(in srgb, var(--manager-accent) 12%, var(--manager-surface)); }
 }
 
 .manager-todo-editor {
@@ -517,12 +542,12 @@
   border: 0;
   background: transparent;
 
-  input, textarea { min-height: 26px; padding: 4px 7px; color: var(--widget-panel-foreground); background: #{panel-tint(7%)}; }
+  input, textarea { min-height: 26px; padding: 4px 7px; color: var(--manager-text); background: var(--manager-raised); }
   &__main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .44fr) auto; gap: 5px; }
-  &__main button { min-height: 30px; padding: 4px 13px; border: 1px solid var(--widget-panel-accent); border-radius: var(--radius-pill); color: var(--widget-panel-accent-foreground); background: var(--widget-panel-accent); }
-  &__main .manager-todo-editor__expand { color: var(--widget-panel-muted); border-color: var(--widget-panel-border); background: #{panel-tint(7%)}; text-align: left; }
+  &__main button { min-height: 30px; padding: 4px 13px; border: 1px solid var(--manager-accent); border-radius: var(--radius-pill); color: var(--manager-accent-fg); background: var(--manager-accent); }
+  &__main .manager-todo-editor__expand { color: var(--manager-quiet); border-color: var(--manager-border); background: var(--manager-raised); text-align: left; }
   &__details { grid-template-columns: minmax(130px, .65fr) minmax(230px, 1.35fr); gap: 6px; }
-  &__details label, &__details fieldset { gap: 3px; color: var(--widget-panel-muted); font-size: 10px; }
+  &__details label, &__details fieldset { gap: 3px; color: var(--manager-quiet); font-size: 10px; }
   &__details fieldset { grid-template-columns: 1fr 90px; }
   &__notes textarea { min-height: 54px; }
 }
@@ -533,7 +558,7 @@
   grid-template-columns: 24px minmax(0, 1fr) 120px 155px 50px;
   gap: 5px;
   padding: 0 5px 4px;
-  color: var(--widget-panel-muted);
+  color: var(--manager-quiet);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: .08em;
@@ -577,21 +602,21 @@
   min-height: 24px !important;
   padding: 2px 6px !important;
   border-color: transparent !important;
-  color: var(--widget-panel-muted) !important;
+  color: var(--manager-quiet) !important;
   background: transparent !important;
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  &:hover { border-color: var(--widget-panel-border) !important; color: var(--widget-panel-foreground) !important; }
+  &:hover { border-color: var(--manager-border) !important; color: var(--manager-text) !important; }
 }
 
 .manager-todos,
 .manager-links ol { gap: 4px; }
 .manager-todos {
   gap: 0;
-  border: 1px solid panel-border-wash(65%);
+  border: 1px solid var(--manager-border-soft);
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
@@ -603,16 +628,16 @@
   padding: 3px 5px;
   border: 0;
   border-radius: 0;
-  background: color-mix(in srgb, var(--widget-panel-foreground) 3%, transparent);
+  background: color-mix(in srgb, var(--manager-text) 3%, transparent);
 
-  + li { margin-top: 0; border-top: 1px solid panel-border-wash(45%); }
-  &:hover { background: color-mix(in srgb, var(--widget-panel-accent) 6%, #{panel-tint(4%)}); }
+  + li { margin-top: 0; border-top: 1px solid var(--manager-border-soft); }
+  &:hover { background: color-mix(in srgb, var(--manager-accent) 6%, var(--manager-sunken)); }
 }
-.manager-links li { min-height: 34px; gap: 6px; padding: 4px 6px; border-color: color-mix(in srgb, var(--widget-panel-border) 75%, transparent); border-radius: var(--radius-pill); background: #{panel-tint(4%)}; }
-.manager-todos li[data-actionable] { border-left: 2px solid var(--widget-panel-accent); }
-.manager-todos li > button { @include icon-button(18px, var(--radius-pill)); min-height: 18px; color: var(--color-success); background: #{panel-tint(7%)}; }
+.manager-links li { min-height: 34px; gap: 6px; padding: 4px 6px; border-color: color-mix(in srgb, var(--manager-border) 75%, transparent); border-radius: var(--radius-pill); background: var(--manager-sunken); }
+.manager-todos li[data-actionable] { border-left: 2px solid var(--manager-accent); }
+.manager-todos li > button { @include icon-button(18px, var(--radius-pill)); min-height: 18px; color: var(--color-success); background: var(--manager-raised); }
 .manager-row-due,
-.manager-row-reminder { color: var(--widget-panel-muted); font-size: 10px; white-space: nowrap; }
+.manager-row-reminder { color: var(--manager-quiet); font-size: 10px; white-space: nowrap; }
 .manager-row-actions {
   justify-content: flex-end;
   margin-left: 0;
@@ -671,21 +696,21 @@
   width: 100%;
   margin: 3px 0 1px;
   padding: 7px;
-  border: 1px solid var(--widget-panel-border);
+  border: 1px solid var(--manager-border);
   border-radius: var(--radius-pill);
-  background: #{panel-tint(5%)};
+  background: var(--manager-sunken);
 
   .manager-todo-editor__main { grid-template-columns: minmax(0, 1fr) auto auto; }
-  .manager-todo-editor__main button:last-child { color: var(--widget-panel-muted); border-color: var(--widget-panel-border); background: transparent; }
+  .manager-todo-editor__main button:last-child { color: var(--manager-quiet); border-color: var(--manager-border); background: transparent; }
 }
 
 .manager-todo-notes {
   grid-column: 2 / -1;
   padding: 4px 6px;
   margin: 0;
-  border-left: 2px solid var(--widget-panel-accent);
-  color: var(--widget-panel-muted);
-  background: #{panel-tint(4%)};
+  border-left: 2px solid var(--manager-accent);
+  color: var(--manager-quiet);
+  background: var(--manager-sunken);
   font-size: 10px;
   line-height: 1.4;
   white-space: pre-wrap;
@@ -696,28 +721,28 @@
     min-height: 0;
     padding: 0;
     border: 0;
-    color: var(--widget-panel-accent);
+    color: var(--manager-accent);
     background: transparent;
     text-decoration: underline;
   }
 }
 
 .manager-notes { gap: 6px; }
-.manager-notes textarea { min-height: 220px; padding: 7px; border-color: var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-foreground); background: #{panel-tint(5%)}; }
-.manager-notes__status { color: var(--widget-panel-muted); font-size: 10px; }
-.manager-notes__conflict { gap: 4px; padding: 6px; border-color: color-mix(in srgb, var(--color-warning) 70%, var(--widget-panel-border)); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--color-warning) 9%, var(--widget-panel-solid)); }
+.manager-notes textarea { min-height: 220px; padding: 7px; border-color: var(--manager-border); border-radius: var(--radius-pill); color: var(--manager-text); background: var(--manager-sunken); }
+.manager-notes__status { color: var(--manager-quiet); font-size: 10px; }
+.manager-notes__conflict { gap: 4px; padding: 6px; border-color: color-mix(in srgb, var(--color-warning) 70%, var(--manager-border)); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--color-warning) 9%, var(--manager-surface)); }
 
 .manager-links { gap: 6px; }
 .manager-links form { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 92px auto auto; gap: 5px; }
 .manager-links input,
-.manager-links select { min-height: 26px; padding: 4px 7px; color: var(--widget-panel-foreground); background: #{panel-tint(7%)}; }
+.manager-links select { min-height: 26px; padding: 4px 7px; color: var(--manager-text); background: var(--manager-raised); }
 .manager-links form button:first-of-type,
-.manager-notes button { min-height: 26px; padding: 3px 10px; border: 1px solid var(--widget-panel-accent); border-radius: var(--radius-pill); color: var(--widget-panel-accent-foreground); background: var(--widget-panel-accent); }
+.manager-notes button { min-height: 26px; padding: 3px 10px; border: 1px solid var(--manager-accent); border-radius: var(--radius-pill); color: var(--manager-accent-fg); background: var(--manager-accent); }
 .manager-links li { padding: 3px 5px; }
-.manager-link-open { min-height: 26px; padding: 3px 5px; color: var(--widget-panel-foreground); }
-.manager-link-open small { color: var(--widget-panel-muted); }
-.manager-empty { color: var(--widget-panel-muted); }
-.manager-error { margin-top: 8px; color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, var(--widget-panel-solid)); }
+.manager-link-open { min-height: 26px; padding: 3px 5px; color: var(--manager-text); }
+.manager-link-open small { color: var(--manager-quiet); }
+.manager-empty { color: var(--manager-quiet); }
+.manager-error { margin-top: 8px; color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, var(--manager-surface)); }
 
 .manager-shell[data-compact] {
   grid-template-columns: minmax(0, 1fr);
@@ -753,10 +778,10 @@
   margin: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid var(--widget-panel-border);
+  border: 1px solid var(--manager-border);
   border-radius: var(--radius-panel);
-  color: var(--widget-panel-foreground);
-  background: var(--widget-panel-solid);
+  color: var(--manager-text);
+  background: var(--manager-surface);
   box-shadow: var(--shadow-panel);
 
   > header {
@@ -766,25 +791,25 @@
     justify-content: space-between;
     gap: 8px;
     padding: 6px 8px;
-    border-bottom: 1px solid var(--widget-panel-border);
+    border-bottom: 1px solid var(--manager-border);
     cursor: move;
     user-select: none;
 
     > div { display: grid; min-width: 0; gap: 1px; }
-    span { color: var(--widget-panel-muted); font-size: 9px; @include truncate; }
+    span { color: var(--manager-quiet); font-size: 9px; @include truncate; }
     strong { font-size: 13px; line-height: 1.15; }
 
     .hub-close-button {
       @include icon-button(24px, var(--radius-pill));
       flex: 0 0 auto;
       border: 1px solid transparent;
-      color: var(--widget-panel-muted);
+      color: var(--manager-quiet);
       background: transparent;
 
       &:hover,
       &:focus-visible {
-        border-color: var(--widget-panel-border);
-        color: var(--widget-panel-foreground);
+        border-color: var(--manager-border);
+        color: var(--manager-text);
         background: #{panel-tint(8%)};
       }
 
@@ -799,7 +824,7 @@
     padding: 9px;
 
     p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.45; }
-    button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--widget-panel-accent); background: transparent; text-align: left; text-decoration: underline; }
+    button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--manager-accent); background: transparent; text-align: left; text-decoration: underline; }
   }
 
   &__todos {
@@ -817,23 +842,23 @@
       border-bottom: 1px solid panel-border-wash(45%);
       background: transparent;
 
-      &:hover { background: #{panel-tint(5%)}; }
+      &:hover { background: var(--manager-sunken); }
     }
 
     li > button {
       @include icon-button(20px, 5px);
-      border: 1px solid var(--widget-panel-border);
+      border: 1px solid var(--manager-border);
       color: var(--color-success);
       background: transparent;
     }
 
     li > div { display: grid; min-width: 0; gap: 1px; }
     li span { font-size: 12px; @include truncate; }
-    li small { color: var(--widget-panel-muted); font-size: 9px; @include truncate; }
+    li small { color: var(--manager-quiet); font-size: 9px; @include truncate; }
   }
 
-  &__empty { display: block !important; padding: 12px 2px !important; border: 0 !important; color: var(--widget-panel-muted); font-size: 11px; }
-  &__error { padding: 3px 7px; margin: 0; color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 8%, var(--widget-panel-solid)); font-size: 9px; @include truncate; }
+  &__empty { display: block !important; padding: 12px 2px !important; border: 0 !important; color: var(--manager-quiet); font-size: 11px; }
+  &__error { padding: 3px 7px; margin: 0; color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 8%, var(--manager-surface)); font-size: 9px; @include truncate; }
 }
 
 .todo-detail-view {
@@ -842,19 +867,19 @@
     padding: 10px;
     overflow: auto;
 
-    h1 { margin: 0 0 10px; color: var(--widget-panel-foreground); font-size: 15px; line-height: 1.25; }
-    h1[data-completed] { color: var(--widget-panel-muted); text-decoration: line-through; }
+    h1 { margin: 0 0 10px; color: var(--manager-text); font-size: 15px; line-height: 1.25; }
+    h1[data-completed] { color: var(--manager-quiet); text-decoration: line-through; }
     dl { display: grid; gap: 0; margin: 0; }
     dl > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid panel-border-wash(45%); }
-    dt { color: var(--widget-panel-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
-    dd { min-width: 0; margin: 0; color: var(--widget-panel-foreground); font-size: 11px; @include truncate; }
+    dt { color: var(--manager-quiet); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+    dd { min-width: 0; margin: 0; color: var(--manager-text); font-size: 11px; @include truncate; }
   }
 
   &__notes {
     padding-top: 10px;
 
-    > strong { color: var(--widget-panel-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
-    p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--widget-panel-foreground); font-size: 11px; line-height: 1.45; }
-    button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--widget-panel-accent); background: transparent; text-align: left; text-decoration: underline; }
+    > strong { color: var(--manager-quiet); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+    p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--manager-text); font-size: 11px; line-height: 1.45; }
+    button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--manager-accent); background: transparent; text-align: left; text-decoration: underline; }
   }
 }
