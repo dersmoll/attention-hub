@@ -1,3 +1,4 @@
+@use "manager-kit" as *;
 @use "mixins" as *;
 
 .manager-shell {
@@ -45,8 +46,7 @@
   background: var(--color-canvas);
   text-align: left;
 
-  &[aria-current="page"] { color: var(--color-text-inverse); border-color: var(--color-brand); background: var(--color-brand); }
-  &[aria-current="page"] small { color: currentColor; }
+  &[aria-current="page"] { @include manager-selected-row; }
   &[data-attention] { border-color: var(--color-warning); }
   &[data-archived] { color: var(--color-text-muted); }
   small { color: var(--color-text-muted); }
@@ -76,33 +76,18 @@
 }
 
 .manager-owner-actions button, .manager-row-actions button, .manager-confirm button, .manager-rename button, .manager-todo-editor__footer button, .manager-links form > button:not(:first-of-type) {
-  padding: 5px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-field);
-  color: var(--color-text-muted);
-  background: transparent;
-  font-size: 11px;
-
-  &.is-danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border)); }
+  @include manager-action-button;
 }
 
 .manager-rename input { min-width: 240px; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-field); color: inherit; background: var(--color-canvas); }
 
 .manager-confirm {
   margin-top: 16px;
-  padding: 12px;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius-field);
-  color: var(--color-danger);
-  background: var(--color-danger-surface);
 
-  p { margin: 0 0 8px; }
-  button.is-danger { color: var(--color-text-inverse); border-color: var(--color-danger); background: var(--color-danger); }
+  @include manager-confirm;
 }
 
-.manager-tabs { display: flex; gap: 6px; margin: 20px 0; border-bottom: 1px solid var(--color-border); }
-.manager-tabs button { padding: 8px 10px; border: 0; border-bottom: 2px solid transparent; color: var(--color-text-muted); background: transparent; }
-.manager-tabs button[aria-selected="true"] { color: var(--color-text); border-color: var(--color-brand); }
+.manager-tabs { margin: 20px 0; @include manager-tabs; }
 
 .manager-todo-editor {
   display: grid;

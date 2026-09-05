@@ -1,11 +1,20 @@
+@use "manager-kit" as *;
 @use "mixins" as *;
 
 .medicine-manager {
-  --medicine-surface: var(--widget-panel-solid);
-  --medicine-sunken: #{panel-tint(4%)};
-  --medicine-quiet: var(--widget-panel-muted);
-  --medicine-border: var(--widget-panel-border);
-  --medicine-accent: var(--widget-panel-accent);
+  /* Manager-class windows are painted from the app chrome palette, the same
+   * one Project Hub and Advanced use. The widget panel theme stays where it
+   * was designed to apply: the widget and its frameless popups, including
+   * `.medicine-panel` below. `_windows.scss` already groups `medicine` with
+   * the chromed windows; this makes the paint agree with that grouping. */
+  --medicine-surface: var(--color-canvas);
+  --medicine-sunken: var(--color-canvas-sunken);
+  --medicine-raised: var(--color-canvas);
+  --medicine-quiet: var(--color-text-muted);
+  --medicine-border: var(--color-border);
+  --medicine-border-soft: var(--color-border-muted);
+  --medicine-accent: var(--color-brand);
+  --medicine-text: var(--color-text-chrome);
   --medicine-control-height: 28px;
   --medicine-text-size: 13px;
   --medicine-helper-size: 11px;
@@ -19,7 +28,7 @@
   padding: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  color: var(--widget-panel-foreground);
+  color: var(--medicine-text);
   background: var(--medicine-surface);
   font-family: var(--font-ui);
   font-size: var(--medicine-text-size);
@@ -33,9 +42,9 @@
   button, input, select, textarea {
     min-height: var(--medicine-control-height);
     border: 1px solid var(--medicine-border);
-    border-radius: var(--radius-pill);
-    color: var(--widget-panel-foreground);
-    background: #{panel-tint(7%)};
+    border-radius: var(--radius-field);
+    color: var(--medicine-text);
+    background: var(--medicine-raised);
     font-family: var(--font-ui);
     font-size: var(--medicine-text-size);
     font-weight: 400;
@@ -53,7 +62,7 @@
 
   input[type="date"], input[type="time"] { font-variant-numeric: tabular-nums; }
   button { padding: 4px 8px; }
-  button:hover:not(:disabled) { border-color: var(--medicine-accent); background: #{panel-tint(13%)}; }
+  button:hover:not(:disabled) { border-color: var(--medicine-accent); background: color-mix(in srgb, var(--medicine-accent) 8%, var(--medicine-raised)); }
   textarea { padding: 8px 9px; resize: vertical; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { @include widget-focus-ring; }
 
@@ -109,19 +118,16 @@
     min-height: 40px;
     gap: 2px;
     padding: 5px 7px;
-    border-color: #{panel-border-wash(45%)};
-    background: #{panel-tint(3%)};
+    border-color: var(--medicine-border-soft);
+    background: var(--medicine-raised);
     text-align: left;
   }
 
   &__treatment-select > span:first-child { font-weight: 600; overflow-wrap: anywhere; }
   &__treatment-select small { color: var(--medicine-quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
-  &__treatment-select[aria-current="page"] {
-    border-color: color-mix(in srgb, var(--medicine-accent) 65%, var(--medicine-border));
-    background: color-mix(in srgb, var(--medicine-accent) 12%, var(--medicine-surface));
-    box-shadow: inset 3px 0 0 var(--medicine-accent);
-  }
-  &__course-progress { display: block; width: 100%; height: 2px; margin-top: 1px; overflow: hidden; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--medicine-border) 65%, transparent); }
+  // Selected rows read the same here as in Project Hub's sidebar.
+  &__treatment-select[aria-current="page"] { @include manager-selected-row; }
+  &__course-progress { display: block; width: 100%; height: 2px; margin-top: 1px; overflow: hidden; border-radius: var(--radius-field); background: color-mix(in srgb, var(--medicine-border) 65%, transparent); }
   &__course-progress i { display: block; height: 100%; border-radius: inherit; background: var(--medicine-accent); }
   &__new { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--medicine-border); }
   &__new h3 { font-size: 14px; }
@@ -149,13 +155,13 @@
   }
   &__drag-handle { align-self: center; border-color: transparent; cursor: grab; touch-action: none; user-select: none; }
   &__drag-handle:active { cursor: grabbing; }
-  button.is-danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 60%, var(--medicine-border)); background: color-mix(in srgb, var(--color-danger) 8%, var(--medicine-surface)); }
-  &__range { color: var(--widget-panel-foreground); font-size: var(--medicine-text-size); font-variant-numeric: tabular-nums; }
+  &__icon-action, &__row-actions button, &__treatment-actions button, &__dose-actions button { @include manager-action-button; }
+  &__range { color: var(--medicine-text); font-size: var(--medicine-text-size); font-variant-numeric: tabular-nums; }
   &__range span { margin-right: 6px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__hint, &__metadata, &__privacy { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 400; overflow-wrap: anywhere; }
   &__empty { color: var(--medicine-quiet); font-size: var(--medicine-text-size); }
   &__rename { display: grid; gap: 8px; margin-top: 5px; }
-  &__editor { display: grid; min-width: 0; gap: 10px; padding: 10px; border: 1px solid var(--medicine-border); border-radius: var(--radius-pill); background: var(--medicine-sunken); }
+  &__editor { display: grid; min-width: 0; gap: 10px; padding: 10px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); background: var(--medicine-sunken); }
   &__editor h4 { font-size: 14px; }
   &__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
   &__fields textarea { min-height: 72px; }
@@ -163,27 +169,24 @@
   &__times { display: grid; gap: 5px; min-width: 0; margin: 0; padding: 0; border: 0; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__times legend { margin-bottom: 5px; padding: 0; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__time-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  &__time-chips > span { display: inline-flex; min-height: 26px; align-items: center; gap: 3px; padding-left: 7px; border: 1px solid var(--medicine-border); border-radius: var(--radius-pill); color: var(--widget-panel-foreground); background: #{panel-tint(7%)}; font-size: var(--medicine-text-size); font-weight: 500; }
+  &__time-chips > span { display: inline-flex; min-height: 26px; align-items: center; gap: 3px; padding-left: 7px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--medicine-text); background: var(--medicine-raised); font-size: var(--medicine-text-size); font-weight: 500; }
   &__time-chips button { border: 0; }
   &__add-time { display: grid; max-width: 240px; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
-  &__interval { display: flex; align-items: center; gap: 8px; color: var(--widget-panel-foreground); font-size: var(--medicine-text-size); font-weight: 400; }
+  &__interval { display: flex; align-items: center; gap: 8px; color: var(--medicine-text); font-size: var(--medicine-text-size); font-weight: 400; }
   &__interval input { max-width: 88px; }
   &__weekdays { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; border: 0; }
   &__weekdays legend { width: 100%; margin-bottom: 4px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
-  &__weekdays label { display: inline-flex; align-items: center; gap: 5px; color: var(--widget-panel-foreground); font-size: var(--medicine-helper-size); font-weight: 400; }
+  &__weekdays label { display: inline-flex; align-items: center; gap: 5px; color: var(--medicine-text); font-size: var(--medicine-helper-size); font-weight: 400; }
   &__weekdays input { width: auto; min-height: 0; margin: 0; padding: 0; accent-color: var(--medicine-accent); }
-  &__preview { padding: 6px 8px; border: 1px solid var(--medicine-border); border-radius: var(--radius-pill); color: var(--color-danger); background: #{panel-tint(5%)}; font-size: var(--medicine-helper-size); }
-  &__preview[data-valid] { color: var(--widget-panel-foreground); border-color: color-mix(in srgb, var(--medicine-accent) 50%, var(--medicine-border)); }
+  &__preview { padding: 6px 8px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--color-danger); background: var(--medicine-sunken); font-size: var(--medicine-helper-size); }
+  &__preview[data-valid] { color: var(--medicine-text); border-color: color-mix(in srgb, var(--medicine-accent) 50%, var(--medicine-border)); }
   &__form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 
-  &__tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--medicine-border); }
-  &__tabs button { min-height: 30px; padding: 4px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--medicine-quiet); background: transparent; }
-  &__tabs button[aria-selected="true"] { color: var(--widget-panel-foreground); border-bottom-color: var(--medicine-accent); }
+  &__tabs { @include manager-tabs(10px); }
   &__tab-panel { display: grid; gap: 8px; min-width: 0; }
 
   // Match the scoped button specificity so primary actions keep their accent.
-  button.medicine-manager__primary { border-color: var(--medicine-accent); color: var(--widget-panel-accent-foreground); background: var(--medicine-accent); }
-  button.medicine-manager__primary:hover:not(:disabled) { background: #{panel-accent-hover()}; }
+  button.medicine-manager__primary { @include manager-primary-button; }
 
   &__schedule > li {
     display: grid;
@@ -193,9 +196,9 @@
     gap: 6px;
     min-height: 46px;
     padding: 4px 6px;
-    border: 1px solid #{panel-border-wash(45%)};
-    border-radius: var(--radius-pill);
-    background: #{panel-tint(3%)};
+    border: 1px solid var(--medicine-border-soft);
+    border-radius: var(--radius-field);
+    background: var(--medicine-raised);
   }
 
   &__schedule li > div { min-width: 0; }
@@ -205,7 +208,7 @@
   &__schedule > &__schedule-editor { display: block; min-height: 0; padding: 0; border: 0; background: transparent; }
   &__today { gap: 8px; }
   &__recent-heading { margin-top: 5px; padding-top: 10px; border-top: 1px solid var(--medicine-border); }
-  &__doses > li { display: grid; grid-template-columns: 110px minmax(0, 1fr) 52px; align-items: center; gap: 7px; min-height: 42px; padding: 4px 6px; border: 1px solid #{panel-border-wash(45%)}; border-radius: var(--radius-pill); background: #{panel-tint(3%)}; }
+  &__doses > li { display: grid; grid-template-columns: 110px minmax(0, 1fr) 52px; align-items: center; gap: 7px; min-height: 42px; padding: 4px 6px; border: 1px solid var(--medicine-border-soft); border-radius: var(--radius-field); background: var(--medicine-raised); }
   &__doses > li > div { display: grid; min-width: 0; gap: 2px; }
   &__doses time { font-variant-numeric: tabular-nums; font-weight: 600; }
   &__doses strong { overflow-wrap: anywhere; }
@@ -218,13 +221,13 @@
   &__notes > label { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__notes > textarea { min-height: 230px; }
   &__notes-status { display: flex; justify-content: space-between; gap: 12px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); }
-  &__notes-conflict, &__delete-confirm { display: grid; gap: 7px; padding: 9px; border: 1px solid color-mix(in srgb, var(--color-warning) 70%, var(--medicine-border)); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--color-warning) 9%, var(--medicine-surface)); }
+  &__notes-conflict, &__delete-confirm { display: grid; gap: 7px; padding: 9px; border: 1px solid color-mix(in srgb, var(--color-warning) 70%, var(--medicine-border)); border-radius: var(--radius-field); background: color-mix(in srgb, var(--color-warning) 9%, var(--medicine-surface)); }
   &__notes-conflict p, &__delete-confirm p { margin: 0; }
   &__delete-confirm { border-color: color-mix(in srgb, var(--color-danger) 55%, var(--medicine-border)); }
   &__empty { display: grid; gap: 6px; }
-  &__empty h2 { color: var(--widget-panel-foreground); font-size: 18px; }
+  &__empty h2 { color: var(--medicine-text); font-size: 18px; }
   &__privacy { padding-top: 10px; border-top: 1px solid var(--medicine-border); }
-  &__error { padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--color-danger) 65%, var(--medicine-border)); border-radius: var(--radius-pill); color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, var(--medicine-surface)); font-size: var(--medicine-text-size); overflow-wrap: anywhere; }
+  &__error { padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--color-danger) 65%, var(--medicine-border)); border-radius: var(--radius-field); color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, var(--medicine-surface)); font-size: var(--medicine-text-size); overflow-wrap: anywhere; }
 
   &__treatment-row[data-dragging], &__schedule > li[data-dragging] { opacity: .45; }
   &__treatment-row[data-drop-edge]::after, &__schedule > li[data-drop-edge]::after {
@@ -233,7 +236,7 @@
     left: 0;
     z-index: 2;
     height: 2px;
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-field);
     background: var(--medicine-accent);
     content: "";
     pointer-events: none;
@@ -244,7 +247,7 @@
   @include forced-colors {
     button, input, select, textarea { border-color: ButtonText; color: CanvasText; background: Canvas; }
     button.medicine-manager__primary { border-color: Highlight; color: HighlightText; background: Highlight; }
-    .medicine-manager__treatment-select[aria-current="page"] { border-color: Highlight; box-shadow: inset 3px 0 0 Highlight; }
+    .medicine-manager__treatment-select[aria-current="page"] { border-color: Highlight; color: HighlightText; background: Highlight; }
     .medicine-manager__treatment-row[data-drop-edge]::after, .medicine-manager__schedule > li[data-drop-edge]::after { background: Highlight; }
     button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: Highlight; }
   }

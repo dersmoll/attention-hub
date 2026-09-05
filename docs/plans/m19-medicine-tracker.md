@@ -1221,6 +1221,60 @@ surfaces after toggling the segment.
   — rendering, focus, alignment, and whether the thing feels right — not clock
   arithmetic that a test asserts better.
 
+### Checkpoint 6 — Manager design system
+
+Added after the first human review of the Medicine window, which reported that
+its controls look unlike the equivalent controls in Project Hub. They do,
+and the cause is structural rather than cosmetic.
+
+**Finding.** The two managers implement the same eight patterns twice — shell,
+sidebar rows, tabs, row actions, delete confirmation, notes with conflict
+resolution, empty and error states, and the inline editor — under different
+class names. The icon set is drawn twice: `edit`, `delete`, `archive`, and
+`restore` exist in both `ManagerActionIcon` and `MedicineActionIcon` with the
+same geometry.
+
+**Root cause.** They are painted from two different palettes. Project Hub uses
+the app chrome tokens; `_medicine.scss` defines `--medicine-*` aliases onto the
+**widget panel** theme. Surfaces, borders, accents, radii (`--radius-field` 8px
+against `--radius-pill` 4px, with `.manager-items` zeroing both) and line
+heights all differ.
+
+`_windows.scss` already groups `medicine` with `advanced`, `update`, and
+`manager` as a **chromed** window, while `_medicine.scss` paints it with the
+theme reserved for frameless overlays. The Medicine manager contradicts the
+architecture's own grouping; that is what makes it read as a different product.
+
+**Decisions.**
+
+| Question | Decision |
+| --- | --- |
+| Palette | Manager-class windows use the **app chrome tokens**. The widget panel theme stays where it was designed to apply: the widget and its frameless popups, including `medicine-panel`. |
+| Scope | One shared kit that **both** windows adopt, not a one-way restyle of Medicine. A one-way fix leaves the patterns duplicated and free to drift again. |
+| Naming | Reuse the existing `manager-*` class names rather than inventing neutral ones. Project Hub already uses them, they are semantic, and it keeps the churn on the side that is wrong. |
+| Sequencing | Before the beta, so the tracker does not ship visibly inconsistent. |
+
+**Work, ordered so each step is separately reviewable.**
+
+1. `src/ActionIcon.tsx` — one icon component covering the union of both name
+   sets. Both local copies deleted. Mechanical, and intended to produce no
+   visual change.
+2. `src/styles/_manager-kit.scss` — the eight shared primitives, expressed in
+   chrome tokens, extracted from the current Project Hub rules.
+3. Port the Medicine manager onto the kit: drop the `--medicine-*` aliases and
+   the widget-panel dependency, adopt the shared classes, and keep only what is
+   genuinely Medicine-specific (schedule editor, time chips, weekday picker,
+   dose rows). The `medicine-panel` popup is untouched — it is a frameless
+   overlay and its widget theming is correct.
+4. Port Project Hub onto the kit where it diverges from what was extracted.
+5. Fix the defects the review named: mixed radii, solid `+` buttons where the
+   equivalent action elsewhere is a text button, and drag handles sitting
+   outside the row border.
+
+**Non-goal.** This is not a visual redesign. The target is that the same
+control looks and behaves the same in both windows; where the two disagree
+today, Project Hub is the reference unless it is the one that is wrong.
+
 ---
 
 ## 8. Tests
