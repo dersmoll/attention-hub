@@ -184,6 +184,10 @@
 
   @include forced-colors {
     border-color: CanvasText;
+
+    // Icon actions are borderless by design; forced colours need the outline.
+    .manager-icon-action { border-color: ButtonText; }
+    .is-primary { border-color: Highlight; color: HighlightText; background: Highlight; }
   }
 }
 
@@ -298,10 +302,8 @@
     &::placeholder { color: var(--manager-quiet); opacity: 1; }
   }
 
-  :where(button) {
-    padding: 3px 8px;
-    &:hover:not(:disabled) { border-color: var(--manager-accent); color: var(--manager-text); background: var(--manager-hover); }
-  }
+  :where(button) { padding: 3px 8px; }
+  :where(button:hover:not(:disabled)) { border-color: var(--manager-accent); color: var(--manager-text); background: var(--manager-hover); }
 
   button:focus-visible,
   input:focus-visible,

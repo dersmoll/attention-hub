@@ -50,14 +50,27 @@
  * when the two windows are open side by side. */
 @mixin manager-icon-button($size: 28px, $glyph: 14px) {
   @include icon-button($size, var(--radius-field));
-  @include manager-action-button;
 
-  /* After manager-action-button, which sets text padding. A fixed-size button
-   * with 5px 8px padding squashes its glyph. */
   padding: 0;
   flex: 0 0 auto;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  background: transparent;
 
   svg { @include stroke-icon($glyph, 1.8); }
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-chrome);
+    background: color-mix(in srgb, var(--color-text-chrome) 9%, transparent);
+  }
+
+  &.is-danger { color: var(--color-danger); border-color: transparent; }
+  &.is-danger:hover:not(:disabled) {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+
+  &:disabled { opacity: .4; }
 }
 
 /* Primary action: brand fill. Needs --color-text-inverse, which is a global
@@ -98,6 +111,12 @@
     border-radius: 0;
     color: var(--color-text-muted);
     background: transparent;
+  }
+
+  button:hover:not(:disabled) {
+    color: var(--color-text-chrome);
+    background: transparent;
+    border-bottom-color: color-mix(in srgb, var(--color-brand) 45%, transparent);
   }
 
   button[aria-selected="true"] {

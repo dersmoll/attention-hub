@@ -67,7 +67,7 @@
 
   :where(input[type="date"], input[type="time"]) { font-variant-numeric: tabular-nums; }
   :where(button) { padding: 4px 8px; }
-  button:hover:not(:disabled) { border-color: var(--medicine-accent); background: color-mix(in srgb, var(--medicine-accent) 8%, var(--medicine-raised)); }
+  :where(button:hover:not(:disabled)) { border-color: var(--medicine-accent); background: color-mix(in srgb, var(--medicine-accent) 8%, var(--medicine-raised)); }
   textarea { padding: 8px 9px; resize: vertical; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { @include widget-focus-ring; }
 
@@ -129,6 +129,13 @@
     border-radius: var(--radius-field);
     background: var(--medicine-raised);
   }
+  // Hover lives on the row, so the inner button never paints a second
+  // rectangle over it. Declared before the selected rule, which ties on
+  // specificity and therefore wins on source order.
+  &__treatment-row:hover {
+    border-color: var(--medicine-border);
+    background: color-mix(in srgb, var(--medicine-accent) 6%, var(--medicine-raised));
+  }
   &__treatment-row:has([aria-current="page"]) {
     @include manager-selected-row;
 
@@ -145,6 +152,9 @@
     border-color: transparent;
     background: transparent;
     text-align: left;
+
+    // The row owns both states; this button only carries the text.
+    &:hover:not(:disabled) { border-color: transparent; background: transparent; }
   }
 
   &__treatment-select > span:first-child { font-weight: 600; overflow-wrap: anywhere; }
@@ -278,6 +288,8 @@
 
   @include forced-colors {
     button, input, select, textarea { border-color: ButtonText; color: CanvasText; background: Canvas; }
+    // Icon actions are borderless by design; forced colours need the outline.
+    .manager-icon-action, .medicine-manager__drag-handle { border-color: ButtonText; }
     .is-primary { border-color: Highlight; color: HighlightText; background: Highlight; }
     .medicine-manager__treatment-row:has([aria-current="page"]) { border-color: Highlight; color: HighlightText; background: Highlight; }
     .medicine-manager__treatment-row:has([aria-current="page"]) button { color: HighlightText; }
