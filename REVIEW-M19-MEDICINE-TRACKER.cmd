@@ -118,6 +118,55 @@ echo  57. In Settings / Reminders, select "Delete all medicine data" on a
 echo      disposable dataset. Confirm the confirmation names the treatment,
 echo      medicine and dose-record counts before you approve it.
 echo.
+echo ================================================================
+echo RELEASE GATE - upgrade verification. Do NOT use this launcher.
+echo ================================================================
+echo.
+echo These steps need real installers and must pass before publishing.
+echo The dev build cannot prove any of them: since M19 it uses its own
+echo data directory and credential, which is exactly what an upgrading
+echo user does not have.
+echo.
+echo  U1. BACK UP FIRST. Copy this whole folder somewhere safe:
+echo        %APPDATA%\com.attentionhub.desktop
+echo      Every step below writes to your real data. Restore from this
+echo      copy if anything goes wrong.
+echo  U2. Install the PREVIOUS release, or confirm it is already the
+echo      installed version. Its installer is in the repository root.
+echo  U3. In that build create data you will recognise: a project named
+echo      "Upgrade probe", a to-do inside it, and confirm the Published
+echo      ICS calendar is configured and showing events.
+echo  U4. Note the file list in the folder from U1.
+echo  U5. Install the NEW build over the top. Do not uninstall first.
+echo      Uninstalling and reinstalling does not test an auto-update.
+echo  U6. Confirm the project, its to-do, and the calendar events are
+echo      all still there, and that widget position, visible panels and
+echo      accent colour are unchanged. The calendar surviving is what
+echo      proves the Credential Manager entry was not disturbed.
+echo  U7. The release build must write to the folder itself, never to the
+echo      "dev" subfolder. A dev folder may already exist from running
+echo      development builds, so check timestamps rather than presence:
+echo      after using the new build, workspace.json in the folder root
+echo      must have a newer modified time, and the copy inside "dev" must
+echo      not. If only the dev copy changes, debug assertions reached the
+echo      shipped build and every updating user would open an empty app.
+echo  U8. Open Medicine. It must be empty, because medicine.json is new
+echo      in this release and upgrading users have none. Add a treatment
+echo      and confirm it saves.
+echo  U9. ROLLBACK. Install the previous release over the new one.
+echo      Confirm projects and to-dos still load, and that the older
+echo      build does not error on the medicine file it cannot read.
+echo U10. SINGLE INSTANCE. With the installed release running, launch it
+echo      again from the Start menu. Confirm the existing window is
+echo      raised and that Task Manager shows only one Attention Hub
+echo      process. The dev build is exempt from this guard by design, so
+echo      this is the only way to test it.
+echo.
+echo If U6, U7 or U9 fails, do not publish. Those are data-loss paths,
+echo not cosmetic defects.
+echo.
+
+echo.
 echo Do not change your Windows clock or timezone for step 52; add a dose time a
 echo couple of minutes ahead instead. Daylight-saving behaviour is covered by
 echo automated fixtures, not by this review.
