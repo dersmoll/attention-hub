@@ -19,6 +19,7 @@ export function MedicinePanelView() {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const shown = useRef(false);
+  const shellRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
@@ -42,13 +43,33 @@ export function MedicinePanelView() {
   const bounded = useMemo(() => boundedMedicinePanelGroups(snapshot ? medicineDailyTreatments(snapshot, now, graceMinutes) : []), [snapshot, now, graceMinutes]);
   useEffect(() => {
     if (!payload) return;
-    const naturalHeight = medicinePanelHeight(bounded.groups.length, bounded.visibleRows, bounded.hiddenRows > 0);
     const maxHeight = Math.max(120, Math.floor((payload.anchor.monitorBottom - payload.anchor.monitorTop) / payload.anchor.scaleFactor - 12));
-    const next = { ...payload, height: Math.min(naturalHeight, maxHeight) };
+    const estimate = medicinePanelHeight(bounded.groups.length, bounded.visibleRows, bounded.hiddenRows > 0);
     const current = getCurrentWindow();
-    void current.setSize(new LogicalSize(next.width, next.height)).then(() => current.setPosition(medicinePanelPosition(next))).then(async () => {
+
+    const applyHeight = async (height: number) => {
+      const next = { ...payload, height: Math.min(Math.max(120, height), maxHeight) };
+      await current.setSize(new LogicalSize(next.width, next.height));
+      await current.setPosition(medicinePanelPosition(next));
+      return next.height;
+    };
+
+    let disposed = false;
+    void (async () => {
+      const applied = await applyHeight(estimate);
       if (!shown.current) { shown.current = true; await current.show(); await current.setFocus(); }
-    });
+      // The estimate above is arithmetic; this is the rendered truth. Correct
+      // once on the next frame so a wrapped name or a different line-height
+      // cannot clip the footer. `scrollHeight` only exceeds the element when
+      // content overflows, so this grows to fit and never oscillates.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const shell = shellRef.current;
+      if (disposed || !shell) return;
+      const measured = Math.ceil(shell.scrollHeight) + 2;
+      if (measured > applied + 1) await applyHeight(measured);
+    })();
+
+    return () => { disposed = true; };
   }, [bounded.groups.length, bounded.hiddenRows, bounded.visibleRows, payload]);
 
   const close = async () => {
@@ -69,14 +90,16 @@ export function MedicinePanelView() {
   };
   const openManager = async () => { await openMedicineManagerWindow(); await close(); };
 
-  return <main className="medicine-panel" style={panelStyle}>
+  return <main className="medicine-panel" ref={shellRef} style={panelStyle}>
     <button aria-label="Close Medicine panel" className="hub-close-button medicine-panel__close" onClick={() => void close()} type="button"><HubCloseIcon /></button>
     <header className="medicine-panel__toolbar"><strong>Medicine</strong><button aria-label="Manage medicines" onClick={() => void openManager()} type="button">Manage medicines</button></header>
     {bounded.groups.map((group) => <section aria-labelledby={`medicine-panel-${group.treatment.id}`} key={group.treatment.id}>
       <header><div><strong id={`medicine-panel-${group.treatment.id}`}>{group.treatment.name}</strong><span>Day {group.progress.day} of {group.progress.total}</span></div>
         <div aria-label={`Day ${group.progress.day} of ${group.progress.total}`} aria-valuemax={group.progress.total} aria-valuemin={0} aria-valuenow={group.progress.day} aria-valuetext={`Day ${group.progress.day} of ${group.progress.total}`} className="medicine-panel__progress" role="progressbar"><i style={{ width: `${group.progress.fraction * 100}%` }} /></div></header>
-      <ol>{group.rows.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const key = `${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`; return <li data-state={row.state} key={key}>
-        <time>{row.dose.slotTime}</time><div><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span><strong>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}</strong><small>{medicineFoodRuleLabel(row.medicine.foodRule)}</small></div>
+      <ol>{group.rows.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); const key = `${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`; return <li data-state={row.state} key={key}>
+        {/* State is named in text, not carried by the border colour alone:
+            Due and Missed are otherwise indistinguishable here. */}
+        <time>{row.dose.slotTime}</time><div><strong>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}</strong><small>{medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></div>
         {!recorded && <button aria-label={`Skip ${row.medicine.name}`} disabled={pendingKey !== null} onClick={() => void record(row, "skipped")} type="button">Skip</button>}
         <button aria-label={`${recorded ? "Undo" : "Take"} ${row.medicine.name}`} className="medicine-panel__check" disabled={pendingKey !== null} onClick={() => void record(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button>
       </li>; })}</ol>
