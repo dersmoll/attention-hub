@@ -872,6 +872,18 @@
       > small { opacity: .6; }
     }
 
+    &.today-popup-medicine {
+      li { grid-template-columns: 64px minmax(0, 1fr) auto 18px; }
+
+      .today-popup-medicine__time { padding-top: 2px; color: var(--widget-panel-muted); font-family: var(--font-numeric); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .today-popup-medicine__title { display: flex; min-width: 0; align-items: baseline; gap: 4px; overflow: hidden; color: var(--widget-panel-foreground); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .today-popup-medicine__title small { min-width: 0; overflow: hidden; color: var(--widget-panel-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+      .today-popup-medicine__skip { width: auto; min-width: 0; min-height: 20px; padding: 1px 4px; border: 1px solid transparent; border-radius: var(--radius-pill); color: var(--widget-panel-muted); background: transparent; font-size: 9px; }
+      .today-popup-medicine__skip:hover, .today-popup-medicine__skip:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(7%)}; }
+
+      li[data-completed] .today-popup-medicine__title { color: var(--widget-panel-muted); opacity: .68; text-decoration: line-through; text-decoration-thickness: 1px; }
+    }
+
     li.today-popup-todos__more {
       display: flex;
       justify-content: center;

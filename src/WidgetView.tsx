@@ -90,7 +90,9 @@ import {
   type TodoPreferences,
 } from "./todo-preferences";
 import { openManagerWindow } from "./manager-window";
+import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { isActionable, isFromActiveOwner, isVisibleInToday, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
+import { type MedicineSnapshot } from "./medicine-model";
 import type { PopupAnchor } from "./event-workspace-model";
 import {
   openEventSettingsWindow,
@@ -668,6 +670,7 @@ export function WidgetView() {
     "above" | "below"
   >("below");
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
+  const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
   const [todoPreferences, setTodoPreferences] =
     useState<TodoPreferences>(readTodoPreferences);
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
@@ -867,7 +870,8 @@ export function WidgetView() {
   const calendarPanelVisible = !timeFocusMode;
   const todayPanelVisible = !timeFocusMode && preferences.showTodayPanel;
   const projectsPanelVisible = !timeFocusMode && preferences.showProjectsPanel;
-  const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible);
+  const medicinePanelVisible = !timeFocusMode && preferences.showMedicinePanel;
+  const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible) + Number(medicinePanelVisible);
   const visibleClockCount = timeFocusMode
     ? 1
     : 2 + preferences.extraTimeZones.length;
@@ -936,7 +940,7 @@ export function WidgetView() {
   const visibleTodayTodos = workspace?.actionItems.filter((item) => isVisibleInToday(item, now) && isFromActiveOwner(item, workspace)) ?? [];
   const attentionTodoCount = actionableTodos.filter((item) => needsAttention(item, now)).length;
   const activeTodoCount = workspace?.actionItems.filter((item) => item.completedAt === null && isFromActiveOwner(item, workspace)).length ?? 0;
-  const calendarDayPanelLogicalHeight = todayPopupHeight(calendarDaySelectionCount, visibleTodayTodos.length);
+  const calendarDayPanelLogicalHeight = todayPopupHeight(calendarDaySelectionCount, 0, visibleTodayTodos.length);
   const calendarLayoutContentLength =
     (calendarDisplay.selection?.subject.length ?? 0) +
     (calendarDisplay.selection ? 28 : 0) +
@@ -1199,6 +1203,24 @@ export function WidgetView() {
 
   useEffect(() => {
     let disposed = false;
+    let stopListening: (() => void) | undefined;
+    const refresh = async () => {
+      try {
+        const snapshot = await invoke<MedicineSnapshot>("get_medicine_snapshot");
+        if (!disposed) setMedicine(snapshot);
+      } catch {
+        if (!disposed) setMedicine(null);
+      }
+    };
+    void listen("medicine-changed", () => void refresh()).then((unlisten) => {
+      if (disposed) unlisten(); else stopListening = unlisten;
+    });
+    void refresh();
+    return () => { disposed = true; stopListening?.(); };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopListening: (() => void) | undefined;
 
@@ -1392,6 +1414,7 @@ export function WidgetView() {
             clocksPanelVisible,
             todayPanelVisible,
             projectsPanelVisible,
+            medicinePanelVisible,
           ) +
           (calendarPanelVisible
             ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
@@ -1416,6 +1439,7 @@ export function WidgetView() {
               todayPanelVisible,
               projectsPanelVisible,
               calendarPanelVisible,
+              medicinePanelVisible,
             ),
             widgetHeight(preferences.widthMode),
           ),
@@ -1604,6 +1628,7 @@ export function WidgetView() {
               clocksPanelVisible,
               todayPanelVisible,
               projectsPanelVisible,
+              medicinePanelVisible,
             ) +
             (calendarPanelVisible
               ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
@@ -1639,6 +1664,7 @@ export function WidgetView() {
       clocksPanelVisible,
       todayPanelVisible,
       projectsPanelVisible,
+      medicinePanelVisible,
       preferences.clockLayout,
       preferences.extraTimeZones.length,
       preferences.widthMode,
@@ -1688,6 +1714,7 @@ export function WidgetView() {
             clocksPanelVisible,
             todayPanelVisible,
             projectsPanelVisible,
+            medicinePanelVisible,
           );
           const calendarWidth = Math.max(
             widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent),
@@ -1727,6 +1754,7 @@ export function WidgetView() {
           clocksPanelVisible,
           todayPanelVisible,
           projectsPanelVisible,
+          medicinePanelVisible,
         );
         const targetCalendarWidth = Math.max(
           widgetCalendarMinimumWidth(nextMode, showNextEvent),
@@ -2492,7 +2520,7 @@ export function WidgetView() {
     )}px`,
     "--widget-height": `${widgetHeight(preferences.widthMode)}px`,
     "--widget-calendar-day-panel-height": `${calendarDayPanelLogicalHeight}px`,
-    "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible)}px`,
+    "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible, medicinePanelVisible)}px`,
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
     "--widget-utility-width": `${widgetUtilityWidth(preferences.widthMode)}px`,
     "--widget-drag-handle-width": `${WIDGET_DRAG_HANDLE_WIDTH}px`,
@@ -2500,6 +2528,19 @@ export function WidgetView() {
     "--widget-grid-template": gridSegments.join(" "),
   } as CSSProperties;
   const calendarDaySelections = workCalendar?.daySelections ?? [];
+  const localMedicineDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const activeMedicineTreatmentIds = new Set(
+    (medicine?.treatments ?? [])
+      .filter((treatment) => treatment.archivedAt === null && treatment.completedAt === null && treatment.startOn <= localMedicineDay && treatment.endOn >= localMedicineDay)
+      .map((treatment) => treatment.id),
+  );
+  const activeMedicineIds = new Set(
+    (medicine?.medicines ?? [])
+      .filter((item) => activeMedicineTreatmentIds.has(item.treatmentId))
+      .map((item) => item.id),
+  );
+  const todayMedicineDoses = (medicine?.doses ?? []).filter((dose) => dose.slotDay === localMedicineDay && activeMedicineIds.has(dose.medicineId));
+  const medicineLeftCount = todayMedicineDoses.filter((dose) => dose.takenAt === null && dose.skippedAt === null).length;
   const remainingCalendarEventCount = calendarDaySelections.filter((selection) => {
     if (selection.cancelled) return false;
     const end = Date.parse(selection.end);
@@ -3186,6 +3227,17 @@ export function WidgetView() {
             <span className="widget-destinations__badge">{activeTodoCount > 99 ? "99+" : activeTodoCount}</span>
           </button>
         </div>}
+        {medicinePanelVisible && <button
+          aria-label={`Open Medicine, ${medicineLeftCount} doses left today`}
+          className="widget-destinations__medicine"
+          onClick={() => void openMedicineManagerWindow()}
+          title="Open Medicine"
+          type="button"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 5h10v14H7z"/><path d="M9 9h6M9 13h6"/></svg>
+          <span className="widget-destinations__label">Meds</span>
+          <span className="widget-destinations__badge">{medicineLeftCount > 99 ? "99+" : medicineLeftCount}</span>
+        </button>}
       </aside>}
 
       <div

@@ -67,9 +67,9 @@ assert.equal(layout.widgetCalendarWidth("recommended", false, 0, 444), 444);
 assert.equal(layout.widgetCalendarWidth("recommended", true, 0, 300), 392);
 assert.equal(layout.widgetCalendarWidth("slim", false, 200, 460), 460);
 assert.equal(layout.todayPopupHeight(0, 0), 76);
-assert.equal(layout.todayPopupHeight(0, 1), 136);
-assert.equal(layout.todayPopupHeight(2, 3), 218);
-assert.equal(layout.todayPopupHeight(2, 99), 368);
+assert.equal(layout.todayPopupHeight(0, 0, 1), 136);
+assert.equal(layout.todayPopupHeight(2, 0, 3), 218);
+assert.equal(layout.todayPopupHeight(2, 0, 99), 368);
 assert.equal(layout.widgetUtilityWidth("recommended"), 20);
 assert.equal(layout.widgetUtilityWidth("slim"), 64);
 assert.equal(layout.widgetDestinationsWidth("recommended"), 88);
@@ -133,6 +133,15 @@ assert.equal(
     false,
   ),
   362,
+);
+
+assert.equal(
+  layout.widgetDestinationsWidth("recommended", true, true, true),
+  132,
+);
+assert.equal(
+  layout.widgetDestinationsWidth("slim", true, true, true),
+  99,
 );
 
 const [

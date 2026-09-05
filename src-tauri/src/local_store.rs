@@ -71,7 +71,7 @@ pub fn write_portable<T: Serialize>(path: &Path, value: &T) -> Result<(), String
             .and_then(|_| file.sync_all())
             .map_err(|_| "Workspace could not finish the pending export file.".to_owned())?;
         drop(file);
-        replace_file(&pending, path)
+        replace_file(&pending, path, "Workspace")
     })();
     if result.is_err() && pending.exists() {
         let _ = fs::remove_file(&pending);
@@ -123,33 +123,34 @@ pub fn write<T: Serialize>(
     store: &T,
     preserve_previous: bool,
     source_recovered_from_backup: bool,
+    label: &str,
 ) -> Result<(), String> {
     let directory = path
         .parent()
-        .ok_or_else(|| "Workspace storage path is invalid.".to_owned())?;
+        .ok_or_else(|| format!("{label} storage path is invalid."))?;
     fs::create_dir_all(directory)
-        .map_err(|_| "Workspace could not create its local data directory.".to_owned())?;
+        .map_err(|_| format!("{label} could not create its local data directory."))?;
     let bytes = serde_json::to_vec_pretty(store)
-        .map_err(|_| "Workspace data could not be serialized.".to_owned())?;
+        .map_err(|_| format!("{label} data could not be serialized."))?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
-        return Err("Workspace has reached its 4 MiB safety limit.".to_owned());
+        return Err(format!("{label} has reached its 4 MiB safety limit."));
     }
     let pending = pending_path(path);
     let mut file = fs::File::create(&pending)
-        .map_err(|_| "Workspace could not create a pending local write.".to_owned())?;
+        .map_err(|_| format!("{label} could not create a pending local write."))?;
     file.write_all(&bytes)
         .and_then(|_| file.sync_all())
-        .map_err(|_| "Workspace could not finish its pending local write.".to_owned())?;
+        .map_err(|_| format!("{label} could not finish its pending local write."))?;
     drop(file);
     let backup = backup_path(path);
     if preserve_previous && path.exists() && !source_recovered_from_backup {
         fs::copy(path, &backup)
-            .map_err(|_| "Workspace could not update its local backup.".to_owned())?;
+            .map_err(|_| format!("{label} could not update its local backup."))?;
     } else if !preserve_previous && backup.exists() {
         fs::remove_file(&backup)
-            .map_err(|_| "Workspace could not remove its prior local backup.".to_owned())?;
+            .map_err(|_| format!("{label} could not remove its prior local backup."))?;
     }
-    replace_file(&pending, path)
+    replace_file(&pending, path, label)
 }
 
 fn read_file<T, F>(path: &Path, schema_version: u32, valid: F) -> Result<T, ReadError>
@@ -179,7 +180,7 @@ where
 }
 
 #[cfg(target_os = "windows")]
-fn replace_file(pending: &Path, path: &Path) -> Result<(), String> {
+fn replace_file(pending: &Path, path: &Path, label: &str) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows::{
         core::PCWSTR,
@@ -204,7 +205,7 @@ fn replace_file(pending: &Path, path: &Path) -> Result<(), String> {
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         )
     }
-    .map_err(|_| "Workspace could not atomically commit its pending local write.".to_owned())
+    .map_err(|_| format!("{label} could not atomically commit its pending local write."))
 }
 
 #[cfg(test)]
@@ -251,6 +252,7 @@ mod tests {
             },
             true,
             false,
+            "Workspace",
         )
         .unwrap();
         write(
@@ -261,6 +263,7 @@ mod tests {
             },
             true,
             false,
+            "Workspace",
         )
         .unwrap();
         let current: Fixture = read(&path, 1, valid).unwrap().unwrap().store;
@@ -282,6 +285,7 @@ mod tests {
             },
             true,
             false,
+            "Workspace",
         )
         .unwrap();
         fs::copy(&path, backup_path(&path)).unwrap();
@@ -298,7 +302,7 @@ mod tests {
             schema_version: 1,
             value: "safe".into(),
         };
-        write(&path, &safe, true, false).unwrap();
+        write(&path, &safe, true, false, "Workspace").unwrap();
         fs::copy(&path, backup_path(&path)).unwrap();
         fs::write(&path, b"invalid").unwrap();
         let loaded = read::<Fixture, _>(&path, 1, valid).unwrap().unwrap();
@@ -311,6 +315,7 @@ mod tests {
             },
             true,
             true,
+            "Workspace",
         )
         .unwrap();
         let current: Fixture = read(&path, 1, valid).unwrap().unwrap().store;
@@ -332,6 +337,7 @@ mod tests {
             },
             true,
             false,
+            "Workspace",
         )
         .unwrap();
         fs::copy(&path, &backup).unwrap();
@@ -374,11 +380,11 @@ mod tests {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn replace_file(pending: &Path, path: &Path) -> Result<(), String> {
+fn replace_file(pending: &Path, path: &Path, label: &str) -> Result<(), String> {
     if path.exists() {
         fs::remove_file(path)
-            .map_err(|_| "Workspace could not replace its local data file.".to_owned())?;
+            .map_err(|_| format!("{label} could not replace its local data file."))?;
     }
     fs::rename(pending, path)
-        .map_err(|_| "Workspace could not commit its pending local write.".to_owned())
+        .map_err(|_| format!("{label} could not commit its pending local write."))
 }

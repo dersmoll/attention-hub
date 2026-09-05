@@ -23,6 +23,8 @@ import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { HubCloseIcon } from "./HubCloseIcon";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import { openManagerWindow } from "./manager-window";
+import { openMedicineManagerWindow } from "./medicine-manager-window";
+import { medicineFoodRuleLabel, type MedicineSnapshot } from "./medicine-model";
 import { deferActionItemToTomorrow, isFromActiveOwner, isVisibleInToday, sortActionItems, type ActionItem, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { todayPopupHeight, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
 
@@ -70,10 +72,23 @@ export function TodayPopupView() {
   const [now, setNow] = useState(() => new Date());
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
+  const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const refresh = async () => {
+      try { const next = await invoke<MedicineSnapshot>("get_medicine_snapshot"); if (!disposed) setMedicine(next); }
+      catch (cause) { if (!disposed) setError(String(cause)); }
+    };
+    void listen("medicine-changed", () => void refresh()).then((stop) => { if (disposed) stop(); else unlisten = stop; });
+    void refresh();
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -185,13 +200,27 @@ export function TodayPopupView() {
   const ownerName = (kind: "project" | "list", id: string) => kind === "project"
     ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
     : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
+  const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const activeTreatmentIds = new Set((medicine?.treatments ?? []).filter((treatment) => treatment.archivedAt === null && treatment.completedAt === null && treatment.startOn <= localDay && treatment.endOn >= localDay).map((treatment) => treatment.id));
+  const treatmentById = new Map((medicine?.treatments ?? []).map((treatment) => [treatment.id, treatment]));
+  const medicineById = new Map((medicine?.medicines ?? []).filter((item) => activeTreatmentIds.has(item.treatmentId)).map((item) => [item.id, item]));
+  const todayDoses = (medicine?.doses ?? []).filter((dose) => dose.slotDay === localDay && medicineById.has(dose.medicineId)).sort((left, right) => left.slotTime.localeCompare(right.slotTime));
+  const visibleDoses = todayDoses.slice(0, 8);
 
   useEffect(() => {
     if (!payload) return;
-    const next = { ...payload, height: todayPopupHeight(payload.selections.length, todayTodos.length) };
+    const next = { ...payload, height: todayPopupHeight(payload.selections.length, visibleDoses.length, todayTodos.length) };
     const currentWindow = getCurrentWindow();
     void currentWindow.setSize(new LogicalSize(next.width, next.height)).then(() => currentWindow.setPosition(todayPopupPosition(next)));
-  }, [todayTodos.length, payload]);
+  }, [todayTodos.length, visibleDoses.length, payload]);
+
+  const recordDose = async (dose: typeof todayDoses[number], state: "taken" | "skipped" | "undo") => {
+    try {
+      const command = state === "skipped" ? "set_medicine_dose_skipped" : "set_medicine_dose_taken";
+      const next = await invoke<MedicineSnapshot>(command, { medicineId: dose.medicineId, slotDay: dose.slotDay, slotTime: dose.slotTime, [state === "skipped" ? "skipped" : "taken"]: state !== "undo" });
+      setMedicine(next); setError(null);
+    } catch (cause) { setError(String(cause)); }
+  };
 
   const toggleTodo = async (item: ActionItem) => {
     try { setWorkspace(await invoke<WorkspaceSnapshot>(item.completedAt ? "restore_action_item" : "complete_action_item", { itemId: item.id })); setError(null); }
@@ -282,6 +311,10 @@ export function TodayPopupView() {
           );
         })}
       </ol>
+      {todayDoses.length > 0 && <section className="today-popup-todos today-popup-medicine" aria-labelledby="today-medicine-heading">
+        <header><strong id="today-medicine-heading">MEDICINE</strong><span>{todayDoses.filter((dose) => dose.takenAt === null && dose.skippedAt === null).length} left</span></header>
+        <ol>{visibleDoses.map((dose) => { const item = medicineById.get(dose.medicineId)!; const treatment = treatmentById.get(item.treatmentId); const recorded = dose.takenAt !== null || dose.skippedAt !== null; const foodRule = medicineFoodRuleLabel(item.foodRule); return <li data-completed={recorded || undefined} key={`${dose.medicineId}:${dose.slotDay}:${dose.slotTime}`}><time className="today-popup-medicine__time">{dose.slotTime}</time><span className="today-popup-medicine__title">{item.name}{item.strength || item.doseAmount ? ` · ${[item.strength, item.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{treatment?.name ?? "Treatment"}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${item.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(dose, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${item.name}` : `Take ${item.name}`} className="today-popup-todos__check" onClick={() => void recordDose(dose, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{dose.takenAt ? "✓" : dose.skippedAt ? "–" : ""}</span></button></li>; })}{todayDoses.length > visibleDoses.length && <li className="today-popup-todos__more"><button onClick={() => void openMedicineManagerWindow()} type="button">+{todayDoses.length - visibleDoses.length} more</button></li>}</ol>
+      </section>}
       {todayTodos.length > 0 && <section className="today-popup-todos" aria-labelledby="today-todos-heading">
         <header><strong id="today-todos-heading">TODO</strong><span>{openTodayTodos.length} need attention</span></header>
         <ol>{visibleTodos.map((item) => <li data-completed={item.completedAt !== null || undefined} key={item.id}>

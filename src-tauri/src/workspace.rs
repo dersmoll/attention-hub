@@ -631,6 +631,7 @@ pub fn import_workspace(
         &transfer.workspace,
         true,
         recovered_from_backup,
+        "Workspace",
     )?;
     Ok(snap(workspace_path, transfer.workspace, false))
 }
@@ -647,7 +648,7 @@ where
     let (p, mut s, recovered_from_backup) = load(app)?;
     action(&mut s)?;
     s.revision += 1;
-    local_store::write(&p, &s, preserve, recovered_from_backup)?;
+    local_store::write(&p, &s, preserve, recovered_from_backup, "Workspace")?;
     Ok(snap(p, s, false))
 }
 fn name(value: String, label: &str) -> Result<String, String> {

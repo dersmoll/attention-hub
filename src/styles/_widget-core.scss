@@ -63,6 +63,7 @@
   background: panel-tint(3%);
 
   &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
+  &[data-segments="3"] { grid-template-columns: 60px 28px minmax(44px, 1fr); }
 
   button {
     position: relative;
@@ -135,6 +136,7 @@
   }
 
   &[data-segments="1"] &__projects { border-left: 0; }
+  &__medicine { border-left: 1px solid panel-border-wash(72%) !important; }
 
   &__badge {
     position: absolute;

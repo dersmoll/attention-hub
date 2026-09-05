@@ -17,9 +17,18 @@
 }
 
 /* Chromed utility windows: advanced settings and the updater dialog. */
-@include window-shell("advanced", "update", "manager") {
+@include window-shell("advanced", "update", "manager", "medicine") {
   height: 100%;
   background: var(--color-canvas-sunken);
+}
+
+/* Medicine is a Hub surface, not a settings page: its window frame needs the
+ * same panel base as the manager content so no light canvas leaks around it. */
+@include window-shell("medicine") {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--widget-panel-solid);
 }
 
 @include window-shell("advanced") {
@@ -30,7 +39,7 @@
   width: 100%;
 }
 
-@include window-body("advanced", "update", "manager") {
+@include window-body("advanced", "update", "manager", "medicine") {
   overflow: hidden;
   color: var(--color-text-chrome);
   font-size: 13px;

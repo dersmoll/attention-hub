@@ -41,6 +41,7 @@ assert.deepEqual(legacy, {
   showClocksPanel: true,
   showTodayPanel: true,
   showProjectsPanel: true,
+  showMedicinePanel: false,
   x: 120,
   y: -46,
   panelSurface: "light",
@@ -84,6 +85,7 @@ assert.deepEqual(malformed, {
   showClocksPanel: true,
   showTodayPanel: true,
   showProjectsPanel: true,
+  showMedicinePanel: false,
   x: null,
   y: null,
   panelSurface: "light",
@@ -167,6 +169,7 @@ assert.equal(fresh.showAppsPanel, true);
 assert.equal(fresh.showClocksPanel, true);
 assert.equal(fresh.showTodayPanel, true);
 assert.equal(fresh.showProjectsPanel, true);
+assert.equal(fresh.showMedicinePanel, false);
 
 const hiddenPanels = preferences.normalizeWidgetPreferences({
   sourceCatalogVersion: 2,
@@ -174,11 +177,13 @@ const hiddenPanels = preferences.normalizeWidgetPreferences({
   showClocksPanel: false,
   showTodayPanel: false,
   showProjectsPanel: false,
+  showMedicinePanel: true,
 });
 assert.equal(hiddenPanels.showAppsPanel, false);
 assert.equal(hiddenPanels.showClocksPanel, false);
 assert.equal(hiddenPanels.showTodayPanel, false);
 assert.equal(hiddenPanels.showProjectsPanel, false);
+assert.equal(hiddenPanels.showMedicinePanel, true);
 assert.equal(
   preferences.normalizeWidgetPreferences({
     sourceCatalogVersion: 2,
@@ -361,6 +366,7 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   showClocksPanel: true,
   showTodayPanel: true,
   showProjectsPanel: true,
+  showMedicinePanel: false,
   x: 10,
   y: 20,
   panelSurface: "light",

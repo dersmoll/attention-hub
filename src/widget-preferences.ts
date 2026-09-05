@@ -32,6 +32,7 @@ export interface WidgetPreferences {
   showClocksPanel: boolean;
   showTodayPanel: boolean;
   showProjectsPanel: boolean;
+  showMedicinePanel: boolean;
   x: number | null;
   y: number | null;
   panelSurface: PanelSurfaceMode;
@@ -83,6 +84,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   showClocksPanel: true,
   showTodayPanel: true,
   showProjectsPanel: true,
+  showMedicinePanel: false,
   x: null,
   y: null,
   panelSurface: "light",
@@ -334,6 +336,10 @@ export function normalizeWidgetPreferences(
       typeof value?.showProjectsPanel === "boolean"
         ? value.showProjectsPanel
         : DEFAULT_WIDGET_PREFERENCES.showProjectsPanel,
+    showMedicinePanel:
+      typeof value?.showMedicinePanel === "boolean"
+        ? value.showMedicinePanel
+        : DEFAULT_WIDGET_PREFERENCES.showMedicinePanel,
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
     panelSurface: normalizePanelSurface(value?.panelSurface, panelColor),

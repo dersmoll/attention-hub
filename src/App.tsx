@@ -16,7 +16,9 @@ import { EventSettingsView } from "./EventSettingsView";
 import { ManagerView } from "./ManagerView";
 import { ProjectPanelWindow } from "./ProjectPanelWindow";
 import { openManagerWindow } from "./manager-window";
+import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { TodayPopupView } from "./TodayPopupView";
+import { MedicineManagerView } from "./MedicineManagerView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
 import {
@@ -918,6 +920,21 @@ function AdvancedView() {
               />
               Show Projects and To-dos
             </label>
+            <label>
+              <input
+                checked={widgetPreferences.showMedicinePanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showMedicinePanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show in widget
+            </label>
+            <button onClick={() => void openMedicineManagerWindow()} type="button">
+              Open Medicine
+            </button>
             <small>
               Hidden panels keep their app and timezone configuration. Native
               visual mirrors pause while app shortcuts are hidden.
@@ -1606,6 +1623,9 @@ function App() {
   }
   if (windowLabel === "today") {
     return <TodayPopupView />;
+  }
+  if (windowLabel === "medicine") {
+    return <MedicineManagerView />;
   }
   return <WidgetView />;
 }
