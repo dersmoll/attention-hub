@@ -117,13 +117,13 @@ class PublishedIcsUiDeadlineError extends Error {}
 
 function workCalendarStopReasonMessage(stopReason: string | null) {
   if (stopReason === "redirectBlocked") {
-    return "This calendar link redirects. Use the final direct Outlook publication URL instead.";
+    return "This calendar link redirects. Use the final direct publication URL instead.";
   }
   if (stopReason === "disallowedSource" || stopReason === "invalidUrl") {
-    return "Use a direct, credential-free Microsoft Outlook Published ICS link.";
+    return "Use a direct, credential-free Outlook or Google Calendar Published ICS link.";
   }
   if (stopReason === "titleCapabilityNotConfirmed") {
-    return "Confirm the exact Outlook publication level before saving this source.";
+    return "Confirm the exact calendar publication level before saving this source.";
   }
   if (stopReason === "requestTimeout" || stopReason === "commandDeadline") {
     return "Calendar verification timed out safely. The pasted link is still available to retry.";
@@ -1360,7 +1360,7 @@ function AdvancedView() {
               ref={publishedIcsInputRef}
               maxLength={4096}
               onChange={(event) => setPublishedIcsUrl(event.target.value)}
-              placeholder="https://outlook.office365.com/…/calendar.ics"
+              placeholder="Outlook …/calendar.ics or Google …/basic.ics"
               spellCheck={false}
               type="password"
               value={publishedIcsUrl}

@@ -14,7 +14,11 @@ that still define the public beta.
    WhatsApp are explicit integrations, not a generalized provider framework.
 5. **One passive calendar source.** A user-selected Published ICS source is the
    production calendar provider. Earlier AppointmentStore, UI Automation, and
-   Graph experiments are retired from the runtime.
+   Graph experiments are retired from the runtime. Accepted publishers are a
+   bounded, named set — Microsoft 365 Outlook and Google Calendar — each with a
+   required path shape. The host list bounds only *which* hosts may be fetched;
+   HTTPS-only, credential-free, no query or fragment, blocked redirects, and the
+   size and time caps are provider-independent and apply to every entry.
 6. **Secret-safe calendar links.** The publication URL stays in Windows
    Credential Manager. Meeting URLs stay in Rust memory and cross IPC only as
    ephemeral tokens.

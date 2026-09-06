@@ -462,6 +462,62 @@ pub async fn get_semantic_probe_with_deadline(
     }
 }
 
+/// One supported published-calendar provider.
+///
+/// The host list bounds what the application will fetch, and nothing more. It
+/// is not what makes the fetch safe: the scheme, credential, query, fragment,
+/// port, redirect, size and time guards in `validate_published_url` and
+/// `get_semantic_probe` are provider-independent and apply unchanged to every
+/// entry here. Adding a provider therefore widens *which* hosts may be reached,
+/// not what may be done with them.
+struct PublishedIcsProvider {
+    hosts: &'static [&'static str],
+    path_prefix: &'static str,
+    min_path_segments: usize,
+    final_path_segment: &'static str,
+}
+
+impl PublishedIcsProvider {
+    fn accepts(&self, host: &str, path: &str) -> bool {
+        if !self
+            .hosts
+            .iter()
+            .any(|allowed| host.eq_ignore_ascii_case(allowed))
+        {
+            return false;
+        }
+        let mut segments = path.split('/').filter(|part| !part.is_empty());
+        let segment_count = segments.clone().count();
+        let last_segment = segments.next_back();
+        path.get(..self.path_prefix.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(self.path_prefix))
+            && segment_count >= self.min_path_segments
+            && last_segment.is_some_and(|part| part.eq_ignore_ascii_case(self.final_path_segment))
+    }
+}
+
+const PUBLISHED_ICS_PROVIDERS: &[PublishedIcsProvider] = &[
+    // Microsoft 365 tenant Outlook.
+    //   /owa/calendar/<source>/<opaque>/calendar.ics
+    // Personal Microsoft accounts (outlook.live.com) are deliberately absent:
+    // they cannot publish a secondary calendar, so they cannot serve a
+    // per-child feed. See docs/plans/school-mode.md §1.
+    PublishedIcsProvider {
+        hosts: &["outlook.office365.com", "outlook.office.com"],
+        path_prefix: "/owa/calendar/",
+        min_path_segments: 5,
+        final_path_segment: "calendar.ics",
+    },
+    // Google Calendar iCal address, secret or public.
+    //   /calendar/ical/<calendar-id>/<private-hash|public>/basic.ics
+    PublishedIcsProvider {
+        hosts: &["calendar.google.com"],
+        path_prefix: "/calendar/ical/",
+        min_path_segments: 5,
+        final_path_segment: "basic.ics",
+    },
+];
+
 fn validate_published_url(
     input: &str,
 ) -> Result<ValidatedPublishedUrl, (PublishedIcsStopReason, &'static str)> {
@@ -469,7 +525,7 @@ fn validate_published_url(
     if trimmed.is_empty() || trimmed.len() > MAX_URL_BYTES {
         return Err((
             PublishedIcsStopReason::InvalidUrl,
-            "Enter one bounded Microsoft published-calendar URL.",
+            "Enter one bounded Outlook or Google published-calendar URL.",
         ));
     }
 
@@ -500,28 +556,19 @@ fn validate_published_url(
     {
         return Err((
             PublishedIcsStopReason::DisallowedSource,
-            "Only a credential-free HTTPS Microsoft publication URL without query or fragment data is accepted.",
+            "Only a credential-free HTTPS publication URL without query or fragment data is accepted.",
         ));
     }
 
-    let allowed_host = matches!(
-        url.host_str(),
-        Some("outlook.office365.com") | Some("outlook.office.com")
-    );
+    let host = url.host_str().unwrap_or_default();
     let path = url.path();
-    let mut path_parts = path.split('/').filter(|part| !part.is_empty());
-    let path_part_count = path_parts.clone().count();
-    let last_path_part = path_parts.next_back();
-    let allowed_path = path
-        .get(..14)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("/owa/calendar/"))
-        && path_part_count >= 5
-        && last_path_part.is_some_and(|part| part.eq_ignore_ascii_case("calendar.ics"));
-
-    if !allowed_host || !allowed_path {
+    if !PUBLISHED_ICS_PROVIDERS
+        .iter()
+        .any(|provider| provider.accepts(host, path))
+    {
         return Err((
             PublishedIcsStopReason::DisallowedSource,
-            "Only the bounded Microsoft 365 Outlook published-calendar host and path shape are accepted.",
+            "Only a bounded Microsoft 365 Outlook or Google Calendar published-calendar host and path shape are accepted.",
         ));
     }
 
@@ -752,6 +799,48 @@ mod tests {
             "https://outlook.office365.com/mail/inbox",
             "https://outlook.office365.com/owa/calendar/source/opaque/calendar.ics?secret=1",
             "https://user:pass@outlook.office365.com/owa/calendar/source/opaque/calendar.ics",
+        ] {
+            assert!(validate_published_url(value).is_err(), "accepted {value}");
+        }
+    }
+
+    #[test]
+    fn accepts_bounded_google_calendar_publication_urls() {
+        for value in [
+            "https://calendar.google.com/calendar/ical/child%40example.com/private-opaque/basic.ics",
+            "https://calendar.google.com/calendar/ical/child%40example.com/public/basic.ics",
+        ] {
+            assert!(
+                validate_published_url(value).is_ok(),
+                "rejected {value}"
+            );
+        }
+
+        let webcal = validate_published_url(
+            "webcal://calendar.google.com/calendar/ical/child%40example.com/private-opaque/basic.ics",
+        )
+        .expect("webcal Google URL should be normalized");
+        assert!(webcal.webcal_normalized_to_https);
+        assert_eq!(webcal.url.scheme(), "https");
+    }
+
+    #[test]
+    fn rejects_google_urls_outside_the_bounded_path_shape() {
+        for value in [
+            // Personal Microsoft accounts cannot publish a secondary calendar.
+            "https://outlook.live.com/owa/calendar/source/opaque/calendar.ics",
+            // Right host, wrong path shape.
+            "https://calendar.google.com/calendar/render",
+            "https://calendar.google.com/calendar/ical/basic.ics",
+            // Right shape, wrong terminal segment.
+            "https://calendar.google.com/calendar/ical/child%40example.com/public/full.ics",
+            // Provider path shapes must not be interchangeable across hosts.
+            "https://calendar.google.com/owa/calendar/source/opaque/calendar.ics",
+            "https://outlook.office365.com/calendar/ical/child%40example.com/public/basic.ics",
+            // The provider-independent guards still apply.
+            "http://calendar.google.com/calendar/ical/child%40example.com/public/basic.ics",
+            "https://calendar.google.com/calendar/ical/child%40example.com/public/basic.ics?x=1",
+            "https://user:pass@calendar.google.com/calendar/ical/child%40example.com/public/basic.ics",
         ] {
             assert!(validate_published_url(value).is_err(), "accepted {value}");
         }
