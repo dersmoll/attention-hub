@@ -1,8 +1,14 @@
 # M21 — School calendar source
 
-> **Status: in progress. No code changes landed yet.**
+> **Status: in progress. Scope item 1 of 3 complete; items 2 and 3 not started.**
 > Baseline: `main` at `cc3e58b`, after M20 merged. Branch:
 > `codex/m21-school-calendar-source`.
+>
+> | Item | State |
+> | --- | --- |
+> | 1. Google published-calendar support | **Done** — `1f66548`, tests green |
+> | 2. Warn-and-preserve on source change | Not started — [design finding below](#re-keying-cannot-be-done-from-the-stored-key-alone) |
+> | 3. UID-change detection | Not started |
 
 - **Parent plan:** [School mode](school-mode.md). This milestone implements its
   Step 1 only; Steps 2–4 are not approved.
@@ -69,6 +75,36 @@ binding while leaving the records themselves intact.
 
 Setup for two children involves pasting several URLs, so this stops being
 theoretical.
+
+#### Re-keying cannot be done from the stored key alone
+
+Established by source inspection on 2026-09-07, and it constrains the design.
+
+`WorkspaceBinding` stores only `event_key` (`src/workspace-model.ts:14`,
+`src-tauri/src/workspace.rs:1754`). That key is a one-way digest of
+`(source_scope, series_uid)` — `recurring_series_key`,
+`work_calendar/mod.rs:690-696` — and `source_scope` is itself a digest of the
+publication URL (`calendar_source_scope`, `mod.rs:683-688`). **The series UID is
+not recoverable from a stored binding**, so old keys cannot simply be rewritten
+to the new scope.
+
+Two ways out:
+
+- **(a) Persist `series_uid` alongside each binding.** A schema and migration
+  change to a store that currently holds no such field.
+- **(b) Re-key through the live feed.** At carry-over time every event in the
+  feed supplies its `series_uid`, so both `digest(old_scope, uid)` and
+  `digest(new_scope, uid)` can be computed and any binding found under the old
+  key copied to the new one. No schema change.
+
+**(b) is preferred**, with one consequence worth stating plainly: it can only
+carry over associations for series **present in the feed at that moment**. A
+subject whose lessons have finished for the term, or a feed that is temporarily
+unreachable, would not be carried. That argues for offering carry-over on an
+explicit user action against a freshly fetched feed, not silently during save.
+
+(b) also requires the *old* scope, which means computing it from the stored
+credential **before** `save_source` overwrites it (`work_calendar/mod.rs:409`).
 
 ### 3. UID-change detection
 
