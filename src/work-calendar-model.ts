@@ -37,6 +37,19 @@ export interface WorkCalendarEventWorkspaceSummary {
   linkUrl: string | null;
 }
 
+/**
+ * Present while a calendar source change is unresolved.
+ *
+ * Workspace keys derive from the saved publication URL, so a different URL
+ * disconnects every existing calendar association. The records are preserved,
+ * not deleted — only their association with displayed events breaks — and
+ * carrying them over requires an explicit decision, because a different URL may
+ * legitimately be a different calendar.
+ */
+export interface WorkCalendarSourceChange {
+  previousAssociationCount: number;
+}
+
 export interface WorkCalendarSnapshot {
   status: WorkCalendarStatus;
   configured: boolean;
@@ -51,6 +64,7 @@ export interface WorkCalendarSnapshot {
   requestMs: number;
   parseMs: number;
   diagnostics: string[];
+  sourceChange?: WorkCalendarSourceChange;
 }
 
 export interface WorkCalendarDisplay {

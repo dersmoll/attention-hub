@@ -3,7 +3,7 @@ use chrono_tz::Tz;
 use rrule::{RRuleSet, Tz as RRuleTz};
 use serde::Serialize;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 use windows_timezones::WindowsTimezone;
@@ -67,6 +67,17 @@ pub struct DayEventSelection {
     pub private: bool,
 }
 
+/// A distinct series in the feed, with the shape its workspace key derives from.
+///
+/// Exposed so a source change can compute what each series' key *was* under the
+/// previous source scope and what it *is* now. Never serialized: a UID is raw
+/// calendar content and does not cross IPC.
+#[derive(Clone, Debug)]
+pub struct SeriesIdentity {
+    pub uid: String,
+    pub recurring: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SemanticFailureReason {
     MalformedEvent,
@@ -94,6 +105,10 @@ pub struct SemanticScan {
     pub active_candidate_count: u32,
     pub expanded_occurrence_count: u32,
     pub private_title_redacted: bool,
+    /// Every distinct non-private series in the expansion window, not just
+    /// today's. A source change must be able to carry over associations for a
+    /// subject that has no lesson today.
+    pub series_identities: Vec<SeriesIdentity>,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +267,19 @@ pub fn extract_current_or_next(
         )?;
     }
 
+    let series_identities = {
+        let mut seen = BTreeSet::new();
+        candidates
+            .iter()
+            .filter(|candidate| !candidate.private)
+            .filter(|candidate| seen.insert(candidate.uid.clone()))
+            .map(|candidate| SeriesIdentity {
+                uid: candidate.uid.clone(),
+                recurring: candidate.recurring,
+            })
+            .collect::<Vec<_>>()
+    };
+
     let viewer_day = now.with_timezone(&viewer_timezone).date_naive();
     let mut day_selections = candidates
         .iter()
@@ -360,6 +388,7 @@ pub fn extract_current_or_next(
         active_candidate_count: u32::try_from(active_candidate_count).unwrap_or(u32::MAX),
         expanded_occurrence_count: u32::try_from(expanded_occurrence_count).unwrap_or(u32::MAX),
         private_title_redacted,
+        series_identities,
     })
 }
 

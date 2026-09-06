@@ -52,6 +52,9 @@ pub struct WorkCalendarSnapshot {
     pub request_ms: u64,
     pub parse_ms: u64,
     pub diagnostics: Vec<String>,
+    /// Present while a source change is unresolved. See `PendingSourceChange`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_change: Option<WorkCalendarSourceChange>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -164,9 +167,37 @@ fn occurrence_key(source_scope: Option<&str>, series_uid: &str, start: &str) -> 
     format!("{}\u{0}{series_uid}\u{0}{start}", source_scope.unwrap_or(""))
 }
 
+/// A save replaced a different publication URL.
+///
+/// Workspace keys are derived from the source scope, which is a digest of the
+/// saved URL (`calendar_source_scope`), so every existing calendar association
+/// stops matching. The records are **preserved, not deleted** — what breaks is
+/// their association with displayed events. Carrying them over needs the
+/// previous scope, which is held here because it cannot be recovered once the
+/// credential has been overwritten.
+///
+/// This is session state. Restarting before resolving it loses the ability to
+/// carry associations over; the bindings themselves survive.
+#[derive(Clone)]
+struct PendingSourceChange {
+    previous_scope: String,
+    current_scope: String,
+}
+
+/// Reported when the saved calendar source has changed and existing
+/// associations no longer apply.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkCalendarSourceChange {
+    /// Associations made under the previous source. Filled in by the workspace
+    /// layer, which owns the store; zero until then.
+    pub previous_association_count: usize,
+}
+
 pub struct WorkCalendarState {
     request_gate: Mutex<()>,
     join_targets: StdMutex<JoinTargetCache>,
+    pending_source_change: StdMutex<Option<PendingSourceChange>>,
 }
 
 impl WorkCalendarState {
@@ -174,6 +205,36 @@ impl WorkCalendarState {
         Self {
             request_gate: Mutex::new(()),
             join_targets: StdMutex::new(JoinTargetCache::default()),
+            pending_source_change: StdMutex::new(None),
+        }
+    }
+
+    fn note_source_change(&self, previous_scope: String, current_scope: String) {
+        if let Ok(mut pending) = self.pending_source_change.lock() {
+            // An earlier unresolved change keeps its original previous scope:
+            // that is the one holding the associations worth carrying over.
+            match pending.as_mut() {
+                Some(existing) => existing.current_scope = current_scope,
+                None => {
+                    *pending = Some(PendingSourceChange {
+                        previous_scope,
+                        current_scope,
+                    })
+                }
+            }
+        }
+    }
+
+    fn pending_source_change(&self) -> Option<PendingSourceChange> {
+        self.pending_source_change
+            .lock()
+            .ok()
+            .and_then(|pending| pending.clone())
+    }
+
+    pub fn clear_source_change(&self) {
+        if let Ok(mut pending) = self.pending_source_change.lock() {
+            *pending = None;
         }
     }
 
@@ -387,6 +448,18 @@ pub async fn save_source(
 ) -> WorkCalendarSnapshot {
     let _guard = state.request_gate.lock().await;
     let source_scope = calendar_source_scope(&published_url);
+
+    // Read the outgoing source before the write below overwrites it. Its scope
+    // cannot be recovered afterwards, and carrying associations over needs it.
+    let previous_scope = match credential_store::read() {
+        Ok(Some(mut previous)) => {
+            let scope = calendar_source_scope(&previous);
+            zero_string(&mut previous);
+            Some(scope)
+        }
+        _ => None,
+    };
+
     let probe = published_ics::get_semantic_probe_with_deadline(
         published_url.clone(),
         title_capability_confirmed,
@@ -409,7 +482,16 @@ pub async fn save_source(
     let write_result = credential_store::write(&published_url);
     zero_string(&mut published_url);
     match write_result {
-        Ok(()) => snapshot_from_probe(state, probe, true, Some(&source_scope)),
+        Ok(()) => {
+            // Re-pasting the identical URL is safe and changes nothing, so only
+            // a genuinely different scope raises the warning.
+            if let Some(previous_scope) = previous_scope {
+                if previous_scope != source_scope {
+                    state.note_source_change(previous_scope, source_scope.clone());
+                }
+            }
+            snapshot_from_probe(state, probe, true, Some(&source_scope))
+        }
         Err(_) => {
             state.clear_join_targets();
             WorkCalendarSnapshot {
@@ -429,6 +511,7 @@ pub async fn save_source(
                     "The verified calendar source could not be saved in Windows Credential Manager."
                         .to_owned(),
                 ],
+                source_change: None,
             }
         }
     }
@@ -459,6 +542,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 request_ms: 0,
                 parse_ms: 0,
                 diagnostics: vec!["No saved work-calendar source is configured.".to_owned()],
+                source_change: None,
             };
         }
         Err(_) => {
@@ -481,6 +565,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                     "Windows Credential Manager could not read the work-calendar source."
                         .to_owned(),
                 ],
+                source_change: None,
             };
         }
     };
@@ -508,6 +593,9 @@ fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapsh
         diagnostics: vec![
             "Another bounded work-calendar request is already in progress.".to_owned(),
         ],
+        // A busy reply reports nothing about the source; the next real snapshot
+        // still carries an unresolved change.
+        source_change: None,
     }
 }
 
@@ -635,6 +723,12 @@ fn snapshot_from_probe(
         request_ms: probe.request_ms,
         parse_ms: probe.parse_ms,
         diagnostics: probe.diagnostics,
+        source_change: state.pending_source_change().map(|_| {
+            WorkCalendarSourceChange {
+                // The workspace layer owns the store and fills this in.
+                previous_association_count: 0,
+            }
+        }),
     }
 }
 
@@ -678,6 +772,68 @@ fn event_workspace_key(
             single_event_key(scope, series_uid)
         }
     })
+}
+
+/// One series' workspace key under the previous source scope and under the
+/// current one.
+#[derive(Clone, Debug)]
+pub struct WorkspaceKeyRemap {
+    pub previous_key: String,
+    pub current_key: String,
+}
+
+/// Fetch the live feed and compute what each series' workspace key was under the
+/// previous source and is under the current one.
+///
+/// Re-keying goes through the feed because the stored binding holds only the
+/// digest — the series UID is not recoverable from it. The consequence is
+/// bounded and deliberate: only series present in the feed right now can be
+/// carried over. A subject whose lessons have ended, or an unreachable feed,
+/// yields nothing, which is why this runs on an explicit action rather than
+/// silently during save.
+pub async fn source_change_remap(
+    state: &WorkCalendarState,
+) -> Result<Vec<WorkspaceKeyRemap>, String> {
+    let pending = state
+        .pending_source_change()
+        .ok_or_else(|| "No calendar source change is waiting for a decision.".to_owned())?;
+
+    let _guard = state.request_gate.lock().await;
+    let published_url = match credential_store::read() {
+        Ok(Some(secret)) => secret,
+        Ok(None) => return Err("No saved calendar source is configured.".to_owned()),
+        Err(_) => {
+            return Err("Windows Credential Manager could not read the calendar source.".to_owned())
+        }
+    };
+
+    let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
+    if !matches!(probe.status, PublishedIcsProbeStatus::Observed) {
+        return Err(
+            "The calendar could not be read just now, so associations were not carried over. Nothing was changed."
+                .to_owned(),
+        );
+    }
+
+    Ok(probe
+        .series_identities
+        .iter()
+        .filter_map(|series| {
+            let previous_key = workspace_key_for(&pending.previous_scope, series)?;
+            let current_key = workspace_key_for(&pending.current_scope, series)?;
+            Some(WorkspaceKeyRemap {
+                previous_key,
+                current_key,
+            })
+        })
+        .collect())
+}
+
+fn workspace_key_for(
+    scope: &str,
+    series: &published_ics::SeriesIdentity,
+) -> Option<String> {
+    event_workspace_key(Some(scope), &series.uid, series.recurring, false)
 }
 
 fn calendar_source_scope(published_url: &str) -> String {
@@ -818,6 +974,7 @@ mod tests {
             title_capability_confirmed: true,
             http_status: Some(200),
             content_type_state: PublishedIcsContentTypeState::Calendar,
+            series_identities: Vec::new(),
             response_bytes: 1,
             request_ms: 1,
             parse_ms: 1,
@@ -1004,6 +1161,65 @@ mod tests {
         assert_eq!(
             join_url_at(&state, &token, 2_000).unwrap(),
             "https://teams.microsoft.com/l/meetup-join/new"
+        );
+    }
+
+    #[test]
+    fn a_source_change_is_recorded_only_when_the_scope_actually_differs() {
+        let state = WorkCalendarState::new();
+        let first = calendar_source_scope("https://calendar.google.com/a/basic.ics");
+        let second = calendar_source_scope("https://calendar.google.com/b/basic.ics");
+        assert_ne!(first, second);
+
+        // Re-pasting the identical URL is safe and must not warn.
+        assert!(state.pending_source_change().is_none());
+        state.note_source_change(first.clone(), second.clone());
+        let pending = state.pending_source_change().expect("change recorded");
+        assert_eq!(pending.previous_scope, first);
+        assert_eq!(pending.current_scope, second);
+
+        // A second change before the first is resolved keeps the ORIGINAL
+        // previous scope: that is the one still holding the associations.
+        let third = calendar_source_scope("https://calendar.google.com/c/basic.ics");
+        state.note_source_change(second, third.clone());
+        let pending = state.pending_source_change().expect("change still recorded");
+        assert_eq!(pending.previous_scope, first);
+        assert_eq!(pending.current_scope, third);
+
+        state.clear_source_change();
+        assert!(state.pending_source_change().is_none());
+    }
+
+    #[test]
+    fn a_remap_pairs_the_same_series_across_two_scopes() {
+        let previous = calendar_source_scope("https://calendar.google.com/old/basic.ics");
+        let current = calendar_source_scope("https://calendar.google.com/new/basic.ics");
+        let series = published_ics::SeriesIdentity {
+            uid: "maths-weekly".to_owned(),
+            recurring: true,
+        };
+
+        let previous_key = workspace_key_for(&previous, &series).expect("previous key");
+        let current_key = workspace_key_for(&current, &series).expect("current key");
+
+        // The same lesson keys differently under each source. That is exactly
+        // the silent breakage the warning exists to surface.
+        assert_ne!(previous_key, current_key);
+        // And the mapping is deterministic, so carry-over is repeatable.
+        assert_eq!(
+            workspace_key_for(&previous, &series).as_deref(),
+            Some(previous_key.as_str())
+        );
+
+        // A single (non-recurring) event uses a different key derivation, so it
+        // must not collide with the recurring series of the same UID.
+        let single = published_ics::SeriesIdentity {
+            uid: "maths-weekly".to_owned(),
+            recurring: false,
+        };
+        assert_ne!(
+            workspace_key_for(&current, &single),
+            workspace_key_for(&current, &series)
         );
     }
 

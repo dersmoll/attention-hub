@@ -188,8 +188,11 @@ function AdvancedView() {
   const [workCalendarSnapshot, setWorkCalendarSnapshot] =
     useState<WorkCalendarSnapshot | null>(null);
   const [workCalendarPending, setWorkCalendarPending] = useState<
-    "save" | "refresh" | "remove" | null
+    "save" | "refresh" | "remove" | "carryOver" | null
   >(null);
+  const [sourceChangeResult, setSourceChangeResult] = useState<string | null>(
+    null,
+  );
   const [workCalendarError, setWorkCalendarError] = useState<string | null>(null);
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
@@ -416,6 +419,7 @@ function AdvancedView() {
       return;
     }
 
+    setSourceChangeResult(null);
     setWorkCalendarPending("save");
     try {
       const nextSnapshot =
@@ -449,6 +453,53 @@ function AdvancedView() {
     refreshWorkCalendarConfiguration,
     titleCapabilityConfirmed,
   ]);
+
+  /// The backend has already cleared the pending change; drop it locally too so
+  /// the prompt does not linger until the next poll.
+  const clearLocalSourceChange = useCallback(() => {
+    setWorkCalendarSnapshot((current) =>
+      current?.sourceChange ? { ...current, sourceChange: undefined } : current,
+    );
+  }, []);
+
+  const carryOverCalendarAssociations = useCallback(async () => {
+    setWorkCalendarPending("carryOver");
+    setSourceChangeResult(null);
+    try {
+      const carried = await invoke<number>(
+        "carry_over_work_calendar_associations",
+      );
+      // Report zero honestly rather than implying success: it means nothing in
+      // the current feed matched a previous association.
+      setSourceChangeResult(
+        carried === 0
+          ? "No lessons in the current feed matched a previous association. Nothing was changed."
+          : `Carried over ${carried} calendar ${carried === 1 ? "association" : "associations"}.`,
+      );
+      clearLocalSourceChange();
+    } catch (error) {
+      // Keep the prompt on screen so the action can be retried.
+      setSourceChangeResult(
+        typeof error === "string"
+          ? error
+          : "Associations could not be carried over. Nothing was changed.",
+      );
+    } finally {
+      setWorkCalendarPending(null);
+    }
+  }, [clearLocalSourceChange]);
+
+  const dismissSourceChange = useCallback(async () => {
+    setSourceChangeResult(
+      "Previous associations were left as they are. They are still stored.",
+    );
+    clearLocalSourceChange();
+    try {
+      await invoke("dismiss_work_calendar_source_change");
+    } catch {
+      // The warning is advisory; failing to dismiss it is not worth reporting.
+    }
+  }, [clearLocalSourceChange]);
 
   const refreshSavedWorkCalendar = useCallback(async () => {
     setWorkCalendarPending("refresh");
@@ -1395,6 +1446,54 @@ function AdvancedView() {
             and locations”. Attention Hub will discard location.
           </label>
         </form>
+
+        {workCalendarSnapshot?.sourceChange ? (
+          <div className="calendar-source-change" role="alert">
+            <p>
+              <strong>This is a different calendar link.</strong>{" "}
+              {workCalendarSnapshot.sourceChange.previousAssociationCount > 0
+                ? `${workCalendarSnapshot.sourceChange.previousAssociationCount} existing calendar ${
+                    workCalendarSnapshot.sourceChange
+                      .previousAssociationCount === 1
+                      ? "association was"
+                      : "associations were"
+                  } made with the previous link and no longer apply.`
+                : "Existing calendar associations were made with the previous link and no longer apply."}
+            </p>
+            <p>
+              Nothing was deleted. If this is the same calendar republished at a
+              new address, the associations can be carried over. If it is a
+              different calendar, leave them alone.
+            </p>
+            <div className="actions">
+              <button
+                disabled={workCalendarPending !== null}
+                onClick={() => void carryOverCalendarAssociations()}
+                type="button"
+              >
+                {workCalendarPending === "carryOver"
+                  ? "Carrying over…"
+                  : "Same calendar — carry associations over"}
+              </button>
+              <button
+                disabled={workCalendarPending !== null}
+                onClick={() => void dismissSourceChange()}
+                type="button"
+              >
+                Different calendar — leave them
+              </button>
+            </div>
+            {sourceChangeResult ? <small>{sourceChangeResult}</small> : null}
+            <small>
+              Carrying over only covers lessons currently in the feed. A subject
+              with no upcoming lessons cannot be matched.
+            </small>
+          </div>
+        ) : sourceChangeResult ? (
+          <p className="calendar-source-change__result" role="status">
+            {sourceChangeResult}
+          </p>
+        ) : null}
 
         <div className="calendar-configuration">
           <p>

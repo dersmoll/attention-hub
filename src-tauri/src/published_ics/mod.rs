@@ -4,7 +4,9 @@ use reqwest::{header::CONTENT_TYPE, redirect::Policy, Url};
 use serde::Serialize;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub use semantics::{DayEventSelection, EventClassification, EventSelection, MeetingProvider};
+pub use semantics::{
+    DayEventSelection, EventClassification, EventSelection, MeetingProvider, SeriesIdentity,
+};
 
 const MAX_URL_BYTES: usize = 4_096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -86,6 +88,10 @@ pub struct PublishedIcsSemanticProbe {
     pub active_candidate_count: u32,
     pub expanded_occurrence_count: u32,
     pub private_title_redacted: bool,
+    /// Distinct non-private series in the expansion window. Never serialized —
+    /// a UID is raw calendar content and does not cross IPC.
+    #[serde(skip_serializing)]
+    pub series_identities: Vec<semantics::SeriesIdentity>,
     pub selection: Option<EventSelection>,
     pub overlapping_selections: Vec<EventSelection>,
     pub next_selection: Option<EventSelection>,
@@ -105,6 +111,7 @@ impl PublishedIcsSemanticProbe {
             semantic_extraction_allowed: false,
             title_capability_confirmed,
             http_status: None,
+            series_identities: Vec::new(),
             content_type_state: PublishedIcsContentTypeState::Missing,
             response_bytes: 0,
             request_ms: 0,
@@ -435,6 +442,7 @@ pub async fn get_semantic_probe(
     probe.overlapping_selections = semantic.overlapping_selections;
     probe.next_selection = semantic.next_selection;
     probe.day_selections = semantic.day_selections;
+    probe.series_identities = semantic.series_identities;
     probe.diagnostics.push(
         "A fresh active-or-next selection, at most one simultaneous or overlapping event, at most one later upcoming companion, and a bounded same-day summary were produced from one user-confirmed title-capable published calendar.".to_owned(),
     );
