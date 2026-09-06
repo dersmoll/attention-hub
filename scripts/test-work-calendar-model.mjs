@@ -13,6 +13,17 @@ assert.equal(compiled.diagnostics?.length ?? 0, 0);
 const calendar = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString("base64")}`
 );
+const pollControllerUrl = new URL("../src/calendar-poll-controller.ts", import.meta.url);
+const pollControllerSource = await readFile(pollControllerUrl, "utf8");
+const compiledPollController = ts.transpileModule(pollControllerSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  fileName: pollControllerUrl.pathname,
+  reportDiagnostics: true,
+});
+assert.equal(compiledPollController.diagnostics?.length ?? 0, 0);
+const pollController = await import(
+  `data:text/javascript;base64,${Buffer.from(compiledPollController.outputText).toString("base64")}`
+);
 
 assert.equal(calendar.workCalendarJoinLabel(false), "Join");
 assert.equal(calendar.workCalendarJoinLabel(true), "Rejoin");
@@ -98,6 +109,53 @@ assert.equal(
   calendar.retainWorkCalendarSnapshot(snapshot, removedCalendar),
   removedCalendar,
 );
+
+assert.equal(
+  calendar.workCalendarRetryNotice({
+    consecutiveFailures: 1,
+    lastSuccessfulAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
+    stopReason: "requestTimeout",
+    nowMs: Date.parse("2026-08-21T10:02:00Z"),
+  }),
+  null,
+);
+const retryNotice = calendar.workCalendarRetryNotice({
+  consecutiveFailures: 2,
+  lastSuccessfulAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
+  stopReason: "requestTimeout",
+  nowMs: Date.parse("2026-08-21T10:02:00Z"),
+});
+assert.equal(retryNotice.state, "Calendar sync delayed");
+assert.match(retryNotice.detail, /took too long/i);
+assert.match(retryNotice.detail, /2 minutes ago/i);
+assert.doesNotMatch(retryNotice.detail, /https?:|:\/\//i);
+
+const pendingPolls = [];
+const scheduledPolls = [];
+const controller = pollController.createCalendarPollController({
+  refresh: () => new Promise((resolve) => pendingPolls.push(resolve)),
+  nextDelay: () => 30_000,
+  setTimer: (callback, delay) => {
+    const timer = { callback, delay, cleared: false };
+    scheduledPolls.push(timer);
+    return timer;
+  },
+  clearTimer: (timer) => {
+    timer.cleared = true;
+  },
+});
+controller.start();
+controller.requestRefresh();
+controller.requestRefresh();
+assert.equal(pendingPolls.length, 1, "in-flight refreshes are coalesced");
+pendingPolls.shift()({ status: "observed" });
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(pendingPolls.length, 1, "coalesced refresh runs once after completion");
+pendingPolls.shift()({ status: "observed" });
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(scheduledPolls.length, 1, "one timer remains after the follow-up refresh");
+controller.dispose();
+assert.equal(scheduledPolls[0].cleared, true, "disposing clears the sole scheduled poll");
 
 const primaryKey = calendar.workCalendarSelectionKey(activeOne, "primary");
 const overlappingKey = calendar.workCalendarSelectionKey(

@@ -139,6 +139,29 @@ assert.match(css, /html\[data-window="project-panel"\]/);
 assert.match(css, /background: transparent/);
 assert.match(css, /background: var\(--widget-panel-solid\)/);
 assert.match(css, /\.project-quick-view/);
+assert.match(css, /\.project-quick-view \{[\s\S]*?--manager-surface: var\(--widget-panel-solid\)/);
+assert.match(css, /\.project-quick-view \{[\s\S]*?--manager-text: var\(--widget-panel-foreground\)/);
 assert.match(css, /\.manager-todo-editor--inline/);
+
+// A window restored onto a monitor that is no longer connected is running,
+// focusable from the taskbar, and completely invisible. Falling back to the
+// system's placement is recoverable; that is not.
+const laptop = { x: 0, y: 0, width: 1920, height: 1080 };
+const secondary = { x: 1920, y: 0, width: 2560, height: 1440 };
+const leftOfPrimary = { x: -1920, y: 0, width: 1920, height: 1080 };
+
+assert.equal(model.positionIsReachable(100, 100, [laptop]), true);
+// The saved position of a window on the now-undocked second monitor.
+assert.equal(model.positionIsReachable(2400, 300, [laptop]), false);
+assert.equal(model.positionIsReachable(2400, 300, [laptop, secondary]), true);
+// Monitors arranged to the left of the primary have negative origins.
+assert.equal(model.positionIsReachable(-1800, 200, [laptop]), false);
+assert.equal(model.positionIsReachable(-1800, 200, [leftOfPrimary, laptop]), true);
+// A corner landing on-screen is not enough: the title bar must be grabbable.
+assert.equal(model.positionIsReachable(1919, 500, [laptop]), false);
+assert.equal(model.positionIsReachable(1080, 1079, [laptop]), false);
+assert.equal(model.positionIsReachable(1920 - model.MIN_REACHABLE_EDGE, 100, [laptop]), true);
+// No monitors at all must never report a position as usable.
+assert.equal(model.positionIsReachable(0, 0, []), false);
 
 console.log("event workspace contract tests passed");

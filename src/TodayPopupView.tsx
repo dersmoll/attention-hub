@@ -19,12 +19,15 @@ import {
 } from "./today-popup-model";
 import type { WorkCalendarDaySelection } from "./work-calendar-model";
 import { todayPopupPosition } from "./today-popup-window";
+import { useMedicineGraceMinutes } from "./use-medicine-grace-minutes";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { HubCloseIcon } from "./HubCloseIcon";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import { openManagerWindow } from "./manager-window";
+import { openMedicineManagerWindow } from "./medicine-manager-window";
+import { boundedDoseRows, medicineDailyRows, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
 import { deferActionItemToTomorrow, isFromActiveOwner, isVisibleInToday, sortActionItems, type ActionItem, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
-import { todayPopupHeight, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
+import { todayPopupHeight, TODAY_DOSE_MAX_ITEMS, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
 
 function formatTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat([], {
@@ -66,14 +69,28 @@ async function currentPopupAnchor(): Promise<PopupAnchor | null> {
 
 export function TodayPopupView() {
   const panelStyle = useWidgetPanelStyle();
+  const graceMinutes = useMedicineGraceMinutes();
   const [payload, setPayload] = useState<TodayPopupPayload | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
+  const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const refresh = async () => {
+      try { const next = await invoke<MedicineSnapshot>("get_medicine_snapshot"); if (!disposed) setMedicine(next); }
+      catch (cause) { if (!disposed) setError(String(cause)); }
+    };
+    void listen("medicine-changed", () => void refresh()).then((stop) => { if (disposed) stop(); else unlisten = stop; });
+    void refresh();
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -117,6 +134,19 @@ export function TodayPopupView() {
     await emitTo("main", TODAY_POPUP_CLOSED_EVENT).catch(() => undefined);
     await getCurrentWindow().close();
   };
+
+  useEffect(() => {
+    // Escape closes lightweight popups. Both windows are read-and-record
+    // surfaces with no form to cancel first, so the key is unambiguous here.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        void close();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
 
   const openEventSettings = async (selection: WorkCalendarDaySelection) => {
     if (!selection.eventToken) return;
@@ -185,13 +215,24 @@ export function TodayPopupView() {
   const ownerName = (kind: "project" | "list", id: string) => kind === "project"
     ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
     : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
+  const todayDoses = medicine ? medicineDailyRows(medicine, now, graceMinutes) : [];
+  const { visible: visibleDoses, hidden: hiddenDoses } = boundedDoseRows(todayDoses, TODAY_DOSE_MAX_ITEMS);
 
   useEffect(() => {
     if (!payload) return;
-    const next = { ...payload, height: todayPopupHeight(payload.selections.length, todayTodos.length) };
+    const next = { ...payload, height: Math.min(payload.maxHeight, todayPopupHeight(payload.selections.length, todayDoses.length, todayTodos.length, medicine?.recoveredFromBackup === true)) };
     const currentWindow = getCurrentWindow();
     void currentWindow.setSize(new LogicalSize(next.width, next.height)).then(() => currentWindow.setPosition(todayPopupPosition(next)));
-  }, [todayTodos.length, payload]);
+  }, [todayTodos.length, todayDoses.length, medicine?.recoveredFromBackup, payload]);
+
+  const recordDose = async (row: MedicineDailyDoseRow, state: "taken" | "skipped" | "undo") => {
+    try {
+      const skip = state === "skipped" || (state === "undo" && row.state === "skipped");
+      const command = skip ? "set_medicine_dose_skipped" : "set_medicine_dose_taken";
+      const next = await invoke<MedicineSnapshot>(command, { medicineId: row.dose.medicineId, slotDay: row.dose.slotDay, slotTime: row.dose.slotTime, [skip ? "skipped" : "taken"]: state !== "undo" });
+      setMedicine(next); setError(null);
+    } catch (cause) { setError(String(cause)); }
+  };
 
   const toggleTodo = async (item: ActionItem) => {
     try { setWorkspace(await invoke<WorkspaceSnapshot>(item.completedAt ? "restore_action_item" : "complete_action_item", { itemId: item.id })); setError(null); }
@@ -282,8 +323,13 @@ export function TodayPopupView() {
           );
         })}
       </ol>
+      {medicine?.recoveredFromBackup && <p className="medicine-recovery-notice" role="status">Showing recovered Medicine backup data.</p>}
+      {todayDoses.length > 0 && <section className="today-popup-todos today-popup-medicine" aria-labelledby="today-medicine-heading">
+        <header><strong id="today-medicine-heading">Medicine</strong><span>{todayDoses.filter((row) => row.state !== "taken" && row.state !== "skipped").length} left</span></header>
+        <ol>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{hiddenDoses > 0 && <li className="today-popup-todos__more"><button onClick={() => void openMedicineManagerWindow()} type="button">+{hiddenDoses} more</button></li>}</ol>
+      </section>}
       {todayTodos.length > 0 && <section className="today-popup-todos" aria-labelledby="today-todos-heading">
-        <header><strong id="today-todos-heading">TODO</strong><span>{openTodayTodos.length} need attention</span></header>
+        <header><strong id="today-todos-heading">To Do:</strong><span>{openTodayTodos.length} need attention</span></header>
         <ol>{visibleTodos.map((item) => <li data-completed={item.completedAt !== null || undefined} key={item.id}>
           <button aria-label={`${item.completedAt ? "Restore" : "Complete"} ${item.title}`} className="today-popup-todos__check" onClick={() => void toggleTodo(item)} type="button"><span aria-hidden="true">{item.completedAt ? "✓" : ""}</span></button>
           <button className="today-popup-todos__title" onClick={() => void openTodoDetails(item)} title={`Open details for ${item.title}`} type="button">{item.title}</button>

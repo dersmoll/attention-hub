@@ -61,6 +61,71 @@ export interface WorkCalendarDisplay {
   hasOverlap: boolean;
 }
 
+export type WorkCalendarRetryNotice = {
+  state: "Calendar sync delayed";
+  detail: string;
+};
+
+function workCalendarFailureLabel(stopReason: string | null) {
+  switch (stopReason) {
+    case "requestTimeout":
+    case "commandDeadline":
+      return "The calendar source took too long to respond";
+    case "requestFailed":
+    case "bodyRead":
+      return "The calendar source could not be reached";
+    case "httpStatus":
+    case "htmlResponse":
+    case "redirectBlocked":
+      return "The calendar source returned an unavailable response";
+    case "parseTime":
+    case "malformedCalendar":
+    case "malformedEvent":
+    case "invalidUtf8":
+    case "unsupportedTimezone":
+    case "ambiguousTime":
+    case "unsupportedRecurrence":
+    case "recurrenceLimit":
+      return "The calendar source could not be read safely";
+    case "noEligibleEvent":
+      return "The calendar source did not contain a current or next event";
+    default:
+      return "The calendar refresh did not complete";
+  }
+}
+
+function workCalendarRefreshAge(lastSuccessfulAtUnixMs: number | null, nowMs: number) {
+  if (lastSuccessfulAtUnixMs === null || nowMs < lastSuccessfulAtUnixMs) {
+    return "Last successful refresh time is unavailable";
+  }
+  const ageMinutes = Math.floor((nowMs - lastSuccessfulAtUnixMs) / 60_000);
+  if (ageMinutes < 1) return "Last successful refresh was less than a minute ago";
+  if (ageMinutes === 1) return "Last successful refresh was 1 minute ago";
+  return `Last successful refresh was ${ageMinutes} minutes ago`;
+}
+
+/**
+ * A single bounded miss is retried quietly. Repeated real failures get a
+ * safe, actionable status without exposing the private published URL.
+ */
+export function workCalendarRetryNotice({
+  consecutiveFailures,
+  lastSuccessfulAtUnixMs,
+  stopReason,
+  nowMs = Date.now(),
+}: {
+  consecutiveFailures: number;
+  lastSuccessfulAtUnixMs: number | null;
+  stopReason: string | null;
+  nowMs?: number;
+}): WorkCalendarRetryNotice | null {
+  if (consecutiveFailures < 2) return null;
+  return {
+    state: "Calendar sync delayed",
+    detail: `${workCalendarFailureLabel(stopReason)}. ${workCalendarRefreshAge(lastSuccessfulAtUnixMs, nowMs)}. Retrying automatically.`,
+  };
+}
+
 export function retainWorkCalendarSnapshot(
   current: WorkCalendarSnapshot | null,
   refreshed: WorkCalendarSnapshot | null,

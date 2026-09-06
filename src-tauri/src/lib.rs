@@ -1,6 +1,7 @@
 mod attention_signals;
 mod external_url;
 mod local_store;
+mod medicine;
 mod published_ics;
 pub mod teams_mirror;
 mod uia_gate;
@@ -9,6 +10,10 @@ mod workspace;
 mod zoom_meeting;
 
 use attention_signals::AttentionSignalSnapshot;
+use medicine::{
+    MedicineDeleteImpact, MedicineImportPreview, MedicineInput, MedicineSnapshot, MedicineState,
+    TreatmentInput,
+};
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -23,6 +28,335 @@ use workspace::{
 
 fn emit_workspace_changed(app: &tauri::AppHandle) {
     let _ = app.emit("workspace-changed", ());
+}
+
+fn emit_medicine_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("medicine-changed", ());
+}
+
+#[tauri::command]
+fn get_medicine_snapshot(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+) -> Result<MedicineSnapshot, String> {
+    medicine::get_snapshot(&app, state.inner())
+}
+
+#[tauri::command]
+fn export_medicine_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    destination_path: String,
+) -> Result<String, String> {
+    medicine::export_medicine(&app, state.inner(), destination_path)
+}
+
+#[tauri::command]
+fn preview_medicine_import(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    source_path: String,
+) -> Result<MedicineImportPreview, String> {
+    medicine::preview_medicine_import(&app, state.inner(), source_path)
+}
+
+#[tauri::command]
+fn import_medicine_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    source_path: String,
+    expected_revision: u64,
+    expected_digest: String,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::import_medicine(
+        &app,
+        state.inner(),
+        source_path,
+        expected_revision,
+        expected_digest,
+    )?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn create_treatment(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    input: TreatmentInput,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::create_treatment(&app, state.inner(), input)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn update_treatment(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    input: TreatmentInput,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::update_treatment(&app, state.inner(), &treatment_id, input)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn move_treatment(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    other_treatment_id: String,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot =
+        medicine::move_treatment(&app, state.inner(), &treatment_id, &other_treatment_id)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn reorder_treatments(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    ordered_ids: Vec<String>,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::reorder_treatments(&app, state.inner(), ordered_ids)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn create_medicine(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    input: MedicineInput,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::create_medicine(&app, state.inner(), input)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn update_medicine(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    input: MedicineInput,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::update_medicine(&app, state.inner(), &medicine_id, input)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn move_medicine(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    other_medicine_id: String,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::move_medicine(&app, state.inner(), &medicine_id, &other_medicine_id)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn reorder_medicines(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    ordered_ids: Vec<String>,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::reorder_medicines(&app, state.inner(), ordered_ids)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn set_medicine_dose_taken(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    slot_day: String,
+    slot_time: String,
+    taken: bool,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::set_dose_taken(
+        &app,
+        state.inner(),
+        &medicine_id,
+        &slot_day,
+        &slot_time,
+        taken,
+    )?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn set_medicine_dose_skipped(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    slot_day: String,
+    slot_time: String,
+    skipped: bool,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::set_dose_skipped(
+        &app,
+        state.inner(),
+        &medicine_id,
+        &slot_day,
+        &slot_time,
+        skipped,
+    )?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn set_treatment_archived(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    archived: bool,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::set_treatment_archived(&app, state.inner(), &treatment_id, archived)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn set_treatment_completed(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    completed: bool,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot =
+        medicine::set_treatment_completed(&app, state.inner(), &treatment_id, completed)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn save_treatment_notes(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    notes: Vec<workspace::NoteSegment>,
+    expected_notes_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::save_treatment_notes(
+        &app,
+        state.inner(),
+        &treatment_id,
+        notes,
+        expected_notes_revision,
+    )?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn open_treatment_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&medicine::treatment_note_url(
+        &app,
+        state.inner(),
+        &treatment_id,
+        &url,
+    )?)
+}
+#[tauri::command]
+fn open_medicine_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&medicine::medicine_note_url(
+        &app,
+        state.inner(),
+        &medicine_id,
+        &url,
+    )?)
+}
+#[tauri::command]
+fn get_medicine_delete_impact(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    entity: String,
+    id: Option<String>,
+) -> Result<MedicineDeleteImpact, String> {
+    medicine::delete_impact(&app, state.inner(), &entity, id.as_deref())
+}
+#[tauri::command]
+fn delete_treatment(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    treatment_id: String,
+    expected_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot =
+        medicine::delete_treatment(&app, state.inner(), &treatment_id, expected_revision)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_medicine(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    medicine_id: String,
+    expected_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::delete_medicine(&app, state.inner(), &medicine_id, expected_revision)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn delete_all_medicine_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    expected_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::delete_all(&app, state.inner(), expected_revision)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn retry_medicine_backup_cleanup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    expected_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::retry_backup_cleanup(&app, state.inner(), expected_revision)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
+fn notify_due_doses(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    grace_minutes: i64,
+) -> Result<MedicineSnapshot, String> {
+    let outcome = medicine::notify_due_doses(&app, state.inner(), grace_minutes)?;
+    if outcome.changed {
+        if let Some(body) = outcome.notification_body {
+            // Neither title nor body carries medicine or treatment names.
+            app.notification()
+                .builder()
+                .title("Attention Hub")
+                .body(body)
+                .show()
+                .map_err(|_| {
+                    "Windows could not show the medicine reminder notification.".to_owned()
+                })?;
+        }
+        emit_medicine_changed(&app);
+    }
+    Ok(outcome.snapshot)
 }
 
 #[tauri::command]
@@ -751,16 +1085,69 @@ fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Release builds only, and registered first as the plugin requires: a
+    // second launch must be intercepted before the rest of the app starts.
+    //
+    // Two processes sharing a data directory are two uncoordinated writers. The
+    // in-process mutexes serialize windows, not launches, so both could load the
+    // same revision and write over each other. Rather than coordinate across
+    // processes, a second launch surfaces the window that already exists.
+    //
+    // Debug builds are deliberately exempt. The plugin keys its guard on the
+    // bundle identifier, which debug and release share, so enabling it here
+    // would stop a development build starting while the installed app runs —
+    // and the reason for the guard does not apply, because debug builds already
+    // use their own data directory and credential (`local_store::profile_dir`).
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        // Best effort: a widget that fails to raise is a nuisance, but the guard
+        // has already done its real job by refusing to start a second writer.
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }));
+
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(WorkspaceState::new())
+        .manage(MedicineState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
             get_workspace_snapshot,
+            get_medicine_snapshot,
+            export_medicine_data,
+            preview_medicine_import,
+            import_medicine_data,
+            create_treatment,
+            update_treatment,
+            move_treatment,
+            reorder_treatments,
+            create_medicine,
+            update_medicine,
+            move_medicine,
+            reorder_medicines,
+            set_medicine_dose_taken,
+            set_medicine_dose_skipped,
+            set_treatment_archived,
+            set_treatment_completed,
+            save_treatment_notes,
+            open_treatment_note_url,
+            open_medicine_note_url,
+            get_medicine_delete_impact,
+            delete_treatment,
+            delete_medicine,
+            delete_all_medicine_data,
+            retry_medicine_backup_cleanup,
+            notify_due_doses,
             export_workspace_data,
             preview_workspace_import,
             import_workspace_data,

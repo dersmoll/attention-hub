@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for Attention Hub application windows",
-  "windows": ["main", "advanced", "update", "event-settings", "project-panel", "manager", "today"],
+  "windows": ["main", "advanced", "update", "event-settings", "project-panel", "manager", "today", "medicine", "medicine-panel"],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",

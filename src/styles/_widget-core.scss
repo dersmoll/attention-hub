@@ -63,6 +63,7 @@
   background: panel-tint(3%);
 
   &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
+  &[data-segments="3"] { grid-template-columns: 60px 28px minmax(44px, 1fr); }
 
   button {
     position: relative;
@@ -135,6 +136,8 @@
   }
 
   &[data-segments="1"] &__projects { border-left: 0; }
+  &__medicine { border-left: 1px solid panel-border-wash(72%) !important; }
+  &__medicine[data-due] { color: var(--color-danger); box-shadow: inset 0 -2px 0 var(--color-danger); }
 
   &__badge {
     position: absolute;
@@ -888,6 +891,8 @@
 }
 
 @include forced-colors {
+  .widget-destinations__medicine[data-due] { border: 2px solid Highlight; color: Highlight; box-shadow: none; }
+  .widget-destinations__badge { border: 1px solid ButtonText; }
   .widget-app-slot[data-health="retrying"],
   .widget-app-slot[data-health="stale"] {
     outline: 2px dashed Highlight;

@@ -67,9 +67,16 @@ assert.equal(layout.widgetCalendarWidth("recommended", false, 0, 444), 444);
 assert.equal(layout.widgetCalendarWidth("recommended", true, 0, 300), 392);
 assert.equal(layout.widgetCalendarWidth("slim", false, 200, 460), 460);
 assert.equal(layout.todayPopupHeight(0, 0), 76);
-assert.equal(layout.todayPopupHeight(0, 1), 136);
-assert.equal(layout.todayPopupHeight(2, 3), 218);
-assert.equal(layout.todayPopupHeight(2, 99), 368);
+assert.equal(layout.todayPopupHeight(0, 0, 1), 136);
+assert.equal(layout.todayPopupHeight(2, 0, 3), 218);
+assert.equal(layout.todayPopupHeight(2, 0, 99), 368);
+assert.equal(layout.todayPopupHeight(0, 1, 0), 136);
+assert.equal(layout.todayPopupHeight(0, 8, 0), 346);
+// Eight doses plus the overflow link; crossing the bound must grow the window.
+assert.equal(layout.todayPopupHeight(0, 9, 0), 376);
+assert.equal(layout.todayPopupHeight(0, 99, 0), 376);
+assert.equal(layout.todayPopupHeight(0, 9, 1), 436);
+assert.equal(layout.todayPopupHeight(0, 0, 0, true), 100);
 assert.equal(layout.widgetUtilityWidth("recommended"), 20);
 assert.equal(layout.widgetUtilityWidth("slim"), 64);
 assert.equal(layout.widgetDestinationsWidth("recommended"), 88);
@@ -78,6 +85,33 @@ assert.equal(layout.widgetDestinationsWidth("recommended", true, false), 60);
 assert.equal(layout.widgetDestinationsWidth("recommended", false, true), 28);
 assert.equal(layout.widgetDestinationsWidth("slim", true, false), 33);
 assert.equal(layout.widgetDestinationsWidth("recommended", false, false), 0);
+
+// M19 destination segment. The medicine segment is opt-in and defaults off, so
+// every pre-M19 caller signature must keep its exact width.
+assert.equal(layout.widgetDestinationsWidth("recommended", true, true), 88);
+assert.equal(layout.widgetDestinationsWidth("recommended", true, true, false), 88);
+assert.equal(layout.widgetDestinationsWidth("slim", true, true), 66);
+assert.equal(layout.widgetDestinationsWidth("slim", true, true, false), 66);
+assert.equal(layout.widgetDestinationsWidth("slim", true, false), 33);
+assert.equal(layout.widgetDestinationsWidth("slim", false, true), 33);
+// Compact is a flat 33 px per visible segment, so one and two are unchanged
+// and three is exactly 99 px.
+assert.equal(layout.widgetDestinationsWidth("slim", false, false, true), 33);
+assert.equal(layout.widgetDestinationsWidth("slim", true, false, true), 66);
+assert.equal(layout.widgetDestinationsWidth("slim", true, true, true), 99);
+// Recommended keeps Today at 60 px and Projects at 28 px; medicine adds 44 px
+// because it carries a label and a badge rather than a bare glyph.
+assert.equal(layout.widgetDestinationsWidth("recommended", false, false, true), 44);
+assert.equal(layout.widgetDestinationsWidth("recommended", true, false, true), 104);
+assert.equal(layout.widgetDestinationsWidth("recommended", false, true, true), 72);
+assert.equal(layout.widgetDestinationsWidth("recommended", true, true, true), 132);
+// Enabling the segment must widen the widget by exactly the segment width and
+// disabling it must restore the previous width.
+for (const [mode, delta] of [["recommended", 44], ["slim", 33]]) {
+  const without = layout.widgetWidth(2, mode, false, 2, "horizontal", true, true, 0, null, true, true, true);
+  const withMedicine = layout.widgetWidth(2, mode, false, 2, "horizontal", true, true, 0, null, true, true, true, true);
+  assert.equal(withMedicine - without, delta);
+}
 assert.equal(layout.widgetFixedWidth(2, "recommended"), 364);
 assert.equal(layout.widgetFixedWidth(2, "slim"), 390);
 assert.equal(layout.widgetWidth(0, "recommended"), 540);
@@ -133,6 +167,15 @@ assert.equal(
     false,
   ),
   362,
+);
+
+assert.equal(
+  layout.widgetDestinationsWidth("recommended", true, true, true),
+  132,
+);
+assert.equal(
+  layout.widgetDestinationsWidth("slim", true, true, true),
+  99,
 );
 
 const [

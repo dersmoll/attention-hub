@@ -65,6 +65,7 @@
     border-left: 1px solid var(--widget-panel-border) !important;
 
     &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
+    &[data-segments="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
     button {
       display: flex;

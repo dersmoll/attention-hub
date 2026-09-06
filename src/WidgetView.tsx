@@ -33,12 +33,14 @@ import {
   nextWorkCalendarRefreshDelay,
   retainWorkCalendarSnapshot,
   selectWorkCalendarDisplay,
+  workCalendarRetryNotice,
   workCalendarJoinLabel,
   workCalendarOccupiedMinutes,
   WORK_CALENDAR_POLL_INTERVAL_MS,
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
+import { createCalendarPollController } from "./calendar-poll-controller";
 import {
   convertZonedTimeToInstant,
   formatZonedConversion,
@@ -76,6 +78,12 @@ import {
   widgetPanelStyle,
   writeWidgetPreferences,
 } from "./widget-preferences";
+import { MEDICINE_MANAGER_WINDOW_LABEL } from "./medicine-manager-window";
+import {
+  MEDICINE_QUIT_SAVE_REQUEST_EVENT,
+  MEDICINE_QUIT_SAVE_RESULT_EVENT,
+  type MedicineQuitSaveResult,
+} from "./medicine-close-guard";
 import {
   INITIAL_ZOOM_MEETING_PRESENCE,
   nextZoomMeetingPresence,
@@ -88,7 +96,12 @@ import {
   type TodoPreferences,
 } from "./todo-preferences";
 import { openManagerWindow } from "./manager-window";
+import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { isActionable, isFromActiveOwner, isVisibleInToday, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
+import { activeMedicineTreatments, boundedMedicinePanelGroups, medicineDailyTreatments, type MedicineSnapshot } from "./medicine-model";
+import { MEDICINE_PREFERENCES_CHANGED_EVENT, readMedicinePreferences, type MedicinePreferences } from "./medicine-preferences";
+import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, MEDICINE_PANEL_WIDTH, MEDICINE_PANEL_WINDOW_LABEL, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
+import { createMedicinePanelWindow } from "./medicine-panel-window";
 import type { PopupAnchor } from "./event-workspace-model";
 import {
   openEventSettingsWindow,
@@ -122,6 +135,7 @@ const WORK_CALENDAR_IMMINENT_MS = 60 * 1_000;
 const SOURCE_ACTIVATION_NOTICE_MS = 4_000;
 const WIDGET_NOTICE_MS = 4_500;
 const TODO_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
+const MEDICINE_NOTIFICATION_POLL_INTERVAL_MS = 30_000;
 const WIDGET_RESIZE_EDGE_SIZE = 6;
 const WIDGET_HEIGHT_SNAP_THRESHOLD = 46.5;
 const WIDGET_RESIZE_SETTLE_MS = 500;
@@ -152,6 +166,7 @@ type WidgetNoticeScope =
   | "advanced"
   | "menu"
   | "calendar"
+  | "medicine"
   | "sound";
 const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "teams",
@@ -371,25 +386,6 @@ function calendarEventProgress(
     100,
     Math.max(0, ((now.getTime() - startMs) / (endMs - startMs)) * 100),
   );
-}
-
-async function invokeWorkCalendarSnapshot() {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      invoke<WorkCalendarSnapshot>("get_work_calendar_snapshot"),
-      new Promise<WorkCalendarSnapshot>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("work calendar deadline")),
-          WORK_CALENDAR_UI_DEADLINE_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
 }
 
 function mirrorLabel(status: TaskbarMirrorStatus | null) {
@@ -673,16 +669,24 @@ export function WidgetView() {
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
-  const [workCalendarRefreshDegraded, setWorkCalendarRefreshDegraded] =
-    useState(false);
+  const [workCalendarCheckSlow, setWorkCalendarCheckSlow] = useState(false);
+  const [workCalendarRefreshHealth, setWorkCalendarRefreshHealth] = useState({
+    consecutiveFailures: 0,
+    lastSuccessfulAtUnixMs: null as number | null,
+    stopReason: null as string | null,
+  });
   const workCalendarRef = useRef<WorkCalendarSnapshot | null>(null);
   const [calendarDayPanelOpen, setCalendarDayPanelOpen] = useState(false);
   const [calendarDayPanelPlacement, setCalendarDayPanelPlacement] = useState<
     "above" | "below"
   >("below");
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
+  const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
+  const [medicineLoadState, setMedicineLoadState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [todoPreferences, setTodoPreferences] =
     useState<TodoPreferences>(readTodoPreferences);
+  const [medicinePreferences, setMedicinePreferences] =
+    useState<MedicinePreferences>(readMedicinePreferences);
   const [acknowledgedActiveEvent, setAcknowledgedActiveEvent] = useState<
     string | null
   >(null);
@@ -711,6 +715,10 @@ export function WidgetView() {
   const todayPopupPayloadRef = useRef<TodayPopupPayload | null>(null);
   const todayPopupReadyRef = useRef(false);
   const todayPopupPositionedRef = useRef(false);
+  const medicinePanelPayloadRef = useRef<MedicinePanelPayload | null>(null);
+  const medicinePanelReadyRef = useRef(false);
+  const medicinePanelPositionedRef = useRef(false);
+  const [medicinePanelOpen, setMedicinePanelOpen] = useState(false);
   const widgetInitialLayoutRef = useRef(true);
   const suppressPositionPersistenceRef = useRef(false);
   const resizeDirectionRef = useRef<WidgetResizeDirection | null>(null);
@@ -723,6 +731,7 @@ export function WidgetView() {
   const widgetContextMenuRef = useRef<Menu | null>(null);
   const widgetNoticeTimerRef = useRef<number | null>(null);
   const widgetNoticeScopeRef = useRef<WidgetNoticeScope | null>(null);
+  const applicationQuitInFlightRef = useRef(false);
   const sourceActivationNoticeTimerRef = useRef<number | null>(null);
   const zoomActivationFeedbackTimerRef = useRef<number | null>(null);
   const announcedMeetingStartAlertsRef = useRef<ReadonlySet<string>>(new Set());
@@ -799,6 +808,47 @@ export function WidgetView() {
     widgetNoticeScopeRef.current = null;
     setWidgetError(null);
   }, []);
+  const requestApplicationQuit = useCallback(async () => {
+    if (applicationQuitInFlightRef.current) return;
+    applicationQuitInFlightRef.current = true;
+    try {
+      const manager = await WebviewWindow.getByLabel(MEDICINE_MANAGER_WINDOW_LABEL);
+      if (manager) {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const allowed = await new Promise<boolean>(async (resolve, reject) => {
+          let stop: (() => void) | undefined;
+          const timer = window.setTimeout(() => {
+            stop?.();
+            reject(new Error("Medicine did not finish its save-before-quit check."));
+          }, 5_000);
+          try {
+            stop = await listen<MedicineQuitSaveResult>(MEDICINE_QUIT_SAVE_RESULT_EVENT, ({ payload }) => {
+              if (payload.requestId !== requestId) return;
+              window.clearTimeout(timer);
+              stop?.();
+              resolve(payload.allowed);
+            });
+            await emitTo(MEDICINE_MANAGER_WINDOW_LABEL, MEDICINE_QUIT_SAVE_REQUEST_EVENT, { requestId });
+          } catch (reason) {
+            window.clearTimeout(timer);
+            stop?.();
+            reject(reason);
+          }
+        });
+        if (!allowed) {
+          await manager.show().catch(() => undefined);
+          await manager.setFocus().catch(() => undefined);
+          showWidgetNotice("medicine", "Attention Hub stayed open because Medicine notes are not saved yet. Review Medicine and try again.");
+          return;
+        }
+      }
+      await invoke("quit_application");
+    } catch {
+      showWidgetNotice("medicine", "Attention Hub stayed open because Medicine could not confirm that notes were saved. Review Medicine and try again.");
+    } finally {
+      applicationQuitInFlightRef.current = false;
+    }
+  }, [showWidgetNotice]);
   const publishTodayPopup = useCallback(() => {
     const payload = todayPopupPayloadRef.current;
     if (
@@ -843,6 +893,29 @@ export function WidgetView() {
       stopClosed?.();
     };
   }, [publishTodayPopup]);
+
+  const publishMedicinePanel = useCallback(() => {
+    const payload = medicinePanelPayloadRef.current;
+    if (!payload || !medicinePanelReadyRef.current || !medicinePanelPositionedRef.current) return;
+    void emitTo(MEDICINE_PANEL_WINDOW_LABEL, MEDICINE_PANEL_OPEN_EVENT, payload);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopReady: (() => void) | undefined;
+    let stopClosed: (() => void) | undefined;
+    void Promise.all([
+      listen(MEDICINE_PANEL_READY_EVENT, () => { if (!disposed) { medicinePanelReadyRef.current = true; publishMedicinePanel(); } }),
+      listen(MEDICINE_PANEL_CLOSED_EVENT, () => {
+        if (disposed) return;
+        setMedicinePanelOpen(false);
+        medicinePanelPayloadRef.current = null;
+        medicinePanelReadyRef.current = false;
+        medicinePanelPositionedRef.current = false;
+      }),
+    ]).then(([ready, closed]) => { if (disposed) { ready(); closed(); } else { stopReady = ready; stopClosed = closed; } });
+    return () => { disposed = true; stopReady?.(); stopClosed?.(); };
+  }, [publishMedicinePanel]);
   const systemTimeZone = canonicalTimeZone(
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
@@ -880,7 +953,8 @@ export function WidgetView() {
   const calendarPanelVisible = !timeFocusMode;
   const todayPanelVisible = !timeFocusMode && preferences.showTodayPanel;
   const projectsPanelVisible = !timeFocusMode && preferences.showProjectsPanel;
-  const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible);
+  const medicinePanelVisible = !timeFocusMode && preferences.showMedicinePanel;
+  const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible) + Number(medicinePanelVisible);
   const visibleClockCount = timeFocusMode
     ? 1
     : 2 + preferences.extraTimeZones.length;
@@ -949,7 +1023,7 @@ export function WidgetView() {
   const visibleTodayTodos = workspace?.actionItems.filter((item) => isVisibleInToday(item, now) && isFromActiveOwner(item, workspace)) ?? [];
   const attentionTodoCount = actionableTodos.filter((item) => needsAttention(item, now)).length;
   const activeTodoCount = workspace?.actionItems.filter((item) => item.completedAt === null && isFromActiveOwner(item, workspace)).length ?? 0;
-  const calendarDayPanelLogicalHeight = todayPopupHeight(calendarDaySelectionCount, visibleTodayTodos.length);
+  const calendarDayPanelLogicalHeight = todayPopupHeight(calendarDaySelectionCount, 0, visibleTodayTodos.length);
   const calendarLayoutContentLength =
     (calendarDisplay.selection?.subject.length ?? 0) +
     (calendarDisplay.selection ? 28 : 0) +
@@ -1010,16 +1084,45 @@ export function WidgetView() {
     }
     workCalendarInFlight.current = true;
     setWorkCalendarRefreshing(true);
+    const slowTimer = window.setTimeout(
+      () => setWorkCalendarCheckSlow(true),
+      WORK_CALENDAR_UI_DEADLINE_MS,
+    );
     try {
-      const snapshot = await invokeWorkCalendarSnapshot();
+      const snapshot = await invoke<WorkCalendarSnapshot>(
+        "get_work_calendar_snapshot",
+      );
       const displaySnapshot = retainWorkCalendarSnapshot(
         workCalendarRef.current,
         snapshot,
       );
       workCalendarRef.current = displaySnapshot;
       setWorkCalendar(displaySnapshot);
-      setWorkCalendarRefreshDegraded(displaySnapshot !== snapshot);
       setWorkCalendarTransportFailed(false);
+      setWorkCalendarRefreshHealth((current) => {
+        if (snapshot.status === "observed") {
+          return {
+            consecutiveFailures: 0,
+            lastSuccessfulAtUnixMs: snapshot.capturedAtUnixMs,
+            stopReason: null,
+          };
+        }
+        if (snapshot.status === "notConfigured") {
+          return {
+            consecutiveFailures: 0,
+            lastSuccessfulAtUnixMs: null,
+            stopReason: null,
+          };
+        }
+        if (snapshot.status === "busy") {
+          return current;
+        }
+        return {
+          ...current,
+          consecutiveFailures: current.consecutiveFailures + 1,
+          stopReason: snapshot.stopReason,
+        };
+      });
       return snapshot;
     } catch {
       const displaySnapshot = retainWorkCalendarSnapshot(
@@ -1028,12 +1131,18 @@ export function WidgetView() {
       );
       workCalendarRef.current = displaySnapshot;
       setWorkCalendar(displaySnapshot);
-      setWorkCalendarRefreshDegraded(displaySnapshot !== null);
       setWorkCalendarTransportFailed(true);
+      setWorkCalendarRefreshHealth((current) => ({
+        ...current,
+        consecutiveFailures: current.consecutiveFailures + 1,
+        stopReason: null,
+      }));
       return null;
     } finally {
+      clearTimeout(slowTimer);
       workCalendarInFlight.current = false;
       setWorkCalendarRefreshing(false);
+      setWorkCalendarCheckSlow(false);
     }
   }, []);
 
@@ -1115,39 +1224,27 @@ export function WidgetView() {
   }, []);
 
   useEffect(() => {
+    const controller = createCalendarPollController({
+      refresh: refreshWorkCalendar,
+      nextDelay: nextWorkCalendarRefreshDelay,
+    });
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let stopListening: (() => void) | undefined;
 
-    const poll = async () => {
-      const snapshot = await refreshWorkCalendar();
-      if (!disposed) {
-        timer = setTimeout(
-          () => void poll(),
-          nextWorkCalendarRefreshDelay(snapshot),
-        );
-      }
-    };
-
-    void listen("work-calendar-changed", () => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-      void poll();
-    }).then((unlisten) => {
-      if (disposed) {
-        unlisten();
-      } else {
-        stopListening = unlisten;
-      }
-    });
-    void poll();
+    void listen("work-calendar-changed", controller.requestRefresh).then(
+      (unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          stopListening = unlisten;
+        }
+      },
+    );
+    controller.start();
 
     return () => {
       disposed = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
+      controller.dispose();
       stopListening?.();
     };
   }, [refreshWorkCalendar]);
@@ -1186,6 +1283,24 @@ export function WidgetView() {
       stopListening?.();
     };
   }, [clearWidgetNotice, showWidgetNotice]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    const refresh = async () => {
+      try {
+        const snapshot = await invoke<MedicineSnapshot>("get_medicine_snapshot");
+        if (!disposed) { setMedicine(snapshot); setMedicineLoadState("ready"); }
+      } catch {
+        if (!disposed) { setMedicine(null); setMedicineLoadState("unavailable"); }
+      }
+    };
+    void listen("medicine-changed", () => void refresh()).then((unlisten) => {
+      if (disposed) unlisten(); else stopListening = unlisten;
+    });
+    void refresh();
+    return () => { disposed = true; stopListening?.(); };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -1240,6 +1355,69 @@ export function WidgetView() {
       stopListening?.();
     };
   }, [todoPreferences.dueNotificationsEnabled, showWidgetNotice]);
+
+  // Dose reminders mirror the to-do path: the widget polls, and the Rust
+  // command raises the toast only when it actually marked something notified.
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopListening: (() => void) | undefined;
+
+    const checkDueDoses = async () => {
+      if (medicinePreferences.doseNotificationsEnabled) {
+        try {
+          const snapshot = await invoke<MedicineSnapshot>("notify_due_doses", {
+            graceMinutes: medicinePreferences.graceMinutes,
+          });
+          if (!disposed) {
+            setMedicine(snapshot);
+            setMedicineLoadState("ready");
+          }
+        } catch {
+          if (!disposed) {
+            showWidgetNotice(
+              "medicine",
+              "A dose reminder notification could not be shown.",
+            );
+          }
+        }
+      }
+      if (!disposed) {
+        timer = setTimeout(
+          () => void checkDueDoses(),
+          MEDICINE_NOTIFICATION_POLL_INTERVAL_MS,
+        );
+      }
+    };
+
+    void listen<MedicinePreferences>(
+      MEDICINE_PREFERENCES_CHANGED_EVENT,
+      ({ payload }) => {
+        if (!disposed) {
+          setMedicinePreferences(payload);
+        }
+      },
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    void checkDueDoses();
+
+    return () => {
+      disposed = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      stopListening?.();
+    };
+  }, [
+    medicinePreferences.doseNotificationsEnabled,
+    medicinePreferences.graceMinutes,
+    showWidgetNotice,
+  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -1382,6 +1560,7 @@ export function WidgetView() {
             clocksPanelVisible,
             todayPanelVisible,
             projectsPanelVisible,
+            medicinePanelVisible,
           ) +
           (calendarPanelVisible
             ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
@@ -1406,6 +1585,7 @@ export function WidgetView() {
               todayPanelVisible,
               projectsPanelVisible,
               calendarPanelVisible,
+              medicinePanelVisible,
             ),
             widgetHeight(preferences.widthMode),
           ),
@@ -1594,6 +1774,7 @@ export function WidgetView() {
               clocksPanelVisible,
               todayPanelVisible,
               projectsPanelVisible,
+              medicinePanelVisible,
             ) +
             (calendarPanelVisible
               ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
@@ -1629,6 +1810,7 @@ export function WidgetView() {
       clocksPanelVisible,
       todayPanelVisible,
       projectsPanelVisible,
+      medicinePanelVisible,
       preferences.clockLayout,
       preferences.extraTimeZones.length,
       preferences.widthMode,
@@ -1678,6 +1860,7 @@ export function WidgetView() {
             clocksPanelVisible,
             todayPanelVisible,
             projectsPanelVisible,
+            medicinePanelVisible,
           );
           const calendarWidth = Math.max(
             widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent),
@@ -1717,6 +1900,7 @@ export function WidgetView() {
           clocksPanelVisible,
           todayPanelVisible,
           projectsPanelVisible,
+          medicinePanelVisible,
         );
         const targetCalendarWidth = Math.max(
           widgetCalendarMinimumWidth(nextMode, showNextEvent),
@@ -1993,7 +2177,8 @@ export function WidgetView() {
         anchor,
         placement,
         width: (anchor.right - anchor.left) / anchor.scaleFactor,
-        height: calendarDayPanelLogicalHeight,
+        height: Math.min(calendarDayPanelLogicalHeight, Math.max(160, Math.floor((anchor.monitorBottom - anchor.monitorTop) / anchor.scaleFactor - 12))),
+        maxHeight: Math.max(160, Math.floor((anchor.monitorBottom - anchor.monitorTop) / anchor.scaleFactor - 12)),
         occupiedMinutes: workCalendarOccupiedMinutes(
           workCalendar?.daySelections ?? [],
           dayStart,
@@ -2146,11 +2331,64 @@ export function WidgetView() {
       right,
       bottom,
       scaleFactor,
-      monitorLeft: monitor.position.x,
-      monitorTop: monitor.position.y,
-      monitorRight: monitor.position.x + monitor.size.width,
-      monitorBottom: monitor.position.y + monitor.size.height,
+      monitorLeft: monitor.workArea.position.x,
+      monitorTop: monitor.workArea.position.y,
+      monitorRight: monitor.workArea.position.x + monitor.workArea.size.width,
+      monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
     };
+  };
+
+  const openMedicinePanel = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!hasActiveMedicineTreatment) {
+      await openMedicineManagerWindow();
+      return;
+    }
+    const button = event.currentTarget;
+    try {
+      const existing = await WebviewWindow.getByLabel(MEDICINE_PANEL_WINDOW_LABEL);
+      if (existing) {
+        await existing.close();
+        setMedicinePanelOpen(false);
+        medicinePanelPayloadRef.current = null;
+        medicinePanelReadyRef.current = false;
+        medicinePanelPositionedRef.current = false;
+        return;
+      }
+      const [position, scaleFactor, monitors] = await Promise.all([
+        widgetWindow.outerPosition(), widgetWindow.scaleFactor(), availableMonitors(),
+      ]);
+      const rect = button.getBoundingClientRect();
+      const centerX = position.x + (rect.left + rect.width / 2) * scaleFactor;
+      const centerY = position.y + (rect.top + rect.height / 2) * scaleFactor;
+      const monitor = monitors.find((item) => centerX >= item.position.x && centerX <= item.position.x + item.size.width && centerY >= item.position.y && centerY <= item.position.y + item.size.height) ?? monitors[0];
+      if (!monitor) throw new Error("Monitor unavailable");
+      const bounded = boundedMedicinePanelGroups(dailyMedicineGroups);
+      const naturalHeight = medicinePanelHeight(bounded.groups.length, bounded.visibleRows, bounded.hiddenRows > 0);
+      const anchor: PopupAnchor = {
+        left: Math.round(position.x + rect.left * scaleFactor),
+        top: Math.round(position.y + rect.top * scaleFactor),
+        right: Math.round(position.x + rect.right * scaleFactor),
+        bottom: Math.round(position.y + rect.bottom * scaleFactor),
+        scaleFactor,
+        monitorLeft: monitor.workArea.position.x,
+        monitorTop: monitor.workArea.position.y,
+        monitorRight: monitor.workArea.position.x + monitor.workArea.size.width,
+        monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
+      };
+      const height = Math.min(naturalHeight, Math.max(120, Math.floor((anchor.monitorBottom - anchor.monitorTop) / scaleFactor - 12)));
+      const placement = anchor.top - anchor.monitorTop >= anchor.monitorBottom - anchor.bottom ? "above" : "below";
+      const payload: MedicinePanelPayload = { anchor, placement, width: MEDICINE_PANEL_WIDTH, height };
+      medicinePanelPayloadRef.current = payload;
+      medicinePanelReadyRef.current = false;
+      medicinePanelPositionedRef.current = false;
+      setMedicinePanelOpen(true);
+      await createMedicinePanelWindow(payload, () => { medicinePanelPositionedRef.current = true; publishMedicinePanel(); }, () => {
+        setMedicinePanelOpen(false); medicinePanelPayloadRef.current = null; medicinePanelReadyRef.current = false; medicinePanelPositionedRef.current = false;
+      }, () => showWidgetNotice("medicine", "Medicine panel could not be opened."));
+    } catch {
+      setMedicinePanelOpen(false);
+      showWidgetNotice("medicine", "Medicine panel could not be opened.");
+    }
   };
 
   const openCalendarEventSettings = async (
@@ -2344,9 +2582,15 @@ export function WidgetView() {
     },
     [],
   );
+  const calendarRetryNotice = workCalendarRetryNotice({
+    ...workCalendarRefreshHealth,
+    nowMs: now.getTime(),
+  });
   const calendarState = calendarSelection
-    ? workCalendarRefreshDegraded
-      ? "Calendar retrying"
+    ? calendarRetryNotice
+      ? calendarRetryNotice.state
+      : workCalendarCheckSlow
+        ? "Calendar checking"
       : calendarStartedNeedsAttention
       ? "Meeting started"
       : calendarStartingSoon
@@ -2368,8 +2612,10 @@ export function WidgetView() {
         : "No fresh work-calendar event";
   const calendarDetail = calendarSelection
     ? `${formatCalendarDetail(calendarSelection, now)}${
-        workCalendarRefreshDegraded
-          ? " · Last refresh unavailable; retrying"
+        calendarRetryNotice
+          ? ` · ${calendarRetryNotice.detail}`
+          : workCalendarCheckSlow
+            ? " · Refresh is taking longer than expected"
           : ""
       }`
     : workCalendarRefreshing
@@ -2474,7 +2720,7 @@ export function WidgetView() {
     )}px`,
     "--widget-height": `${widgetHeight(preferences.widthMode)}px`,
     "--widget-calendar-day-panel-height": `${calendarDayPanelLogicalHeight}px`,
-    "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible)}px`,
+    "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible, medicinePanelVisible)}px`,
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
     "--widget-utility-width": `${widgetUtilityWidth(preferences.widthMode)}px`,
     "--widget-drag-handle-width": `${WIDGET_DRAG_HANDLE_WIDTH}px`,
@@ -2482,6 +2728,16 @@ export function WidgetView() {
     "--widget-grid-template": gridSegments.join(" "),
   } as CSSProperties;
   const calendarDaySelections = workCalendar?.daySelections ?? [];
+  const dailyMedicineGroups = medicine
+    ? medicineDailyTreatments(medicine, now, medicinePreferences.graceMinutes)
+    : [];
+  const todayMedicineRows = dailyMedicineGroups.flatMap((group) => group.rows);
+  const medicineLeftCount = todayMedicineRows.filter((row) => row.state !== "taken" && row.state !== "skipped").length;
+  const medicineAttentionCount = todayMedicineRows.filter((row) => row.state === "due" || row.state === "missed").length;
+  const hasActiveMedicineTreatment = medicine ? activeMedicineTreatments(medicine, now).length > 0 : false;
+  const medicineHasScheduledDoses = todayMedicineRows.length > 0;
+  const medicineBadge = medicineLoadState === "loading" ? "…" : medicineLoadState === "unavailable" ? "!" : !medicineHasScheduledDoses ? "–" : medicineLeftCount ? medicineLeftCount > 99 ? "99+" : medicineLeftCount : "✓";
+  const medicineBadgeLabel = medicineLoadState === "loading" ? "Medicine data is loading" : medicineLoadState === "unavailable" ? "Medicine data is unavailable" : !medicineHasScheduledDoses ? "No doses scheduled today" : medicineLeftCount ? `${medicineLeftCount} doses left today` : "All doses recorded today";
   const remainingCalendarEventCount = calendarDaySelections.filter((selection) => {
     if (selection.cancelled) return false;
     const end = Date.parse(selection.end);
@@ -2905,7 +3161,7 @@ export function WidgetView() {
                 className="widget-calendar__state"
                 data-calendar-status={
                   calendarSelection
-                    ? workCalendarRefreshDegraded
+                    ? calendarRetryNotice
                       ? "retrying"
                       : "observed"
                     : undefined
@@ -3168,6 +3424,20 @@ export function WidgetView() {
             <span className="widget-destinations__badge">{activeTodoCount > 99 ? "99+" : activeTodoCount}</span>
           </button>
         </div>}
+        {medicinePanelVisible && <button
+          aria-label={`Open Medicine, ${medicineBadgeLabel}${medicineAttentionCount ? `, ${medicineAttentionCount} due or missed` : ""}`}
+          aria-pressed={medicinePanelOpen}
+          className="widget-destinations__medicine"
+          data-due={medicineLoadState === "ready" && medicineAttentionCount > 0 || undefined}
+          data-unavailable={medicineLoadState === "unavailable" || undefined}
+          onClick={(event) => void openMedicinePanel(event)}
+          title="Open Medicine"
+          type="button"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 5h10v14H7z"/><path d="M9 9h6M9 13h6"/></svg>
+          <span className="widget-destinations__label">Meds</span>
+          <span aria-label={medicineBadgeLabel} className="widget-destinations__badge">{medicineBadge}</span>
+        </button>}
       </aside>}
 
       <div
@@ -3185,7 +3455,7 @@ export function WidgetView() {
         <button
           aria-label="Close Attention Hub"
           className="widget-close-control"
-          onClick={() => void invoke("quit_application")}
+          onClick={() => void requestApplicationQuit()}
           title="Close Attention Hub"
           type="button"
         >

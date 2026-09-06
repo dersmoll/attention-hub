@@ -1,0 +1,398 @@
+@use "manager-kit" as *;
+@use "mixins" as *;
+
+.medicine-manager {
+  /* Manager-class windows are painted from the app chrome palette, the same
+   * one Project Hub and Advanced use. The widget panel theme stays where it
+   * was designed to apply: the widget and its frameless popups, including
+   * `.medicine-panel` below. `_windows.scss` already groups `medicine` with
+   * the chromed windows; this makes the paint agree with that grouping. */
+  --medicine-surface: var(--color-canvas);
+  --medicine-sunken: var(--color-canvas-sunken);
+  --medicine-raised: var(--color-canvas);
+  --medicine-quiet: var(--color-text-muted);
+  --medicine-border: var(--color-border);
+  --medicine-border-soft: var(--color-border-muted);
+  --medicine-accent: var(--color-brand);
+  --medicine-text: var(--color-text-chrome);
+  --medicine-control-height: 28px;
+  --medicine-text-size: 13px;
+  --medicine-helper-size: 11px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--medicine-text);
+  background: var(--medicine-surface);
+  font-family: var(--font-ui);
+  font-size: var(--medicine-text-size);
+  line-height: 1.45;
+
+  h1, h2, h3, h4, p { margin: 0; }
+  section + section { margin-top: 0; }
+  h1, h2, h3, h4 { font-weight: 650; line-height: 1.25; }
+
+  // Field values must not inherit the smaller label font or its emphasis.
+  //
+  // :where() zeroes this rule's specificity to (0,1,0), so it behaves as a base
+  // that any class can override. Without it the rule is (0,1,1) and silently
+  // beats every `&__thing` class at (0,1,0) — which is how the drag grip ended
+  // up wearing a filled control background.
+  :where(button, input, select, textarea) {
+    min-height: var(--medicine-control-height);
+    border: 1px solid var(--medicine-border);
+    border-radius: var(--radius-field);
+    color: var(--medicine-text);
+    background: var(--medicine-raised);
+    font-family: var(--font-ui);
+    font-size: var(--medicine-text-size);
+    font-weight: 400;
+    line-height: 1.35;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  :where(input, select, textarea) {
+    width: 100%;
+    min-width: 0;
+    padding: 4px 7px;
+    &::placeholder { color: var(--medicine-quiet); opacity: 1; }
+  }
+
+  :where(input[type="date"], input[type="time"]) { font-variant-numeric: tabular-nums; }
+  :where(button) { padding: 4px 8px; }
+  :where(button:hover:not(:disabled)) { border-color: var(--medicine-accent); background: color-mix(in srgb, var(--medicine-accent) 8%, var(--medicine-raised)); }
+  textarea { padding: 8px 9px; resize: vertical; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { @include widget-focus-ring; }
+
+  &__header {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--medicine-border);
+    background: var(--medicine-sunken);
+  }
+
+  &__header > div { flex: 1; min-width: 0; }
+  &__header h1 { font-size: 16px; }
+  &__widget-toggle { display: flex; align-items: center; gap: 6px; font-size: var(--medicine-helper-size); }
+  &__widget-toggle input { width: auto; min-height: 0; margin: 0; padding: 0; accent-color: var(--medicine-accent); }
+  // Override the panel-wide button geometry only for the shared close control.
+  .hub-close-button { @include square(28px); min-height: 28px; flex: 0 0 auto; padding: 7px; }
+
+  &__body { display: grid; min-height: 0; grid-template-columns: 220px minmax(0, 1fr); }
+  aside {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    align-content: start;
+    gap: 8px;
+    padding: 10px;
+    border-right: 1px solid var(--medicine-border);
+    background: var(--medicine-sunken);
+    overflow: auto;
+  }
+
+  aside ul, &__schedule, &__doses { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+  // These grid gaps replace the document-wide li + li spacing.
+  aside li, &__schedule > li { min-width: 0; margin: 0; }
+  &__aside-heading, &__section-heading { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 8px; }
+  &__aside-heading h2 { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+  &__aside-heading > span, &__section-heading span { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 400; }
+  &__section-heading > div { min-width: 0; }
+  &__section-heading > button { flex: 0 0 auto; }
+  &__section-heading h2 { font-size: 17px; overflow-wrap: anywhere; }
+  &__section-heading h3 { font-size: 14px; }
+
+  &__treatment-groups { display: grid; gap: 8px; }
+  &__treatment-groups section { display: grid; gap: 4px; }
+  &__treatment-groups h3 { display: flex; align-items: center; justify-content: space-between; padding-inline: 2px; color: var(--medicine-quiet); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  &__treatment-groups h3 span { font-weight: 400; letter-spacing: normal; }
+  // The grip sits inside the row's own border, so the two read as one control
+  // rather than a detached button next to a card.
+  &__treatment-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px 2px 2px;
+    border: 1px solid var(--medicine-border-soft);
+    border-radius: var(--radius-field);
+    background: var(--medicine-raised);
+  }
+  // Hover lives on the row, so the inner button never paints a second
+  // rectangle over it. Declared before the selected rule, which ties on
+  // specificity and therefore wins on source order.
+  &__treatment-row:hover {
+    border-color: var(--medicine-border);
+    background: color-mix(in srgb, var(--medicine-accent) 6%, var(--medicine-raised));
+  }
+  &__treatment-row:has([aria-current="page"]) {
+    @include manager-selected-row;
+
+    .medicine-manager__drag-handle { color: currentColor; }
+    .medicine-manager__course-progress { background: color-mix(in srgb, var(--color-text-inverse) 35%, transparent); }
+    .medicine-manager__course-progress i { background: var(--color-text-inverse); }
+  }
+  .medicine-manager__treatment-select {
+    display: grid;
+    width: 100%;
+    min-height: 36px;
+    gap: 2px;
+    padding: 4px 5px;
+    border-color: transparent;
+    background: transparent;
+    text-align: left;
+
+    // The row owns both states; this button only carries the text.
+    &:hover:not(:disabled) { border-color: transparent; background: transparent; }
+  }
+
+  &__treatment-select > span:first-child { font-weight: 600; overflow-wrap: anywhere; }
+  &__treatment-select small { color: var(--medicine-quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
+  &__treatment-select[aria-current="page"] { color: inherit; border-color: transparent; background: transparent; }
+  &__treatment-select[aria-current="page"] small { color: currentColor; }
+  &__course-progress { display: block; width: 100%; height: 2px; margin-top: 5px; overflow: hidden; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--medicine-border) 22%, transparent); }
+  &__course-progress i { display: block; height: 100%; border-radius: inherit; background: var(--medicine-accent); }
+  &__new { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--medicine-border); }
+  &__new h3 { font-size: 14px; }
+  &__new label, &__rename label, &__fields label {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+    color: var(--medicine-quiet);
+    font-size: var(--medicine-helper-size);
+    font-weight: 600;
+    letter-spacing: normal;
+  }
+
+  &__detail { display: grid; min-width: 0; min-height: 0; align-content: start; gap: 10px; padding: 12px 16px; overflow: auto; }
+  &__treatment { display: grid; gap: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--medicine-border); }
+  &__treatment-actions, &__row-actions, &__dose-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+  // Nested so it outranks the generic `button` rule above.
+  .manager-icon-action { @include manager-icon-button; }
+
+  // Icon actions come from the shared kit; only the grip is Medicine's own.
+  // Nested literally, not via `&__`, so it outranks the generic `button` rule.
+  // As a concatenated class it lost, and the grip inherited a filled control
+  // background: a boxed handle on light rows, a white blob on a selected one.
+  .medicine-manager__drag-handle {
+    @include manager-icon-button(22px, 13px);
+
+    align-self: center;
+    border-color: transparent;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+
+    &:hover:not(:disabled) { border-color: var(--medicine-border-soft); }
+    &:active { cursor: grabbing; }
+  }
+  &__row-actions button, &__treatment-actions button, &__dose-actions button { @include manager-action-button; }
+  &__range { color: var(--medicine-text); font-size: var(--medicine-text-size); font-variant-numeric: tabular-nums; }
+  &__range span { margin-right: 6px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
+  &__hint, &__metadata, &__privacy { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 400; overflow-wrap: anywhere; }
+  &__empty { @include manager-empty; font-size: var(--medicine-text-size); }
+  &__rename { display: grid; gap: 8px; margin-top: 5px; }
+  &__editor { display: grid; min-width: 0; gap: 10px; padding: 10px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); background: var(--medicine-sunken); }
+  &__editor h4 { font-size: 14px; }
+  &__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+  &__fields textarea { min-height: 72px; }
+  &__field-wide { grid-column: 1 / -1; }
+  &__times { display: grid; gap: 5px; min-width: 0; margin: 0; padding: 0; border: 0; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
+  &__times legend { margin-bottom: 5px; padding: 0; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
+  &__time-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  &__time-chips > span { display: inline-flex; min-height: 26px; align-items: center; gap: 3px; padding-left: 7px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--medicine-text); background: var(--medicine-raised); font-size: var(--medicine-text-size); font-weight: 500; }
+  &__time-chips button { border: 0; }
+  &__add-time { display: grid; max-width: 240px; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+  &__interval { display: flex; align-items: center; gap: 8px; color: var(--medicine-text); font-size: var(--medicine-text-size); font-weight: 400; }
+  &__interval input { max-width: 88px; }
+  &__weekdays { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; border: 0; }
+  &__weekdays legend { width: 100%; margin-bottom: 4px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
+  &__weekdays label { display: inline-flex; align-items: center; gap: 5px; color: var(--medicine-text); font-size: var(--medicine-helper-size); font-weight: 400; }
+  &__weekdays input { width: auto; min-height: 0; margin: 0; padding: 0; accent-color: var(--medicine-accent); }
+  &__preview { padding: 6px 8px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--color-danger); background: var(--medicine-sunken); font-size: var(--medicine-helper-size); }
+  &__preview[data-valid] { color: var(--medicine-text); border-color: color-mix(in srgb, var(--medicine-accent) 50%, var(--medicine-border)); }
+  &__form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+
+  &__tabs { @include manager-tabs(10px); }
+  &__tab-panel { display: grid; gap: 8px; min-width: 0; }
+
+  // Match the scoped button specificity so primary actions keep their accent.
+  .is-primary { @include manager-primary-button; }
+
+  &__schedule > li {
+    display: grid;
+    position: relative;
+    grid-template-columns: 22px 72px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    min-height: 46px;
+    padding: 4px 6px;
+    border: 1px solid var(--medicine-border-soft);
+    border-radius: var(--radius-field);
+    background: var(--medicine-raised);
+  }
+
+  &__schedule li > div { min-width: 0; }
+  &__time { display: flex; flex-wrap: wrap; padding-top: 2px; gap: 2px 8px; font-size: var(--medicine-text-size); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  &__medicine-name { display: block; padding-top: 1px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  &__metadata { padding-top: 1px; font-size: 10px; }
+  &__schedule > &__schedule-editor { display: block; min-height: 0; padding: 0; border: 0; background: transparent; }
+  &__today { gap: 8px; }
+  &__recent-heading { margin-top: 5px; padding-top: 10px; border-top: 1px solid var(--medicine-border); }
+  &__doses > li { display: grid; grid-template-columns: 110px minmax(0, 1fr) 52px; align-items: center; gap: 7px; min-height: 42px; padding: 4px 6px; border: 1px solid var(--medicine-border-soft); border-radius: var(--radius-field); background: var(--medicine-raised); }
+  &__doses > li > div { display: grid; min-width: 0; gap: 2px; }
+  &__doses time { font-variant-numeric: tabular-nums; font-weight: 600; }
+  &__doses strong { overflow-wrap: anywhere; }
+  &__doses small, &__dose-state { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); }
+  &__doses li[data-state="taken"] { border-color: color-mix(in srgb, var(--color-success) 50%, var(--medicine-border)); }
+  &__doses li[data-state="skipped"] strong, &__doses li[data-state="taken"] strong { color: var(--medicine-quiet); text-decoration: line-through; }
+  &__doses li[data-state="missed"] { border-color: color-mix(in srgb, var(--color-danger) 45%, var(--medicine-border)); }
+  &__dose-actions { display: flex !important; }
+  &__notes { gap: 6px; }
+  &__notes > label { color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
+  &__notes > textarea { min-height: 230px; }
+  &__notes-status { display: flex; justify-content: space-between; gap: 12px; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); }
+  &__notes-conflict, &__delete-confirm { @include manager-conflict; }
+  &__delete-confirm { border-color: color-mix(in srgb, var(--color-danger) 55%, var(--medicine-border)); }
+  &__empty { display: grid; gap: 6px; }
+  &__empty h2 { color: var(--medicine-text); font-size: 18px; font-weight: 650; }
+  &__privacy { padding-top: 10px; border-top: 1px solid var(--medicine-border); }
+  &__error { @include manager-error; font-size: var(--medicine-text-size); }
+  &__recovery { padding: 5px 7px; margin: 0; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--medicine-quiet); background: var(--medicine-raised); font-size: var(--medicine-helper-size); }
+
+  &__treatment-row[data-dragging], &__schedule > li[data-dragging] { opacity: .45; }
+  &__treatment-row[data-drop-edge]::after, &__schedule > li[data-drop-edge]::after {
+    position: absolute;
+    right: 0;
+    left: 0;
+    z-index: 2;
+    height: 2px;
+    border-radius: var(--radius-field);
+    background: var(--medicine-accent);
+    content: "";
+    pointer-events: none;
+  }
+  &__treatment-row[data-drop-edge="before"]::after, &__schedule > li[data-drop-edge="before"]::after { top: -3px; }
+  &__treatment-row[data-drop-edge="after"]::after, &__schedule > li[data-drop-edge="after"]::after { bottom: -3px; }
+
+  @include forced-colors {
+    button, input, select, textarea { border-color: ButtonText; color: CanvasText; background: Canvas; }
+    // Icon actions are borderless by design; forced colours need the outline.
+    .manager-icon-action, .medicine-manager__drag-handle { border-color: ButtonText; }
+    .is-primary { border-color: Highlight; color: HighlightText; background: Highlight; }
+    .medicine-manager__treatment-row:has([aria-current="page"]) { border-color: Highlight; color: HighlightText; background: Highlight; }
+    .medicine-manager__treatment-row:has([aria-current="page"]) button { color: HighlightText; }
+    .medicine-manager__treatment-row[data-drop-edge]::after, .medicine-manager__schedule > li[data-drop-edge]::after { background: Highlight; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: Highlight; }
+  }
+}
+
+@media (max-width: 700px) {
+  .medicine-manager {
+    &__body { grid-template-columns: 1fr; overflow: auto; }
+    aside { overflow: visible; border-right: 0; border-bottom: 1px solid var(--medicine-border); }
+    &__detail { overflow: visible; }
+    &__header { flex-wrap: wrap; gap: 12px; }
+    &__header > div { flex-basis: 100%; }
+    &__widget-toggle { flex: 1; }
+    &__fields { grid-template-columns: 1fr; }
+    &__schedule > li { grid-template-columns: 24px 58px minmax(0, 1fr) auto; gap: 5px; }
+    &__doses > li { grid-template-columns: 94px minmax(0, 1fr) auto; gap: 5px; }
+    &__row-actions, &__dose-actions { justify-content: flex-end; }
+    &__treatment-actions { justify-content: flex-start; }
+  }
+}
+
+.medicine-panel {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  align-content: start;
+  gap: 6px;
+  padding: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Reserve the scrollbar so a clamped panel cannot overlay the check column. */
+  border: 1px solid var(--widget-panel-border);
+  border-radius: var(--radius-panel);
+  color: var(--widget-panel-foreground);
+  background: var(--widget-panel-solid);
+  box-shadow: var(--shadow-popover);
+  font-family: var(--font-ui);
+  font-size: 12px;
+
+  button { margin: 0; font-family: var(--font-ui); font-weight: 400; line-height: 1.2; text-transform: none; }
+
+  &__toolbar { display: flex; min-height: 26px; align-items: center; justify-content: space-between; gap: 8px; padding-right: 26px; padding: 5px}
+  &__toolbar strong { font-size: 13px; }
+  &__toolbar button { min-height: 22px; padding: 2px 7px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; white-space: nowrap; }
+  &__toolbar button:hover:not(:disabled), &__toolbar button:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
+  section { display: grid; gap: 3px; min-width: 0; background: color-mix(in srgb, var(--widget-panel-accent) 5%, var(--widget-panel-solid));  }
+  section + section { padding-top: 0;  }
+  /* No right padding: the close button only overlaps the toolbar, which
+   * reserves its own space. Padding here shortened every progress bar and
+   * pushed each "Day n of m" out of line with the dose rows below it. */
+  section > header { display: grid; gap: 4px;   background: color-mix(in srgb, var(--widget-panel-accent) 16%, var(--widget-panel-solid)); padding: 2px 5px;}
+  section > header > div:first-child { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  section > header strong { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+  section > header span, section > footer { color: var(--widget-panel-muted); font-size: 10px; }
+  section > footer {  background: color-mix(in srgb, var(--widget-panel-accent) 16%, var(--widget-panel-solid)); text-align: center; }
+  section > ol { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+  section > ol > li { display: grid; min-height: 32px; grid-template-columns: 46px minmax(0, 1fr) auto 22px; align-items: center; gap: 5px; margin: 0; padding: 3px; border: 1px solid transparent; border-bottom: 1px solid color-mix(in srgb, var(--widget-panel-border) 35%, transparent); }
+  section > ol > li:last-child { border: none; }
+  time { padding-top: 2px; color: var(--widget-panel-muted); font-family: var(--font-numeric); font-size: 12px; font-variant-numeric: tabular-nums; }
+  li > div { display: grid; min-width: 0; padding-top: 1px; }
+  li strong, li small { @include truncate; }
+  li strong { font-size: 11px; }
+  li small { color: var(--widget-panel-muted); font-size: 9px; }
+  /* Due and missed are the two states worth acting on, so their label carries
+   * the same tone as the row border rather than the muted default. */
+  li[data-state="due"] small, li[data-state="missed"] small { color: color-mix(in srgb, var(--color-danger) 62%, var(--widget-panel-foreground)); }
+  /* Resting border, not transparent-until-hover. Take and Skip are the only
+   * things this panel exists to do, and an invisible control reads as static
+   * text. */
+  li > button { align-self: center; min-height: 20px; padding: 1px 5px; border: 1px solid #{panel-border-wash(70%)}; border-radius: var(--radius-pill); color: #{panel-foreground-wash(78%)}; background: #{panel-tint(4%)}; font-size: 10px; }
+  li > button:hover, li > button:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(9%)}; }
+  li[data-state="due"], li[data-state="missed"] { background: color-mix(in srgb, var(--color-danger) 22%, transparent); }
+  /* Struck-through still has to be readable; muted alone disappeared on a
+   * dark panel. */
+  li[data-state="taken"] strong, li[data-state="skipped"] strong { color: #{panel-foreground-wash(62%)}; text-decoration: line-through; text-decoration-thickness: 1px; }
+  &__progress { width: 100%; height: 5px; overflow: hidden; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); background: #{panel-tint(5%)}; }
+  &__progress i { display: block; height: 100%; background: var(--widget-panel-accent); transition: width .18s ease; }
+  &__check { @include icon-button(20px, 5px); grid-column: 4; padding: 0 !important; color: var(--widget-panel-foreground) !important; }
+  &__check:hover:not(:disabled), &__check:focus-visible { color: var(--widget-panel-accent) !important; }
+  li[data-state="taken"] &__check { color: var(--color-success) !important; }
+  &__close { position: absolute; top: -5px; right: 2px; @include square(16px); min-height: 22px; padding: 5px; z-index: 2; border-color: transparent; color: var(--widget-panel-foreground); background: transparent; }
+  &__close:hover:not(:disabled), &__close:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(10%)}; }
+  &__more { justify-self: center; min-height: 24px; padding: 2px 9px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; }
+  &__more:hover:not(:disabled), &__more:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
+  &__footer { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 8px; padding-top: 5px; border-top: 1px solid var(--widget-panel-border); color: var(--widget-panel-muted); font-size: 10px; }
+  &__footer button { min-height: 22px; padding: 2px 7px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; }
+  &__footer button:hover:not(:disabled), &__footer button:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
+  button:focus-visible { @include widget-focus-ring; }
+  &__error { position: absolute; right: 8px; bottom: 4px; left: 8px; padding: 2px 5px; margin: 0; color: var(--color-danger); background: var(--widget-panel-solid); font-size: 9px; @include truncate; }
+  .medicine-recovery-notice { padding: 3px 5px; margin: 0; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-chrome); color: var(--widget-panel-muted); background: #{panel-tint(6%)}; font-size: 9px; }
+
+  @include reduced-motion { &__progress i { transition: none; } }
+  @include forced-colors {
+    border-color: CanvasText;
+    section + section, &__footer { border-color: CanvasText; }
+    li, &__progress, button { border-color: ButtonText; }
+    li[data-state="due"], li[data-state="missed"] { border-style: double; border-color: Highlight; }
+    li[data-state="taken"] &__check { color: Highlight !important; }
+    &__progress i { background: Highlight; }
+  }
+}

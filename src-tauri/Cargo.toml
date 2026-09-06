@@ -1,6 +1,6 @@
 [package]
 name = "attention-hub"
-version = "0.6.0-beta.10"
+version = "0.6.0-beta.12"
 description = "A persistent, local-first Windows attention panel"
 authors = ["dersmoll"]
 license = "MIT"
@@ -34,6 +34,7 @@ iana-time-zone = "0.1"
 uuid = { version = "1", features = ["v4"] }
 rrule = "0.14"
 windows-timezones = { version = "0.5", features = ["chrono-tz"] }
+tauri-plugin-single-instance = "2.4.4"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

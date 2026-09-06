@@ -10,6 +10,11 @@ use windows::{
     },
 };
 
+// Scoped like the data directory: a development build must not read, replace
+// or delete the Published ICS credential the installed app is using.
+#[cfg(debug_assertions)]
+const TARGET_NAME: &str = "AttentionHub/PublishedWorkCalendar-dev";
+#[cfg(not(debug_assertions))]
 const TARGET_NAME: &str = "AttentionHub/PublishedWorkCalendar";
 const MAX_CREDENTIAL_BLOB_BYTES: usize = 5 * 512;
 

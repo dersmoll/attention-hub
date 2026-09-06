@@ -12,11 +12,15 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
 import { WorkspaceDataPanel } from "./WorkspaceDataPanel";
+import { MedicineDataPanel } from "./MedicineDataPanel";
 import { EventSettingsView } from "./EventSettingsView";
 import { ManagerView } from "./ManagerView";
 import { ProjectPanelWindow } from "./ProjectPanelWindow";
 import { openManagerWindow } from "./manager-window";
+import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { TodayPopupView } from "./TodayPopupView";
+import { MedicineManagerView } from "./MedicineManagerView";
+import { MedicinePanelView } from "./MedicinePanelView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
 import {
@@ -94,7 +98,7 @@ const ADVANCED_PAGES: Array<{
   {
     id: "reminders",
     label: "Reminders",
-    description: "Projects and to-do storage controls.",
+    description: "Projects, to-do, and medicine storage controls.",
   },
   {
     id: "updates",
@@ -918,6 +922,21 @@ function AdvancedView() {
               />
               Show Projects and To-dos
             </label>
+            <label>
+              <input
+                checked={widgetPreferences.showMedicinePanel}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showMedicinePanel: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              Show in widget
+            </label>
+            <button onClick={() => void openMedicineManagerWindow()} type="button">
+              Open Medicine
+            </button>
             <small>
               Hidden panels keep their app and timezone configuration. Native
               visual mirrors pause while app shortcuts are hidden.
@@ -1266,6 +1285,7 @@ function AdvancedView() {
         hidden={activePage !== "reminders"}
       >
         <WorkspaceDataPanel />
+        <MedicineDataPanel />
       </div>
 
       <section
@@ -1606,6 +1626,12 @@ function App() {
   }
   if (windowLabel === "today") {
     return <TodayPopupView />;
+  }
+  if (windowLabel === "medicine") {
+    return <MedicineManagerView />;
+  }
+  if (windowLabel === "medicine-panel") {
+    return <MedicinePanelView />;
   }
   return <WidgetView />;
 }

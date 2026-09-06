@@ -218,7 +218,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attention-hub"
-version = "0.6.0-beta.10"
+version = "0.6.0-beta.12"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -232,6 +232,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-notification",
+ "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
  "uuid",
@@ -4073,6 +4074,22 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-single-instance"
+version = "2.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cd0cb5c412a5071b69bab6a6df1583cbb89460d4a83b6a24769b08d15b6b1e1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "windows-sys 0.60.2",
+ "zbus",
 ]
 
 [[package]]

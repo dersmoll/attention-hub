@@ -2,10 +2,12 @@ import { emitTo } from "@tauri-apps/api/event";
 import {
   LogicalSize,
   PhysicalPosition,
+  availableMonitors,
 } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   EVENT_SETTINGS_OPEN_EVENT,
+  positionIsReachable,
   EVENT_SETTINGS_WINDOW_GEOMETRY,
   EVENT_SETTINGS_WINDOW_LABEL,
   PROJECT_PANEL_OPEN_EVENT,
@@ -45,6 +47,31 @@ export function projectPanelGeometryLabel(view: "notes" | "todos" | "todo") {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Restore a stored window position only if a connected monitor still covers it.
+ *
+ * Returns null when the coordinates are unusable, so the caller leaves
+ * placement to the system rather than opening a window nobody can reach. */
+export async function reachableStoredPosition(
+  geometry: StoredFloatingGeometry,
+): Promise<PhysicalPosition | null> {
+  const { x, y } = geometry;
+  if (typeof x !== "number" || typeof y !== "number") return null;
+  try {
+    const monitors = await availableMonitors();
+    const bounds = monitors.map(({ position, size }) => ({
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+    }));
+    return positionIsReachable(x, y, bounds) ? new PhysicalPosition(x, y) : null;
+  } catch {
+    // If the monitor list is unavailable, prefer the system's placement over
+    // restoring coordinates that cannot be checked.
+    return null;
+  }
 }
 
 export function readStoredFloatingGeometry(label: string): StoredFloatingGeometry {

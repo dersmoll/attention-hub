@@ -37,6 +37,11 @@
   /* Accents */
   --color-brand: #1459a6;
   --color-brand-hover: #0f4f91;
+  /* Foreground for anything filled with --color-brand or --color-danger. Was
+   * previously defined only inside `.manager-shell[data-compact]`, so a
+   * selected Project Hub row fell back to inherited near-black text on the
+   * dark brand fill. */
+  --color-text-inverse: #ffffff;
   --color-info: #2563eb;
   --color-info-strong: #1d4ed8;
   --color-focus: #377fc5;

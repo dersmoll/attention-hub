@@ -30,6 +30,9 @@ export const CALENDAR_DAY_PANEL_MAX_EVENTS = 24;
 export const TODAY_TODO_SECTION_BASE_HEIGHT = 30;
 export const TODAY_TODO_ROW_HEIGHT = 30;
 export const TODAY_TODO_MAX_ITEMS = 8;
+export const TODAY_DOSE_SECTION_BASE_HEIGHT = 30;
+export const TODAY_DOSE_ROW_HEIGHT = 30;
+export const TODAY_DOSE_MAX_ITEMS = 8;
 
 export type WidgetWidthMode = "recommended" | "slim";
 
@@ -180,9 +183,11 @@ export function widgetCalendarWidth(
     : WIDGET_CALENDAR_COMPACT_WIDTH;
 }
 
-export function todayPopupHeight(eventCount: number, todoCount: number) {
+export function todayPopupHeight(eventCount: number, doseCount = 0, todoCount = 0, showsMedicineRecovery = false) {
+  const boundedDoses = Math.min(TODAY_DOSE_MAX_ITEMS, Math.max(0, Math.trunc(doseCount)));
+  const doseRows = boundedDoses + Number(doseCount > TODAY_DOSE_MAX_ITEMS);
   const boundedTodos = Math.min(TODAY_TODO_MAX_ITEMS, Math.max(0, Math.trunc(todoCount)));
-  return calendarDayPanelHeight(eventCount) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
+  return calendarDayPanelHeight(eventCount) + (showsMedicineRecovery ? 24 : 0) + (doseRows > 0 ? TODAY_DOSE_SECTION_BASE_HEIGHT + doseRows * TODAY_DOSE_ROW_HEIGHT : 0) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
 }
 
 export function widgetFixedWidth(
@@ -194,6 +199,7 @@ export function widgetFixedWidth(
   showClocksPanel = true,
   showTodayPanel = true,
   showProjectsPanel = true,
+  showMedicinePanel = false,
 ) {
   const segmentWidths = [
     showAppsPanel && visibleSourceCount > 0
@@ -206,6 +212,7 @@ export function widgetFixedWidth(
       widthMode,
       showTodayPanel,
       showProjectsPanel,
+      showMedicinePanel,
     ),
     WIDGET_DRAG_HANDLE_WIDTH,
     widgetUtilityWidth(widthMode),
@@ -220,12 +227,12 @@ export function widgetDestinationsWidth(
   widthMode: WidgetWidthMode = "recommended",
   showTodayPanel = true,
   showProjectsPanel = true,
+  showMedicinePanel = false,
 ) {
   if (widthMode === "slim") {
-    return (WIDGET_SLIM_DESTINATIONS_WIDTH / 2)
-      * (Number(showTodayPanel) + Number(showProjectsPanel));
+    return 33 * (Number(showTodayPanel) + Number(showProjectsPanel) + Number(showMedicinePanel));
   }
-  return (showTodayPanel ? 60 : 0) + (showProjectsPanel ? 28 : 0);
+  return (showTodayPanel ? 60 : 0) + (showProjectsPanel ? 28 : 0) + (showMedicinePanel ? 44 : 0);
 }
 
 export function widgetUtilityWidth(
@@ -250,6 +257,7 @@ export function widgetWidth(
   showTodayPanel = true,
   showProjectsPanel = true,
   showCalendarPanel = true,
+  showMedicinePanel = false,
 ) {
   return (
     widgetFixedWidth(
@@ -261,6 +269,7 @@ export function widgetWidth(
       showClocksPanel,
       showTodayPanel,
       showProjectsPanel,
+      showMedicinePanel,
     ) +
     (showCalendarPanel
       ? widgetCalendarWidth(

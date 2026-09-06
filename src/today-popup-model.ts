@@ -11,6 +11,7 @@ export interface TodayPopupPayload {
   placement: "above" | "below";
   width: number;
   height: number;
+  maxHeight: number;
   occupiedMinutes: number;
   systemTimeZone: string;
   selections: WorkCalendarDaySelection[];

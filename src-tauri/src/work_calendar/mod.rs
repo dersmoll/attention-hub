@@ -96,10 +96,30 @@ pub struct EventWorkspaceSummary {
     pub link_url: Option<String>,
 }
 
+/// How many snapshot generations keep redeemable join tokens.
+///
+/// Advanced and the widget refresh independently. A snapshot taken by one
+/// clears and reissues tokens while the other is still displaying the previous
+/// snapshot, so with a single generation the widget's visible Join button could
+/// reference a token Rust had already discarded — the button was there, and
+/// pressing it reported an expired link.
+///
+/// Two generations covers exactly that overlap: whatever is on screen came from
+/// either the current snapshot or the one before it. Tokens still expire, and a
+/// removed or reconfigured source still discards every one of them immediately.
+const RETAINED_TOKEN_GENERATIONS: u64 = 2;
+
+/// Safety net only. A snapshot exposes at most an active selection, one
+/// overlapping event and one upcoming event, so two generations is a handful of
+/// entries; this bounds the map if that ever stops being true.
+const MAX_RETAINED_TOKENS: usize = 64;
+
 #[derive(Default)]
 struct JoinTargetCache {
     next_token: u64,
-    targets: HashMap<String, String>,
+    generation: u64,
+    /// token -> (generation that issued it, meeting URL)
+    targets: HashMap<String, (u64, String)>,
 }
 
 pub struct WorkCalendarState {
@@ -143,12 +163,21 @@ impl WorkCalendarState {
                     .map(|value| WorkCalendarSelection::from_event(value, None, source_scope)),
             );
         };
-        cache.targets.clear();
+        // Retire generations that have aged out instead of clearing the map, so
+        // a consumer still showing the previous snapshot can redeem its tokens.
+        cache.generation = cache.generation.saturating_add(1);
+        let generation = cache.generation;
+        let oldest_valid = generation.saturating_sub(RETAINED_TOKEN_GENERATIONS - 1);
+        cache
+            .targets
+            .retain(|_, (issued_in, _)| *issued_in >= oldest_valid);
         let mut expose = |event: EventSelection| {
             let token = event.meeting_url.as_ref().map(|url| {
                 cache.next_token = cache.next_token.wrapping_add(1);
                 let token = format!("join-{}", cache.next_token);
-                cache.targets.insert(token.clone(), url.clone());
+                cache
+                    .targets
+                    .insert(token.clone(), (generation, url.clone()));
                 token
             });
             WorkCalendarSelection::from_event(event, token, source_scope)
@@ -159,6 +188,13 @@ impl WorkCalendarState {
             .map(&mut expose)
             .collect();
         let next_selection = next_selection.map(expose);
+        // Never let the cache grow without bound: if the retention window ever
+        // holds more than it should, keep only what this snapshot issued.
+        if cache.targets.len() > MAX_RETAINED_TOKENS {
+            cache
+                .targets
+                .retain(|_, (issued_in, _)| *issued_in == generation);
+        }
         (selection, overlapping_selections, next_selection)
     }
 }
@@ -294,27 +330,7 @@ pub async fn save_source(
 pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
     let guard = match tokio::time::timeout(GATE_WAIT, state.request_gate.lock()).await {
         Ok(guard) => guard,
-        Err(_) => {
-            let configuration = get_configuration();
-            state.clear_join_targets();
-            return WorkCalendarSnapshot {
-                status: WorkCalendarStatus::Busy,
-                configured: configuration.configured,
-                storage_available: configuration.storage_available,
-                source_identity_state: SOURCE_IDENTITY_STATE,
-                captured_at_unix_ms: now_unix_ms(),
-                selection: None,
-                overlapping_selections: Vec::new(),
-                next_selection: None,
-                day_selections: Vec::new(),
-                stop_reason: None,
-                request_ms: 0,
-                parse_ms: 0,
-                diagnostics: vec![
-                    "Another bounded work-calendar request is already in progress.".to_owned(),
-                ],
-            };
-        }
+        Err(_) => return busy_snapshot(get_configuration()),
     };
 
     let published_url = match credential_store::read() {
@@ -366,6 +382,26 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
     let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
     drop(guard);
     snapshot_from_probe(state, probe, true, Some(&source_scope))
+}
+
+fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapshot {
+    WorkCalendarSnapshot {
+        status: WorkCalendarStatus::Busy,
+        configured: configuration.configured,
+        storage_available: configuration.storage_available,
+        source_identity_state: SOURCE_IDENTITY_STATE,
+        captured_at_unix_ms: now_unix_ms(),
+        selection: None,
+        overlapping_selections: Vec::new(),
+        next_selection: None,
+        day_selections: Vec::new(),
+        stop_reason: None,
+        request_ms: 0,
+        parse_ms: 0,
+        diagnostics: vec![
+            "Another bounded work-calendar request is already in progress.".to_owned(),
+        ],
+    }
 }
 
 pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfiguration {
@@ -421,7 +457,7 @@ pub fn join_url(state: &WorkCalendarState, join_token: &str) -> Result<String, S
         .map_err(|_| "The work-calendar link cache is temporarily unavailable.".to_owned())?
         .targets
         .get(join_token)
-        .cloned()
+        .map(|(_, url)| url.clone())
         .ok_or_else(|| {
             "The meeting link is no longer current. Wait for calendar refresh.".to_owned()
         })
@@ -599,12 +635,10 @@ mod tests {
     #[test]
     fn unavailable_probe_never_exposes_a_selection() {
         let state = WorkCalendarState::new();
-        state
-            .join_targets
-            .lock()
-            .unwrap()
-            .targets
-            .insert("join-1".into(), "https://teams.microsoft.com/meet/1".into());
+        state.join_targets.lock().unwrap().targets.insert(
+            "join-1".into(),
+            (1, "https://teams.microsoft.com/meet/1".into()),
+        );
         let probe = PublishedIcsSemanticProbe::command_deadline(true);
         let snapshot = snapshot_from_probe(&state, probe, true, None);
 
@@ -612,6 +646,32 @@ mod tests {
         assert!(snapshot.selection.is_none());
         assert!(snapshot.next_selection.is_none());
         assert!(snapshot.configured);
+        assert_eq!(
+            join_url(&state, "join-1").unwrap(),
+            "https://teams.microsoft.com/meet/1"
+        );
+    }
+
+    #[test]
+    fn busy_snapshot_keeps_existing_join_targets() {
+        let state = WorkCalendarState::new();
+        state.join_targets.lock().unwrap().targets.insert(
+            "join-1".into(),
+            (1, "https://teams.microsoft.com/meet/1".into()),
+        );
+
+        let snapshot = busy_snapshot(WorkCalendarConfiguration {
+            configured: true,
+            storage_available: true,
+            source_identity_state: SOURCE_IDENTITY_STATE,
+            diagnostics: Vec::new(),
+        });
+
+        assert!(matches!(snapshot.status, WorkCalendarStatus::Busy));
+        assert_eq!(
+            snapshot.diagnostics,
+            vec!["Another bounded work-calendar request is already in progress."]
+        );
         assert_eq!(
             join_url(&state, "join-1").unwrap(),
             "https://teams.microsoft.com/meet/1"
@@ -649,6 +709,78 @@ mod tests {
 
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
+    }
+
+    /// Advanced and the widget refresh independently, so the widget can still
+    /// be showing tokens from the snapshot before the current one. Clearing the
+    /// cache on every snapshot made that visible Join button fail.
+    #[test]
+    fn a_join_token_survives_the_next_snapshot_but_not_the_one_after() {
+        let state = WorkCalendarState::new();
+        let joinable = |url: &str, uid: &str| EventSelection {
+            subject: "Joinable meeting".into(),
+            start: "2026-08-17T12:00:00Z".into(),
+            end: "2026-08-17T13:00:00Z".into(),
+            all_day: false,
+            classification: EventClassification::Upcoming,
+            meeting_link_present: Some(true),
+            meeting_provider: Some(MeetingProvider::Teams),
+            meeting_url: Some(url.into()),
+            series_uid: uid.into(),
+            recurring: false,
+            private: false,
+        };
+        let token_from = |state: &WorkCalendarState, url: &str, uid: &str| {
+            state
+                .expose_selections(Some(joinable(url, uid)), vec![], None, Some("source-a"))
+                .0
+                .and_then(|selection| selection.join_token)
+                .expect("a joinable event exposes a token")
+        };
+
+        let first = token_from(
+            &state,
+            "https://teams.microsoft.com/l/meetup-join/one",
+            "one",
+        );
+        // The widget is now displaying `first`. Advanced refreshes.
+        let second = token_from(
+            &state,
+            "https://teams.microsoft.com/l/meetup-join/two",
+            "two",
+        );
+        assert_ne!(first, second, "each snapshot issues a fresh token");
+        assert_eq!(
+            join_url(&state, &first).unwrap(),
+            "https://teams.microsoft.com/l/meetup-join/one",
+            "the still-visible Join button must keep working across one refresh"
+        );
+        assert_eq!(
+            join_url(&state, &second).unwrap(),
+            "https://teams.microsoft.com/l/meetup-join/two"
+        );
+
+        // Tokens are still ephemeral: another snapshot ages the first one out.
+        let third = token_from(
+            &state,
+            "https://teams.microsoft.com/l/meetup-join/three",
+            "three",
+        );
+        assert!(
+            join_url(&state, &first).is_err(),
+            "tokens must not stay valid indefinitely"
+        );
+        assert!(join_url(&state, &second).is_ok());
+        assert!(join_url(&state, &third).is_ok());
+
+        // Removing or reconfiguring the source still discards everything.
+        state.clear_join_targets();
+        for token in [&second, &third] {
+            assert!(
+                join_url(&state, token).is_err(),
+                "clearing the cache must invalidate every generation"
+            );
+        }
     }
 
     #[test]

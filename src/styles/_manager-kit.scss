@@ -1,0 +1,173 @@
+@use "mixins" as *;
+
+/* Shared controls for manager-class windows.
+ *
+ * Project Hub and Medicine had independent definitions of the same five
+ * controls, in two different palettes, and they had already drifted. These
+ * mixins are the single definition; both stylesheets include them and keep
+ * only what is genuinely their own.
+ *
+ * Mixins rather than shared class names on purpose: it gives one source of
+ * truth without forcing either window's markup to be rewritten, which is not
+ * a change worth making immediately before a release. Promoting these to
+ * shared classes is a follow-up, not a prerequisite.
+ *
+ * Everything here is expressed in the app chrome tokens. Manager windows are
+ * chromed windows, which is how `_windows.scss` already groups them; the
+ * widget panel theme belongs to the widget and its frameless popups. */
+
+/* Secondary action: the small bordered button used for row and header
+ * actions. `.is-danger` is the destructive variant. */
+@mixin manager-action-button {
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 11px;
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-border-hover);
+    color: var(--color-text-chrome);
+  }
+
+  &.is-danger {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+  }
+
+  &.is-danger:hover:not(:disabled) {
+    border-color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  }
+}
+
+/* Square icon-only action. Same visual language as manager-action-button, but
+ * fixed-size with a centred glyph and no text padding.
+ *
+ * One size for every manager window. Project Hub used 30px with a 15px glyph
+ * and Medicine used 24px with a 13px glyph, which is the difference you notice
+ * when the two windows are open side by side. */
+@mixin manager-icon-button($size: 28px, $glyph: 14px) {
+  @include icon-button($size, var(--radius-field));
+
+  padding: 0;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  background: transparent;
+
+  svg { @include stroke-icon($glyph, 1.8); }
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-chrome);
+    background: color-mix(in srgb, var(--color-text-chrome) 9%, transparent);
+  }
+
+  &.is-danger { color: var(--color-danger); border-color: transparent; }
+  &.is-danger:hover:not(:disabled) {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+
+  &:disabled { opacity: .4; }
+}
+
+/* Primary action: brand fill. Needs --color-text-inverse, which is a global
+ * token; it used to be defined only for the compact manager, so a filled
+ * control elsewhere fell back to inherited dark text on the dark fill. */
+@mixin manager-primary-button {
+  border: 1px solid var(--color-brand);
+  border-radius: var(--radius-field);
+  color: var(--color-text-inverse);
+  background: var(--color-brand);
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-brand-hover);
+    background: var(--color-brand-hover);
+  }
+}
+
+/* Selected row in a manager sidebar. */
+@mixin manager-selected-row {
+  color: var(--color-text-inverse);
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+
+  small, span { color: currentColor; }
+}
+
+/* Underlined tab strip. */
+@mixin manager-tabs($gap: 6px) {
+  display: flex;
+  gap: $gap;
+  border-bottom: 1px solid var(--color-border);
+
+  button {
+    min-height: 30px;
+    padding: 8px 10px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    color: var(--color-text-muted);
+    background: transparent;
+  }
+
+  button:hover:not(:disabled) {
+    color: var(--color-text-chrome);
+    background: transparent;
+    border-bottom-color: color-mix(in srgb, var(--color-brand) 45%, transparent);
+  }
+
+  button[aria-selected="true"] {
+    color: var(--color-text-chrome);
+    border-bottom-color: var(--color-brand);
+  }
+}
+
+/* Inline error region. Bordered rather than a bare tint, so it survives on
+ * both the chrome canvas and the darker panel surface. */
+@mixin manager-error {
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 65%, var(--color-border));
+  border-radius: var(--radius-field);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--color-canvas));
+  overflow-wrap: anywhere;
+}
+
+/* Optimistic-concurrency conflict prompt: your text is still here, choose. */
+@mixin manager-conflict {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 70%, var(--color-border));
+  border-radius: var(--radius-field);
+  color: var(--color-warning-text);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-canvas));
+
+  p { margin: 0; }
+  button { color: var(--color-warning-text); border-color: currentColor; background: transparent; }
+}
+
+/* Quiet placeholder for an empty list or an unselected detail pane. */
+@mixin manager-empty {
+  color: var(--color-text-muted);
+}
+
+/* Destructive confirmation block, shown with its impact counts. */
+@mixin manager-confirm {
+  padding: 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-field);
+  color: var(--color-danger);
+  background: var(--color-danger-surface);
+
+  p { margin: 0 0 8px; }
+
+  button.is-danger {
+    color: var(--color-text-inverse);
+    border-color: var(--color-danger);
+    background: var(--color-danger);
+  }
+}

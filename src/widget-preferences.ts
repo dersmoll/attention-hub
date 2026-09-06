@@ -1,5 +1,10 @@
 export const WIDGET_PREFERENCES_KEY = "attention-hub.widget.v1";
 export const WIDGET_PREFERENCES_CHANGED_EVENT = "widget-preferences-changed";
+// beta.11 initially normalized the new panel to hidden before an upgrading user
+// could make a choice. Enable it once for an existing pre-M19 profile, then
+// preserve every explicit Show in widget change normally.
+export const MEDICINE_PANEL_UPGRADE_KEY =
+  "attention-hub.widget.medicine-panel-upgrade.v1";
 export const DEFAULT_TIME_ZONE = "America/New_York";
 
 export type AttentionAppKey =
@@ -32,6 +37,7 @@ export interface WidgetPreferences {
   showClocksPanel: boolean;
   showTodayPanel: boolean;
   showProjectsPanel: boolean;
+  showMedicinePanel: boolean;
   x: number | null;
   y: number | null;
   panelSurface: PanelSurfaceMode;
@@ -83,6 +89,7 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   showClocksPanel: true,
   showTodayPanel: true,
   showProjectsPanel: true,
+  showMedicinePanel: false,
   x: null,
   y: null,
   panelSurface: "light",
@@ -334,6 +341,10 @@ export function normalizeWidgetPreferences(
       typeof value?.showProjectsPanel === "boolean"
         ? value.showProjectsPanel
         : DEFAULT_WIDGET_PREFERENCES.showProjectsPanel,
+    showMedicinePanel:
+      typeof value?.showMedicinePanel === "boolean"
+        ? value.showMedicinePanel
+        : DEFAULT_WIDGET_PREFERENCES.showMedicinePanel,
     x: normalizeCoordinate(value?.x),
     y: normalizeCoordinate(value?.y),
     panelSurface: normalizePanelSurface(value?.panelSurface, panelColor),
@@ -366,11 +377,19 @@ export function normalizeWidgetPreferences(
 
 export function readWidgetPreferences(): WidgetPreferences {
   try {
-    return normalizeWidgetPreferences(
-      JSON.parse(
-        localStorage.getItem(WIDGET_PREFERENCES_KEY) ?? "null",
-      ) as Partial<WidgetPreferences> | null,
-    );
+    const stored = JSON.parse(
+      localStorage.getItem(WIDGET_PREFERENCES_KEY) ?? "null",
+    ) as Partial<WidgetPreferences> | null;
+    const normalized = normalizeWidgetPreferences(stored);
+    if (localStorage.getItem(MEDICINE_PANEL_UPGRADE_KEY) !== "1") {
+      localStorage.setItem(MEDICINE_PANEL_UPGRADE_KEY, "1");
+      if (stored !== null) {
+        const migrated = { ...normalized, showMedicinePanel: true };
+        localStorage.setItem(WIDGET_PREFERENCES_KEY, JSON.stringify(migrated));
+        return migrated;
+      }
+    }
+    return normalized;
   } catch {
     return normalizeWidgetPreferences(null);
   }
@@ -383,6 +402,7 @@ export function writeWidgetPreferences(
     ...readWidgetPreferences(),
     ...update,
   });
+  localStorage.setItem(MEDICINE_PANEL_UPGRADE_KEY, "1");
   localStorage.setItem(WIDGET_PREFERENCES_KEY, JSON.stringify(next));
   return next;
 }

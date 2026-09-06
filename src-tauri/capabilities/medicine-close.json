@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "medicine-close",
+  "description": "Allow Medicine to finish a guarded native close after saving notes",
+  "windows": ["medicine"],
+  "permissions": ["core:window:allow-destroy"]
+}
