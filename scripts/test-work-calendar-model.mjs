@@ -276,4 +276,22 @@ const chosenParallel = calendar.selectWorkCalendarDisplay(
 assert.equal(chosenParallel.selection.subject, "Parallel upcoming");
 assert.equal(chosenParallel.companion, null);
 
+/* A join token's lifetime is derived from how often this surface polls the
+ * calendar, but the two constants live on opposite sides of the IPC boundary.
+ * Rust mirrors this value and derives the TTL from it; if the interval here
+ * grows past the mirror, a displayed Join button can expire while on screen. */
+const tokenCacheSource = await readFile(
+  new URL("../src-tauri/src/work_calendar/mod.rs", import.meta.url),
+  "utf8",
+);
+const mirroredInterval = tokenCacheSource.match(
+  /const WIDGET_CALENDAR_POLL_INTERVAL_MS: u64 = ([\d_]+);/,
+);
+assert.ok(mirroredInterval, "the Rust token cache must mirror the poll interval");
+assert.equal(
+  Number(mirroredInterval[1].replaceAll("_", "")),
+  calendar.WORK_CALENDAR_POLL_INTERVAL_MS,
+  "src-tauri/src/work_calendar/mod.rs must mirror WORK_CALENDAR_POLL_INTERVAL_MS",
+);
+
 console.log("work calendar display tests passed");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import {
@@ -24,7 +24,8 @@ import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { HubCloseIcon } from "./HubCloseIcon";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import { openManagerWindow } from "./manager-window";
-import { openMedicineManagerWindow } from "./medicine-manager-window";
+import { openMedicineManagerAt, openMedicineManagerWindow } from "./medicine-manager-window";
+import { medicineDoseKey } from "./medicine-manager-navigation";
 import { boundedDoseRows, medicineDailyRows, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
 import { deferActionItemToTomorrow, isFromActiveOwner, isVisibleInToday, sortActionItems, type ActionItem, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { todayPopupHeight, TODAY_DOSE_MAX_ITEMS, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
@@ -216,7 +217,58 @@ export function TodayPopupView() {
     ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
     : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
   const todayDoses = medicine ? medicineDailyRows(medicine, now, graceMinutes) : [];
-  const { visible: visibleDoses, hidden: hiddenDoses } = boundedDoseRows(todayDoses, TODAY_DOSE_MAX_ITEMS);
+  const liveDoses = boundedDoseRows(todayDoses, TODAY_DOSE_MAX_ITEMS);
+  /* This popup re-renders every second, and which doses fit depends on their
+   * state — a dose turning Due can displace a recorded one. Landing between
+   * pressing a button and releasing it, that moves the row under the pointer.
+   * Hold the dose list still for the length of an activation, then apply
+   * whatever arrived. Only the list is held: the popup's height follows the
+   * total dose count, which a reordering does not change. */
+  const [frozenDoses, setFrozenDoses] = useState<typeof liveDoses | null>(null);
+  const { visible: visibleDoses, hidden: hiddenDoses, hiddenItems: hiddenDoseItems } = frozenDoses ?? liveDoses;
+  const dosePointerDown = useRef(false);
+  const dosePending = useRef(false);
+  const heldDoses = useRef<typeof liveDoses | null>(null);
+  const holdDoses = () => {
+    heldDoses.current = frozenDoses ?? liveDoses;
+    setFrozenDoses((current) => current ?? liveDoses);
+  };
+  /* `click` fires after `pointerup`, so the press is over before the action it
+   * started exists. `recordDose` re-asserts the hold synchronously with the
+   * content that was on screen when the press began, and the release is
+   * deferred a task so the two normally batch into no repaint. */
+  const reholdDoses = () => {
+    const view = heldDoses.current;
+    if (view) setFrozenDoses((current) => current ?? view);
+  };
+  const releaseDoses = useCallback(() => {
+    if (!dosePending.current && !dosePointerDown.current) setFrozenDoses(null);
+  }, []);
+  useEffect(() => {
+    const onPointerUp = () => { dosePointerDown.current = false; window.setTimeout(releaseDoses, 0); };
+    const onKeyUp = (event: KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") window.setTimeout(releaseDoses, 0); };
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    // A press that ends outside this window never delivers `pointerup` here.
+    window.addEventListener("blur", onPointerUp);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("blur", onPointerUp);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [releaseDoses]);
+  /* Overflow names a dose, so it navigates to that dose. Today stays open when
+   * the manager refuses — an unfinished form there is worth reporting rather
+   * than closing this window over. */
+  const openHiddenDose = async () => {
+    const target = hiddenDoseItems[0];
+    if (!target) { await openMedicineManagerWindow(); await close(); return; }
+    const result = await openMedicineManagerAt({ treatmentId: target.treatment.id, doseKey: medicineDoseKey(target.dose) });
+    if (result.applied) await close();
+    else setError(result.reason ?? "Medicine could not be opened at that dose.");
+  };
 
   useEffect(() => {
     if (!payload) return;
@@ -226,12 +278,18 @@ export function TodayPopupView() {
   }, [todayTodos.length, todayDoses.length, medicine?.recoveredFromBackup, payload]);
 
   const recordDose = async (row: MedicineDailyDoseRow, state: "taken" | "skipped" | "undo") => {
+    if (dosePending.current) return;
+    // Both synchronous, before any await, so the deferred release can see that
+    // an action now owns the hold.
+    dosePending.current = true;
+    reholdDoses();
     try {
       const skip = state === "skipped" || (state === "undo" && row.state === "skipped");
       const command = skip ? "set_medicine_dose_skipped" : "set_medicine_dose_taken";
       const next = await invoke<MedicineSnapshot>(command, { medicineId: row.dose.medicineId, slotDay: row.dose.slotDay, slotTime: row.dose.slotTime, [skip ? "skipped" : "taken"]: state !== "undo" });
       setMedicine(next); setError(null);
     } catch (cause) { setError(String(cause)); }
+    finally { dosePending.current = false; releaseDoses(); }
   };
 
   const toggleTodo = async (item: ActionItem) => {
@@ -326,7 +384,7 @@ export function TodayPopupView() {
       {medicine?.recoveredFromBackup && <p className="medicine-recovery-notice" role="status">Showing recovered Medicine backup data.</p>}
       {todayDoses.length > 0 && <section className="today-popup-todos today-popup-medicine" aria-labelledby="today-medicine-heading">
         <header><strong id="today-medicine-heading">Medicine</strong><span>{todayDoses.filter((row) => row.state !== "taken" && row.state !== "skipped").length} left</span></header>
-        <ol>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{hiddenDoses > 0 && <li className="today-popup-todos__more"><button onClick={() => void openMedicineManagerWindow()} type="button">+{hiddenDoses} more</button></li>}</ol>
+        <ol onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") holdDoses(); }} onPointerDown={() => { dosePointerDown.current = true; holdDoses(); }}>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{hiddenDoses > 0 && <li className="today-popup-todos__more"><button onClick={() => void openHiddenDose()} type="button">+{hiddenDoses} more</button></li>}</ol>
       </section>}
       {todayTodos.length > 0 && <section className="today-popup-todos" aria-labelledby="today-todos-heading">
         <header><strong id="today-todos-heading">To Do:</strong><span>{openTodayTodos.length} need attention</span></header>
