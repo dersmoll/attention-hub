@@ -1532,6 +1532,18 @@ function AdvancedView() {
                 : "Remove saved calendar"}
             </button>
           </div>
+          {workCalendarSnapshot?.unmatchedAssociationCount ? (
+            <small className="calendar-configuration__unmatched" role="status">
+              {workCalendarSnapshot.unmatchedAssociationCount} saved calendar{" "}
+              {workCalendarSnapshot.unmatchedAssociationCount === 1
+                ? "association matches no lesson"
+                : "associations match no lessons"}{" "}
+              in this calendar. That happens when a series is replaced — editing
+              “this and following events” gives the remaining lessons a new
+              identity — or when a subject’s lessons have simply ended. Nothing
+              was deleted.
+            </small>
+          ) : null}
           <small>
             One saved source only. Replacing it requires a fresh verified link.
             Removing it clears the widget calendar immediately.

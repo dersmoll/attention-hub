@@ -55,6 +55,24 @@ pub struct WorkCalendarSnapshot {
     /// Present while a source change is unresolved. See `PendingSourceChange`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_change: Option<WorkCalendarSourceChange>,
+    /// Saved calendar associations matching no series in the current feed.
+    ///
+    /// A Google "this and following" edit splits a series and gives the
+    /// remainder a **new UID**, which silently detaches that subject's
+    /// materials, notes and homework because the workspace key derives from
+    /// `series_uid`. This reports that something detached. It deliberately does
+    /// **not** claim to know why: a subject whose lessons simply finished looks
+    /// identical from here, and guessing wrong would be worse than saying less.
+    ///
+    /// `None` when the workspace layer has not filled it in, so an
+    /// un-enriched snapshot never asserts zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unmatched_association_count: Option<usize>,
+    /// Workspace keys for every series in the feed's expansion window, under
+    /// the current source scope. Internal: the comparison above needs the whole
+    /// window, not just today, and these never cross IPC.
+    #[serde(skip_serializing)]
+    pub(crate) feed_workspace_keys: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -512,6 +530,8 @@ pub async fn save_source(
                         .to_owned(),
                 ],
                 source_change: None,
+                unmatched_association_count: None,
+                feed_workspace_keys: Vec::new(),
             }
         }
     }
@@ -543,6 +563,8 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 parse_ms: 0,
                 diagnostics: vec!["No saved work-calendar source is configured.".to_owned()],
                 source_change: None,
+                unmatched_association_count: None,
+                feed_workspace_keys: Vec::new(),
             };
         }
         Err(_) => {
@@ -566,6 +588,8 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                         .to_owned(),
                 ],
                 source_change: None,
+                unmatched_association_count: None,
+                feed_workspace_keys: Vec::new(),
             };
         }
     };
@@ -596,6 +620,8 @@ fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapsh
         // A busy reply reports nothing about the source; the next real snapshot
         // still carries an unresolved change.
         source_change: None,
+        unmatched_association_count: None,
+        feed_workspace_keys: Vec::new(),
     }
 }
 
@@ -729,6 +755,15 @@ fn snapshot_from_probe(
                 previous_association_count: 0,
             }
         }),
+        // Both filled in by the workspace layer, which owns the bindings.
+        unmatched_association_count: None,
+        feed_workspace_keys: probe
+            .series_identities
+            .iter()
+            .filter_map(|series| {
+                source_scope.and_then(|scope| workspace_key_for(scope, series))
+            })
+            .collect(),
     }
 }
 
@@ -1188,6 +1223,19 @@ mod tests {
 
         state.clear_source_change();
         assert!(state.pending_source_change().is_none());
+    }
+
+    #[test]
+    fn an_unread_feed_reports_no_workspace_keys_rather_than_orphaning_everything() {
+        let state = WorkCalendarState::new();
+        let probe = PublishedIcsSemanticProbe::command_failed(true);
+        let snapshot = snapshot_from_probe(&state, probe, true, Some("scope"));
+
+        // No keys means the workspace layer must not compute an unmatched
+        // count: an unreachable calendar would otherwise report every saved
+        // association as detached.
+        assert!(snapshot.feed_workspace_keys.is_empty());
+        assert_eq!(snapshot.unmatched_association_count, None);
     }
 
     #[test]

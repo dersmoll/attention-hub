@@ -1679,6 +1679,22 @@ pub fn enrich_calendar_snapshot(
     if let Some(source_change) = snapshot.source_change.as_mut() {
         source_change.previous_association_count = store.bindings.len();
     }
+    // Associations pointing at no series in the feed's whole expansion window.
+    // Only meaningful once the feed has actually been read: an unavailable feed
+    // reports no keys, which would otherwise orphan everything at once.
+    if !snapshot.feed_workspace_keys.is_empty() {
+        let feed_keys = snapshot
+            .feed_workspace_keys
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        snapshot.unmatched_association_count = Some(
+            store
+                .bindings
+                .iter()
+                .filter(|binding| !feed_keys.contains(&binding.event_key))
+                .count(),
+        );
+    }
     let mut tokens = state
         .event_tokens
         .lock()

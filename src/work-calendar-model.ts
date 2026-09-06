@@ -65,6 +65,15 @@ export interface WorkCalendarSnapshot {
   parseMs: number;
   diagnostics: string[];
   sourceChange?: WorkCalendarSourceChange;
+  /**
+   * Saved associations matching no series in the current feed.
+   *
+   * A Google "this and following" edit splits a series and gives the remainder
+   * a new UID, silently detaching that subject's materials, notes and homework.
+   * Absent when the feed has not been read, so it never asserts zero on an
+   * unavailable calendar.
+   */
+  unmatchedAssociationCount?: number;
 }
 
 export interface WorkCalendarDisplay {
