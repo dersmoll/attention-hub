@@ -214,4 +214,34 @@ assert.ok(shared.groups.some((group) => group.treatment.id === "still-due"), "a 
 assert.equal(shared.visibleRows, 8);
 assert.equal(shared.hiddenRows, 1);
 
+// Which treatments are visible is an allocation too. Three treatments of
+// recorded doses used to claim every heading, so a fourth treatment's due dose
+// could not appear at all — the +N count was exact, but the panel meant to show
+// what needs attention showed only what did not.
+const recordedGroupNamed = (id) => ({ ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id }, rows: [{ ...dailyGroups[0].rows[0], state: "taken", dose: { ...dailyGroups[0].rows[0].dose, slotTime: "08:00" } }] });
+const fourth = medicine.boundedMedicinePanelGroups([
+  recordedGroupNamed("recorded-one"), recordedGroupNamed("recorded-two"), recordedGroupNamed("recorded-three"), dueGroup,
+]);
+assert.equal(fourth.groups.length, 3);
+assert.ok(fourth.groups.some((group) => group.treatment.id === "still-due"), "a fourth treatment's due dose must displace recorded rows");
+assert.equal(fourth.hiddenRows, 1);
+// Display order still follows the treatment order, not urgency, so the panel
+// does not reshuffle itself as doses are recorded through the day.
+assert.deepEqual(fourth.groups.map((group) => group.treatment.id), ["recorded-one", "recorded-two", "still-due"]);
+// The overflow control needs a destination: the most urgent thing not shown.
+// A treatment whose whole day is due can exhaust the dose budget on its own,
+// so what overflows may still be a dose that needs a decision.
+const busyDueGroup = { ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id: "all-due" }, rows: Array.from({ length: 8 }, (_, index) => ({ ...dailyGroups[0].rows[0], state: "due", dose: { ...dailyGroups[0].rows[0].dose, medicineId: `due-med-${index}`, slotTime: `0${index}:00` } })) };
+const lateRecordedGroup = { ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id: "late-recorded" }, rows: [{ ...dailyGroups[0].rows[0], state: "taken", dose: { ...dailyGroups[0].rows[0].dose, medicineId: "taken-med", slotTime: "22:00" } }] };
+const missedGroup = { ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id: "missed-treatment" }, rows: [{ ...dailyGroups[0].rows[0], state: "missed", dose: { ...dailyGroups[0].rows[0].dose, medicineId: "missed-med", slotTime: "07:00" } }] };
+const withOverflow = medicine.boundedMedicinePanelGroups([busyDueGroup, lateRecordedGroup, missedGroup]);
+assert.equal(withOverflow.hiddenItems.length, withOverflow.hiddenRows);
+assert.deepEqual(withOverflow.hiddenItems.map((item) => item.dose.medicineId), ["missed-med", "taken-med"], "hidden doses must be ordered by urgency, so the overflow target is the first");
+assert.equal(medicine.dosePriority("due"), medicine.dosePriority("missed"));
+assert.ok(medicine.dosePriority("upcoming") > medicine.dosePriority("due"));
+assert.ok(medicine.dosePriority("taken") > medicine.dosePriority("upcoming"));
+// A budget that fits everything hides nothing and reorders nothing.
+assert.deepEqual(medicine.boundedDoseRows(overBudget, 99).hiddenItems, []);
+assert.deepEqual(medicine.boundedDoseRows(overBudget, 3).hiddenItems.map((item) => item.id), ["b", "c", "e"]);
+
 console.log("medicine model checks passed");

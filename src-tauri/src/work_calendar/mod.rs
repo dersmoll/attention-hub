@@ -96,30 +96,72 @@ pub struct EventWorkspaceSummary {
     pub link_url: Option<String>,
 }
 
-/// How many snapshot generations keep redeemable join tokens.
+/// How long an issued join token stays redeemable after the most recent
+/// snapshot that still contained its meeting.
 ///
-/// Advanced and the widget refresh independently. A snapshot taken by one
-/// clears and reissues tokens while the other is still displaying the previous
-/// snapshot, so with a single generation the widget's visible Join button could
-/// reference a token Rust had already discarded — the button was there, and
-/// pressing it reported an expired link.
+/// Expiry is measured in elapsed time, never in how many snapshots have been
+/// taken since. Advanced and the widget refresh independently, so a
+/// count-based window made a displayed Join button's lifetime depend on how
+/// often *another* window happened to poll: two Advanced refreshes retired a
+/// token the widget was still showing, and pressing it reported an expired
+/// link. Counting generations only moved that failure to the third refresh.
 ///
-/// Two generations covers exactly that overlap: whatever is on screen came from
-/// either the current snapshot or the one before it. Tokens still expire, and a
-/// removed or reconfigured source still discards every one of them immediately.
-const RETAINED_TOKEN_GENERATIONS: u64 = 2;
+/// A meeting that is still in the feed keeps its existing token, so refreshing
+/// more often can only extend a token's life, never shorten it. A meeting that
+/// leaves the feed takes its token with it once this window elapses.
+const JOIN_TOKEN_TTL_MS: u64 = TOKEN_SURVIVES_MISSED_POLLS * WIDGET_CALENDAR_POLL_INTERVAL_MS;
+
+/// How many consecutive calendar polls a displayed token must outlive.
+///
+/// The TTL is derived from the poll interval rather than chosen independently:
+/// a token that expires faster than the surface holding it can refresh would
+/// reproduce the original failure from the opposite direction.
+const TOKEN_SURVIVES_MISSED_POLLS: u64 = 8;
+
+/// The widget's own calendar poll interval, mirrored from
+/// `WORK_CALENDAR_POLL_INTERVAL_MS` in `src/work-calendar-model.ts`.
+///
+/// The TTL above is only honest if it comfortably exceeds the interval at which
+/// the surface holding a token refreshes it; otherwise a token expires while
+/// still on screen and we have merely swapped one failure for its mirror image.
+/// `pins_the_token_lifetime_against_the_widget_poll_interval` enforces the
+/// relationship here, and `scripts/test-work-calendar-model.mjs` fails if this
+/// mirror drifts from the frontend constant.
+const WIDGET_CALENDAR_POLL_INTERVAL_MS: u64 = 120_000;
 
 /// Safety net only. A snapshot exposes at most an active selection, one
-/// overlapping event and one upcoming event, so two generations is a handful of
+/// overlapping event and one upcoming event, so the live set is a handful of
 /// entries; this bounds the map if that ever stops being true.
 const MAX_RETAINED_TOKENS: usize = 64;
+
+struct JoinTarget {
+    /// When the most recent snapshot containing this meeting was taken.
+    last_seen_unix_ms: u64,
+    url: String,
+}
 
 #[derive(Default)]
 struct JoinTargetCache {
     next_token: u64,
-    generation: u64,
-    /// token -> (generation that issued it, meeting URL)
-    targets: HashMap<String, (u64, String)>,
+    /// The source these tokens belong to. A different source invalidates every
+    /// token immediately rather than waiting for the TTL.
+    source_scope: Option<String>,
+    /// token -> target
+    targets: HashMap<String, JoinTarget>,
+    /// occurrence key -> token, so a meeting that is still on screen keeps the
+    /// token the screen is holding.
+    tokens_by_occurrence: HashMap<String, String>,
+}
+
+/// Identity for token reuse: which source, which series, which occurrence.
+///
+/// Recurring meetings share one joining URL across every occurrence, so the URL
+/// alone cannot distinguish this lesson from next week's. The occurrence start
+/// is enough here and is deliberately *not* the reschedule-stable recurrence
+/// anchor a persistent per-occurrence override would need: a token dying because
+/// its occurrence moved is correct for an ephemeral handle.
+fn occurrence_key(source_scope: Option<&str>, series_uid: &str, start: &str) -> String {
+    format!("{}\u{0}{series_uid}\u{0}{start}", source_scope.unwrap_or(""))
 }
 
 pub struct WorkCalendarState {
@@ -138,11 +180,34 @@ impl WorkCalendarState {
     fn clear_join_targets(&self) {
         if let Ok(mut cache) = self.join_targets.lock() {
             cache.targets.clear();
+            cache.tokens_by_occurrence.clear();
+            cache.source_scope = None;
         }
     }
 
     fn expose_selections(
         &self,
+        selection: Option<EventSelection>,
+        overlapping_selections: Vec<EventSelection>,
+        next_selection: Option<EventSelection>,
+        source_scope: Option<&str>,
+    ) -> (
+        Option<WorkCalendarSelection>,
+        Vec<WorkCalendarSelection>,
+        Option<WorkCalendarSelection>,
+    ) {
+        self.expose_selections_at(
+            now_unix_ms(),
+            selection,
+            overlapping_selections,
+            next_selection,
+            source_scope,
+        )
+    }
+
+    fn expose_selections_at(
+        &self,
+        now_unix_ms: u64,
         selection: Option<EventSelection>,
         overlapping_selections: Vec<EventSelection>,
         next_selection: Option<EventSelection>,
@@ -163,21 +228,50 @@ impl WorkCalendarState {
                     .map(|value| WorkCalendarSelection::from_event(value, None, source_scope)),
             );
         };
-        // Retire generations that have aged out instead of clearing the map, so
-        // a consumer still showing the previous snapshot can redeem its tokens.
-        cache.generation = cache.generation.saturating_add(1);
-        let generation = cache.generation;
-        let oldest_valid = generation.saturating_sub(RETAINED_TOKEN_GENERATIONS - 1);
+        let cache = &mut *cache;
+        // A different source is a different set of meetings. Discard every token
+        // at once rather than letting the previous source's links stay
+        // redeemable for the remainder of their TTL.
+        if cache.source_scope.as_deref() != source_scope {
+            cache.targets.clear();
+            cache.tokens_by_occurrence.clear();
+            cache.source_scope = source_scope.map(str::to_owned);
+        }
+        // Drop what has aged out. Nothing here depends on how many snapshots
+        // have been taken, so another window's refresh rate cannot retire a
+        // token this one is still displaying.
         cache
             .targets
-            .retain(|_, (issued_in, _)| *issued_in >= oldest_valid);
+            .retain(|_, target| now_unix_ms.saturating_sub(target.last_seen_unix_ms) < JOIN_TOKEN_TTL_MS);
+        cache
+            .tokens_by_occurrence
+            .retain(|_, token| cache.targets.contains_key(token));
         let mut expose = |event: EventSelection| {
             let token = event.meeting_url.as_ref().map(|url| {
+                let key = occurrence_key(source_scope, &event.series_uid, &event.start);
+                // Reuse the token this occurrence already has, so a surface
+                // still showing it keeps working. The stored URL is refreshed
+                // from the feed, which stays authoritative if the meeting's
+                // joining link changes.
+                if let Some(existing) = cache
+                    .tokens_by_occurrence
+                    .get(&key)
+                    .filter(|token| cache.targets.contains_key(*token))
+                    .cloned()
+                {
+                    cache.targets.insert(
+                        existing.clone(),
+                        JoinTarget { last_seen_unix_ms: now_unix_ms, url: url.clone() },
+                    );
+                    return existing;
+                }
                 cache.next_token = cache.next_token.wrapping_add(1);
                 let token = format!("join-{}", cache.next_token);
-                cache
-                    .targets
-                    .insert(token.clone(), (generation, url.clone()));
+                cache.targets.insert(
+                    token.clone(),
+                    JoinTarget { last_seen_unix_ms: now_unix_ms, url: url.clone() },
+                );
+                cache.tokens_by_occurrence.insert(key, token.clone());
                 token
             });
             WorkCalendarSelection::from_event(event, token, source_scope)
@@ -188,12 +282,25 @@ impl WorkCalendarState {
             .map(&mut expose)
             .collect();
         let next_selection = next_selection.map(expose);
-        // Never let the cache grow without bound: if the retention window ever
-        // holds more than it should, keep only what this snapshot issued.
+        // Never let the cache grow without bound. Evicting the least recently
+        // seen first keeps whatever this snapshot just exposed, which is what
+        // any surface is about to display.
         if cache.targets.len() > MAX_RETAINED_TOKENS {
-            cache
+            let mut by_age = cache
                 .targets
-                .retain(|_, (issued_in, _)| *issued_in == generation);
+                .iter()
+                .map(|(token, target)| (target.last_seen_unix_ms, token.clone()))
+                .collect::<Vec<_>>();
+            by_age.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+            for (_, token) in by_age
+                .into_iter()
+                .take(cache.targets.len() - MAX_RETAINED_TOKENS)
+            {
+                cache.targets.remove(&token);
+            }
+            cache
+                .tokens_by_occurrence
+                .retain(|_, token| cache.targets.contains_key(token));
         }
         (selection, overlapping_selections, next_selection)
     }
@@ -448,16 +555,30 @@ pub fn log_snapshot(action: &str, snapshot: &WorkCalendarSnapshot) {
 }
 
 pub fn join_url(state: &WorkCalendarState, join_token: &str) -> Result<String, String> {
+    join_url_at(state, join_token, now_unix_ms())
+}
+
+fn join_url_at(
+    state: &WorkCalendarState,
+    join_token: &str,
+    now_unix_ms: u64,
+) -> Result<String, String> {
     if join_token.len() > 64 || !join_token.starts_with("join-") {
         return Err("The meeting link token is invalid or expired.".to_owned());
     }
+    // Expiry is checked when the token is redeemed, not only when a snapshot
+    // prunes: a machine that slept, or a source that stopped refreshing, must
+    // not leave a stale token redeemable indefinitely.
     state
         .join_targets
         .lock()
         .map_err(|_| "The work-calendar link cache is temporarily unavailable.".to_owned())?
         .targets
         .get(join_token)
-        .map(|(_, url)| url.clone())
+        .filter(|target| {
+            now_unix_ms.saturating_sub(target.last_seen_unix_ms) < JOIN_TOKEN_TTL_MS
+        })
+        .map(|target| target.url.clone())
         .ok_or_else(|| {
             "The meeting link is no longer current. Wait for calendar refresh.".to_owned()
         })
@@ -637,7 +758,10 @@ mod tests {
         let state = WorkCalendarState::new();
         state.join_targets.lock().unwrap().targets.insert(
             "join-1".into(),
-            (1, "https://teams.microsoft.com/meet/1".into()),
+            JoinTarget {
+                last_seen_unix_ms: now_unix_ms(),
+                url: "https://teams.microsoft.com/meet/1".into(),
+            },
         );
         let probe = PublishedIcsSemanticProbe::command_deadline(true);
         let snapshot = snapshot_from_probe(&state, probe, true, None);
@@ -657,7 +781,10 @@ mod tests {
         let state = WorkCalendarState::new();
         state.join_targets.lock().unwrap().targets.insert(
             "join-1".into(),
-            (1, "https://teams.microsoft.com/meet/1".into()),
+            JoinTarget {
+                last_seen_unix_ms: now_unix_ms(),
+                url: "https://teams.microsoft.com/meet/1".into(),
+            },
         );
 
         let snapshot = busy_snapshot(WorkCalendarConfiguration {
@@ -711,15 +838,10 @@ mod tests {
         assert!(snapshot.selection.is_none());
     }
 
-    /// Advanced and the widget refresh independently, so the widget can still
-    /// be showing tokens from the snapshot before the current one. Clearing the
-    /// cache on every snapshot made that visible Join button fail.
-    #[test]
-    fn a_join_token_survives_the_next_snapshot_but_not_the_one_after() {
-        let state = WorkCalendarState::new();
-        let joinable = |url: &str, uid: &str| EventSelection {
+    fn joinable_event(url: &str, uid: &str, start: &str) -> EventSelection {
+        EventSelection {
             subject: "Joinable meeting".into(),
-            start: "2026-08-17T12:00:00Z".into(),
+            start: start.into(),
             end: "2026-08-17T13:00:00Z".into(),
             all_day: false,
             classification: EventClassification::Upcoming,
@@ -729,58 +851,198 @@ mod tests {
             series_uid: uid.into(),
             recurring: false,
             private: false,
-        };
-        let token_from = |state: &WorkCalendarState, url: &str, uid: &str| {
-            state
-                .expose_selections(Some(joinable(url, uid)), vec![], None, Some("source-a"))
-                .0
-                .and_then(|selection| selection.join_token)
-                .expect("a joinable event exposes a token")
-        };
+        }
+    }
 
-        let first = token_from(
+    fn expose_one(
+        state: &WorkCalendarState,
+        now: u64,
+        url: &str,
+        uid: &str,
+        start: &str,
+        scope: Option<&str>,
+    ) -> String {
+        state
+            .expose_selections_at(now, Some(joinable_event(url, uid, start)), vec![], None, scope)
+            .0
+            .and_then(|selection| selection.join_token)
+            .expect("a joinable event exposes a token")
+    }
+
+    /// Advanced and the widget refresh independently, so the widget can be
+    /// displaying a token an earlier snapshot issued. Retiring tokens by
+    /// counting snapshots made that visible Join button's lifetime depend on how
+    /// often *another* window polled: two Advanced refreshes broke it, and
+    /// counting further generations would only have moved the failure.
+    #[test]
+    fn a_join_token_outlives_any_number_of_refreshes_while_its_meeting_remains() {
+        let state = WorkCalendarState::new();
+        const URL: &str = "https://teams.microsoft.com/l/meetup-join/standup";
+        let first = expose_one(&state, 1_000, URL, "standup", START, Some("source-a"));
+
+        // Advanced refreshes far more often, and for far longer than the TTL.
+        for step in 1..=20 {
+            let again = expose_one(
+                &state,
+                1_000 + step * WIDGET_CALENDAR_POLL_INTERVAL_MS,
+                URL,
+                "standup",
+                START,
+                Some("source-a"),
+            );
+            assert_eq!(
+                again, first,
+                "an occurrence that is still in the feed must keep its token"
+            );
+        }
+        let last_refresh = 1_000 + 20 * WIDGET_CALENDAR_POLL_INTERVAL_MS;
+        assert_eq!(
+            join_url_at(&state, &first, last_refresh).unwrap(),
+            URL,
+            "the still-visible Join button must keep working"
+        );
+    }
+
+    const START: &str = "2026-08-17T12:00:00Z";
+
+    /// Recurring meetings share one joining URL across every occurrence, so the
+    /// URL alone cannot identify which lesson a token belongs to.
+    #[test]
+    fn occurrences_of_one_series_receive_distinct_tokens() {
+        let state = WorkCalendarState::new();
+        const URL: &str = "https://teams.microsoft.com/l/meetup-join/weekly";
+        let monday = expose_one(&state, 1_000, URL, "weekly", START, Some("source-a"));
+        let thursday = expose_one(
             &state,
+            1_000,
+            URL,
+            "weekly",
+            "2026-08-20T12:00:00Z",
+            Some("source-a"),
+        );
+        assert_ne!(monday, thursday);
+        assert_eq!(join_url_at(&state, &monday, 1_000).unwrap(), URL);
+        assert_eq!(join_url_at(&state, &thursday, 1_000).unwrap(), URL);
+    }
+
+    /// Tokens are still ephemeral — but they expire on elapsed time, not on a
+    /// snapshot count, and a meeting that is gone takes its token with it.
+    #[test]
+    fn a_join_token_expires_once_its_meeting_stops_appearing() {
+        let state = WorkCalendarState::new();
+        let gone = expose_one(
+            &state,
+            1_000,
             "https://teams.microsoft.com/l/meetup-join/one",
             "one",
+            START,
+            Some("source-a"),
         );
-        // The widget is now displaying `first`. Advanced refreshes.
-        let second = token_from(
+        // Other meetings come and go; the absent one ages out on the clock.
+        let kept = expose_one(
             &state,
+            1_000 + JOIN_TOKEN_TTL_MS - 1,
             "https://teams.microsoft.com/l/meetup-join/two",
             "two",
-        );
-        assert_ne!(first, second, "each snapshot issues a fresh token");
-        assert_eq!(
-            join_url(&state, &first).unwrap(),
-            "https://teams.microsoft.com/l/meetup-join/one",
-            "the still-visible Join button must keep working across one refresh"
-        );
-        assert_eq!(
-            join_url(&state, &second).unwrap(),
-            "https://teams.microsoft.com/l/meetup-join/two"
-        );
-
-        // Tokens are still ephemeral: another snapshot ages the first one out.
-        let third = token_from(
-            &state,
-            "https://teams.microsoft.com/l/meetup-join/three",
-            "three",
+            START,
+            Some("source-a"),
         );
         assert!(
-            join_url(&state, &first).is_err(),
-            "tokens must not stay valid indefinitely"
+            join_url_at(&state, &gone, 1_000 + JOIN_TOKEN_TTL_MS - 1).is_ok(),
+            "a token must stay redeemable for its whole window"
         );
-        assert!(join_url(&state, &second).is_ok());
-        assert!(join_url(&state, &third).is_ok());
+        assert!(
+            join_url_at(&state, &gone, 1_000 + JOIN_TOKEN_TTL_MS).is_err(),
+            "redemption must check expiry even when no snapshot has pruned yet"
+        );
+        assert!(join_url_at(&state, &kept, 1_000 + JOIN_TOKEN_TTL_MS).is_ok());
 
         // Removing or reconfiguring the source still discards everything.
         state.clear_join_targets();
-        for token in [&second, &third] {
-            assert!(
-                join_url(&state, token).is_err(),
-                "clearing the cache must invalidate every generation"
+        assert!(
+            join_url_at(&state, &kept, 1_000 + JOIN_TOKEN_TTL_MS).is_err(),
+            "clearing the cache must invalidate every token"
+        );
+    }
+
+    #[test]
+    fn a_changed_source_invalidates_tokens_immediately() {
+        let state = WorkCalendarState::new();
+        const URL: &str = "https://teams.microsoft.com/l/meetup-join/one";
+        let before = expose_one(&state, 1_000, URL, "one", START, Some("source-a"));
+        let after = expose_one(&state, 1_001, URL, "one", START, Some("source-b"));
+        assert_ne!(before, after, "a new source must not inherit tokens");
+        assert!(
+            join_url_at(&state, &before, 1_001).is_err(),
+            "the previous source's links must not stay redeemable for its TTL"
+        );
+        assert!(join_url_at(&state, &after, 1_001).is_ok());
+    }
+
+    /// The calendar stays authoritative for where a meeting is joined, so a
+    /// reused token must follow the feed rather than pin the first URL seen.
+    #[test]
+    fn a_reused_token_follows_the_current_joining_link() {
+        let state = WorkCalendarState::new();
+        let token = expose_one(
+            &state,
+            1_000,
+            "https://teams.microsoft.com/l/meetup-join/old",
+            "one",
+            START,
+            Some("source-a"),
+        );
+        let again = expose_one(
+            &state,
+            2_000,
+            "https://teams.microsoft.com/l/meetup-join/new",
+            "one",
+            START,
+            Some("source-a"),
+        );
+        assert_eq!(again, token);
+        assert_eq!(
+            join_url_at(&state, &token, 2_000).unwrap(),
+            "https://teams.microsoft.com/l/meetup-join/new"
+        );
+    }
+
+    /// A TTL is only honest if it outlasts the refresh cadence of the surface
+    /// holding the token; otherwise a token expires while still on screen and
+    /// the old failure has simply been mirrored.
+    #[test]
+    fn pins_the_token_lifetime_against_the_widget_poll_interval() {
+        assert!(
+            JOIN_TOKEN_TTL_MS >= 5 * WIDGET_CALENDAR_POLL_INTERVAL_MS,
+            "a displayed token must survive several missed calendar polls"
+        );
+    }
+
+    #[test]
+    fn the_token_cache_stays_bounded_and_keeps_the_newest_entries() {
+        let state = WorkCalendarState::new();
+        let mut newest = String::new();
+        for index in 0..(MAX_RETAINED_TOKENS * 2) {
+            newest = expose_one(
+                &state,
+                1_000 + index as u64,
+                &format!("https://teams.microsoft.com/l/meetup-join/{index}"),
+                &format!("uid-{index}"),
+                START,
+                Some("source-a"),
             );
         }
+        let cache = state.join_targets.lock().unwrap();
+        assert!(cache.targets.len() <= MAX_RETAINED_TOKENS);
+        assert_eq!(
+            cache.tokens_by_occurrence.len(),
+            cache.targets.len(),
+            "the reverse index must not outlive the tokens it points at"
+        );
+        assert!(
+            cache.targets.contains_key(&newest),
+            "eviction must drop the least recently seen, not the newest"
+        );
     }
 
     #[test]

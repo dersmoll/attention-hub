@@ -510,3 +510,21 @@ verified against the working tree and repaired before another candidate build:
 The accompanying visual pass fixes final-column dose check alignment, themed
 Today button hover states, and Project Hub hover contrast. These changes close
 M19 implementation scope; installed and human acceptance remain release gates.
+
+## 11. Superseded by M20 — 2026-09-06
+
+Three conclusions above are stale and should not be carried forward. See
+[M20 daily polish](../plans/m20-daily-polish.md) for what replaced them.
+
+| Conclusion above | Correction |
+| --- | --- |
+| §4 "Reduce redundant setup (treatment dates asked twice)" is open | Already delivered. Treatment creation asks for a name only and derives course dates from the first medicine. |
+| §8 records F7 as fixed | It was partially fixed. Retention counted snapshots, so two Advanced refreshes still invalidated the widget's displayed token. Replaced in M20 with occurrence-scoped reuse and a time-based TTL. |
+| §4 "Attention before chronological history" is fixed | Partially. Doses were prioritised within the visible treatments, but the treatment set itself was still the first three in sort order, so a fourth treatment's due dose could not appear at all. Fixed in M20. |
+
+The §4 item "Contextual overflow navigation" was correctly recorded as open and
+is delivered in M20. The §5 optimization candidates remain untouched and
+correctly deferred: nothing measured since has promoted them.
+
+M19's installed and human acceptance record above stays authoritative and stays
+open. M20 does not close it, and step **U10** has still never been run.

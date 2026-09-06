@@ -12,6 +12,14 @@ import {
 import { HubCloseIcon } from "./HubCloseIcon";
 import { writeStoredFloatingGeometry } from "./event-workspace-window";
 import {
+  MEDICINE_MANAGER_NAVIGATE_EVENT,
+  MEDICINE_MANAGER_NAVIGATED_EVENT,
+  MEDICINE_MANAGER_READY_EVENT,
+  medicineDoseKey,
+  type MedicineManagerNavigationResult,
+  type MedicineManagerTarget,
+} from "./medicine-manager-navigation";
+import {
   medicineCreateInput, medicineDayPlusDays, medicineEditInput, medicineFoodRuleLabel,
   medicineLocalDay, medicineManagerDoseRows, medicineSchedulePreview, medicineTreatmentGroup,
   medicineTreatmentProgress, sortMedicineEntities, type MedicineDeleteImpact, type MedicineForm,
@@ -126,12 +134,26 @@ export function MedicineManagerView() {
   const [showInWidget, setShowInWidget] = useState(() => readWidgetPreferences().showMedicinePanel);
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<{ requestId: string; doseKey: string } | null>(null);
   const saving = useRef(false), mounted = useRef(false), noteTextRef = useRef(""), noteSaveSequence = useRef(0);
   const dragItemRef = useRef<DragItem | null>(null);
   const dropTargetRef = useRef<DropTarget | null>(null);
   const addMedicineButton = useRef<HTMLButtonElement>(null), addTreatmentButton = useRef<HTMLButtonElement>(null), renameButton = useRef<HTMLButtonElement>(null);
   const editButtons = useRef(new Map<string, HTMLButtonElement>());
   const treatmentButtons = useRef(new Map<string, HTMLButtonElement>()), medicineDeleteButtons = useRef(new Map<string, HTMLButtonElement>()), treatmentDeleteButton = useRef<HTMLButtonElement>(null);
+  /* The navigate listener is registered once, so it calls through a ref that
+   * every render refreshes: the handler needs the *current* drafts and snapshot
+   * to decide whether moving is safe, not the ones present at mount. */
+  const latestNavigate = useRef<(target: MedicineManagerTarget) => Promise<void>>(async () => undefined);
+  const handledNavigations = useRef(new Set<string>());
+
+  /** The single answer to a navigation request. Sent once, by whichever step
+   * establishes the outcome — the handler when it refuses, the scroll effect
+   * when the dose has actually reached the screen. */
+  const respondToNavigation = useCallback((requestId: string, applied: boolean, reason: string | null) => emit(
+    MEDICINE_MANAGER_NAVIGATED_EVENT,
+    { requestId, applied, reason } satisfies MedicineManagerNavigationResult,
+  ).catch(() => undefined), []);
 
   const refresh = useCallback(async () => { try { const next = await invoke<MedicineSnapshot>("get_medicine_snapshot"); if (mounted.current) setSnapshot(next); } catch { if (mounted.current) setError("Medicine data could not be loaded."); } }, []);
   useEffect(() => {
@@ -145,6 +167,10 @@ export function MedicineManagerView() {
       if (!allowed && mounted.current) setError("Attention Hub stayed open because Medicine notes could not be saved. Review the note and try closing again.");
       await emitTo("main", MEDICINE_QUIT_SAVE_RESULT_EVENT, { requestId: payload.requestId, allowed });
     }).then(keep);
+    // Announce readiness only once the target listener exists: a caller that
+    // just created this window is waiting for exactly that signal.
+    void listen<MedicineManagerTarget>(MEDICINE_MANAGER_NAVIGATE_EVENT, ({ payload }) => void latestNavigate.current(payload))
+      .then((stop) => { keep(stop); if (!disposed) void emit(MEDICINE_MANAGER_READY_EVENT); });
     void refresh(); void listen("medicine-changed", () => void refresh()).then(keep); void listen<Partial<WidgetPreferences>>(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => { if (!disposed) setShowInWidget(normalizeWidgetPreferences(payload).showMedicinePanel); }).then(keep);
     void current.onMoved(({ payload }) => writeStoredFloatingGeometry("medicine", payload)).then(keep); void current.onResized(async ({ payload }) => writeStoredFloatingGeometry("medicine", payload.toLogical(await current.scaleFactor()))).then(keep);
     return () => { mounted.current = false; disposed = true; cleanups.forEach((stop) => stop()); };
@@ -167,6 +193,28 @@ export function MedicineManagerView() {
     if (noteTreatmentId !== selected.id || !noteDirty) { setNoteText(storedText); noteTextRef.current = storedText; setNoteTreatmentId(selected.id); setNoteBaseline(selected.notesRevision); setNoteDirty(false); setNoteConflict(false); } else if (noteBaseline !== selected.notesRevision) setNoteConflict(true);
   }, [noteBaseline, noteDirty, noteTreatmentId, selected]);
 
+  /* Bring a navigated dose into view, and only then tell the caller the handoff
+   * worked. Effects run after the commit, so one pass decides it: the tab
+   * switch and the snapshot the rows come from are already applied. A dose that
+   * is not there — a stale target, or one recorded on another day — leaves
+   * focus somewhere sensible and reports itself, rather than letting the
+   * originating window close on a move that never finished. */
+  useEffect(() => {
+    if (scrollTarget === null) return;
+    setScrollTarget(null);
+    const row = document.querySelector<HTMLElement>(`[data-dose-key="${CSS.escape(scrollTarget.doseKey)}"]`);
+    if (row) {
+      row.scrollIntoView({ block: "center" });
+      (row.querySelector<HTMLButtonElement>("button") ?? document.getElementById("medicine-tab-today"))?.focus();
+      void respondToNavigation(scrollTarget.requestId, true, null);
+      return;
+    }
+    document.getElementById("medicine-tab-today")?.focus();
+    const reason = "That dose is no longer in today’s list. Medicine is showing the treatment.";
+    setError(reason);
+    void respondToNavigation(scrollTarget.requestId, false, reason);
+  }, [respondToNavigation, scrollTarget]);
+
   const runMutation = async (command: string, args: Record<string, unknown>, success?: string) => {
     if (saving.current) return null; saving.current = true; setPending(true); setError(""); setStatus("");
     try { const next = await invoke<MedicineSnapshot>(command, args); if (mounted.current) { setSnapshot(next); if (success) setStatus(success); } return next; }
@@ -182,6 +230,63 @@ export function MedicineManagerView() {
   const selectTreatment = async (id: string) => {
     if (!await saveNotes()) return;
     setSelectedTreatmentId(id); setTab("schedule"); setRenamingTreatment(false); setShowNewMedicine(false); setEditingMedicineId(null); setDeleteTarget(null); setDeleteImpact(null); setError("");
+  };
+  /** What must be finished before the view may move. Navigating is not worth
+   * discarding work the user is in the middle of — `selectTreatment` clears
+   * these deliberately when *the user* asks, which is why arriving from another
+   * window must not reuse it. */
+  const draftBlockingNavigation = () => {
+    if (deleteTarget) return "Confirm or cancel the delete in Medicine first.";
+    if (showNewMedicine || editingMedicineId) return "Finish or cancel the open medicine form in Medicine first.";
+    if (showNewTreatment || renamingTreatment) return "Finish or cancel the open treatment form in Medicine first.";
+    return null;
+  };
+  latestNavigate.current = async (target: MedicineManagerTarget) => {
+    // An already-open manager is also sent the target directly, so the same
+    // request can arrive twice. Apply it once and acknowledge once.
+    if (handledNavigations.current.has(target.requestId)) return;
+    handledNavigations.current.add(target.requestId);
+    const respond = (applied: boolean, reason: string | null) =>
+      respondToNavigation(target.requestId, applied, reason);
+    let treatment = orderedTreatments.find((item) => item.id === target.treatmentId);
+    if (!treatment) {
+      /* This manager may have been created by this very navigation, with its
+       * first snapshot still in flight — announcing readiness only proves the
+       * listener exists. Ask for the data before calling a target stale. */
+      const fresh = await invoke<MedicineSnapshot>("get_medicine_snapshot").catch(() => null);
+      if (fresh && mounted.current) setSnapshot(fresh);
+      treatment = fresh?.treatments.find((item) => item.id === target.treatmentId);
+    }
+    if (!treatment) {
+      const reason = "That treatment is no longer in Medicine.";
+      setError(reason);
+      await respond(false, reason);
+      return;
+    }
+    const blocking = draftBlockingNavigation();
+    if (blocking) {
+      setError(blocking);
+      await respond(false, blocking);
+      return;
+    }
+    if (!await latestSaveNotes.current()) {
+      const reason = "Treatment notes need a decision in Medicine first.";
+      setError(reason);
+      await respond(false, reason);
+      return;
+    }
+    setSelectedTreatmentId(treatment.id);
+    setTab("today");
+    setError("");
+    setStatus(`Showing today’s doses for ${treatment.name}.`);
+    if (target.doseKey === null) {
+      await respond(true, null);
+      return;
+    }
+    // Nothing is acknowledged yet: the effect that brings the dose into view
+    // owns the answer, because it is the first thing that knows whether the
+    // dose is actually there.
+    setScrollTarget({ requestId: target.requestId, doseKey: target.doseKey });
   };
   const updateShowInWidget = (checked: boolean) => { const next = writeWidgetPreferences({ showMedicinePanel: checked }); setShowInWidget(next.showMedicinePanel); void emit(WIDGET_PREFERENCES_CHANGED_EVENT, next); };
   const moveTabFocus = (current: ManagerTab, direction: -1 | 1) => { const tabs: ManagerTab[] = ["schedule", "today", "notes"]; const next = tabs[(tabs.indexOf(current) + direction + tabs.length) % tabs.length]; setTab(next); requestAnimationFrame(() => document.getElementById(`medicine-tab-${next}`)?.focus()); };
@@ -282,7 +387,7 @@ export function MedicineManagerView() {
   };
   const doseList = (rows: MedicineManagerDoseRow[], recent = false) => <ol className="medicine-manager__doses">{rows.map((row) => {
     const recorded = row.state === "taken" || row.state === "skipped", canUndo = recorded && row.dose.slotDay === doseRows.today;
-    return <li data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><div><time>{recent ? `${dateLabel(row.dose.slotDay)}, ${row.dose.slotTime}` : row.dose.slotTime}</time><span className="medicine-manager__dose-state">{doseStateLabel(row)}</span></div><div><strong>{row.medicine.name}{row.medicine.strength ? ` · ${row.medicine.strength}` : ""}</strong><small>{[row.medicine.doseAmount, medicineFoodRuleLabel(row.medicine.foodRule)].filter(Boolean).join(" · ")}</small></div><div className="medicine-manager__dose-actions">{canUndo ? <button aria-label={`Undo ${row.medicine.name} dose record`} className="manager-icon-action" disabled={pending} onClick={() => void recordDose(row, "undo")} title="Undo" type="button"><ActionIcon name="undo" /></button> : !recent && !recorded ? <><button aria-label={`Skip ${row.medicine.name} dose`} className="manager-icon-action" disabled={pending} onClick={() => void recordDose(row, "skipped")} title="Skip" type="button"><ActionIcon name="skip" /></button><button aria-label={`Take ${row.medicine.name} dose`} className="manager-icon-action is-primary" disabled={pending} onClick={() => void recordDose(row, "taken")} title="Take" type="button"><ActionIcon name="take" /></button></> : null}</div></li>;
+    return <li data-dose-key={medicineDoseKey(row.dose)} data-state={row.state} key={medicineDoseKey(row.dose)}><div><time>{recent ? `${dateLabel(row.dose.slotDay)}, ${row.dose.slotTime}` : row.dose.slotTime}</time><span className="medicine-manager__dose-state">{doseStateLabel(row)}</span></div><div><strong>{row.medicine.name}{row.medicine.strength ? ` · ${row.medicine.strength}` : ""}</strong><small>{[row.medicine.doseAmount, medicineFoodRuleLabel(row.medicine.foodRule)].filter(Boolean).join(" · ")}</small></div><div className="medicine-manager__dose-actions">{canUndo ? <button aria-label={`Undo ${row.medicine.name} dose record`} className="manager-icon-action" disabled={pending} onClick={() => void recordDose(row, "undo")} title="Undo" type="button"><ActionIcon name="undo" /></button> : !recent && !recorded ? <><button aria-label={`Skip ${row.medicine.name} dose`} className="manager-icon-action" disabled={pending} onClick={() => void recordDose(row, "skipped")} title="Skip" type="button"><ActionIcon name="skip" /></button><button aria-label={`Take ${row.medicine.name} dose`} className="manager-icon-action is-primary" disabled={pending} onClick={() => void recordDose(row, "taken")} title="Take" type="button"><ActionIcon name="take" /></button></> : null}</div></li>;
   })}</ol>;
 
   const closeManager = () => closeGuard.current!.request();

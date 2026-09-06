@@ -427,6 +427,21 @@ export function isUnresolvedDose(state: MedicineDoseState) {
   return state !== "taken" && state !== "skipped";
 }
 
+/** The order in which doses claim scarce visibility: what can still be acted on
+ * now, then what is coming, then what is already recorded.
+ *
+ * Due and missed rank together deliberately. Both need a decision, and ties are
+ * broken by the caller's existing order, which is chronological — so a missed
+ * morning dose still precedes a dose due this afternoon. */
+export function dosePriority(state: MedicineDoseState) {
+  if (state === "due" || state === "missed") return 0;
+  return state === "upcoming" ? 1 : 2;
+}
+
+function byDosePriority<T extends { state: MedicineDoseState }>(left: T, right: T) {
+  return dosePriority(left.state) - dosePriority(right.state);
+}
+
 /** Choose which rows survive a row budget, favouring the ones you can still act on.
  *
  * Taking the first N chronologically meant that once enough morning doses were
@@ -435,28 +450,39 @@ export function isUnresolvedDose(state: MedicineDoseState) {
  *
  * Unresolved rows claim the budget first, but the rows that survive are then
  * shown in their original order, so only *which* rows appear changes, never the
- * order they appear in. */
+ * order they appear in.
+ *
+ * `hiddenItems` is what did not fit, most urgent first: an overflow control
+ * navigates to `hiddenItems[0]`. */
 export function boundedDoseRows<T extends { state: MedicineDoseState }>(
   rows: readonly T[],
   limit: number,
 ) {
   const budget = Math.max(0, Math.trunc(limit));
-  if (rows.length <= budget) return { visible: [...rows], hidden: 0 };
-  const claimed = new Set(
-    [
-      ...rows.filter((row) => isUnresolvedDose(row.state)),
-      ...rows.filter((row) => !isUnresolvedDose(row.state)),
-    ].slice(0, budget),
-  );
+  if (rows.length <= budget) return { visible: [...rows], hidden: 0, hiddenItems: [] as T[] };
+  // Sorting is stable, so rows of equal urgency keep their arrival order.
+  const ranked = [...rows].sort(byDosePriority);
+  const claimed = new Set(ranked.slice(0, budget));
   const visible = rows.filter((row) => claimed.has(row));
-  return { visible, hidden: rows.length - visible.length };
+  return { visible, hidden: rows.length - visible.length, hiddenItems: ranked.slice(budget) };
 }
 
 export function boundedMedicinePanelGroups(groups: readonly MedicineDailyTreatment[]) {
-  // Allocate the row budget across treatments rather than per treatment in
-  // turn: an early treatment's recorded doses should not crowd out a later
-  // treatment's dose that is due now.
-  const eligible = groups.slice(0, MEDICINE_PANEL_MAX_TREATMENTS);
+  /* Which treatments are shown is itself an allocation. Taking the first three
+   * in sort order meant a fourth treatment's due dose could not appear however
+   * urgent it was, while a treatment whose doses were all recorded kept its
+   * place — so the budget was spent across treatments, but only after the
+   * treatment that needed it had already been excluded.
+   *
+   * Membership is chosen by urgency; display order is not. The surviving
+   * treatments are restored to their original order so the panel does not
+   * reshuffle itself as the day progresses. */
+  const eligible = groups
+    .map((group, index) => ({ group, index, priority: Math.min(...group.rows.map((row) => dosePriority(row.state)), Number.POSITIVE_INFINITY) }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .slice(0, MEDICINE_PANEL_MAX_TREATMENTS)
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => entry.group);
   const claimed = new Set(
     boundedDoseRows(eligible.flatMap((group) => group.rows), MEDICINE_PANEL_MAX_DOSES).visible,
   );
@@ -464,8 +490,16 @@ export function boundedMedicinePanelGroups(groups: readonly MedicineDailyTreatme
     .map((group) => ({ ...group, rows: group.rows.filter((row) => claimed.has(row)) }))
     .filter((group) => group.rows.length > 0);
   const visibleRows = visible.reduce((sum, group) => sum + group.rows.length, 0);
-  const totalRows = groups.reduce((sum, group) => sum + group.rows.length, 0);
-  return { groups: visible, visibleRows, hiddenRows: Math.max(0, totalRows - visibleRows) };
+  const allRows = groups.flatMap((group) => group.rows);
+  // Everything the panel could not show, most urgent first, including the rows
+  // of treatments that did not make the cut at all.
+  const hiddenItems = allRows.filter((row) => !claimed.has(row)).sort(byDosePriority);
+  return {
+    groups: visible,
+    visibleRows,
+    hiddenRows: Math.max(0, allRows.length - visibleRows),
+    hiddenItems,
+  };
 }
 
 export function medicineManagerDoseRows(
