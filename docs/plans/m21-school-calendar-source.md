@@ -1,14 +1,20 @@
 # M21 — School calendar source
 
-> **Status: in progress. Scope item 1 of 3 complete; items 2 and 3 not started.**
+> **Status: all three scope items implemented; automated checks green. Human
+> visual review and the installed upgrade gate are outstanding. Not released.**
 > Baseline: `main` at `cc3e58b`, after M20 merged. Branch:
 > `codex/m21-school-calendar-source`.
 >
 > | Item | State |
 > | --- | --- |
-> | 1. Google published-calendar support | **Done** — `1f66548`, tests green |
-> | 2. Warn-and-preserve on source change | Not started — [design finding below](#re-keying-cannot-be-done-from-the-stored-key-alone) |
-> | 3. UID-change detection | Not started |
+> | 1. Google published-calendar support | **Done** — `1f66548` |
+> | 2. Warn-and-preserve on source change | **Done** — `f5108fa` |
+> | 3. UID-change detection | **Done** — `81f8193` |
+>
+> Item 1 has been confirmed working against a real Google calendar in the running
+> app by the product partner. Items 2 and 3 have automated coverage only — the
+> source-change prompt and the unmatched-association notice have **not** been
+> seen on screen yet.
 
 - **Parent plan:** [School mode](school-mode.md). This milestone implements its
   Step 1 only; Steps 2–4 are not approved.
@@ -97,14 +103,30 @@ Two ways out:
   `digest(new_scope, uid)` can be computed and any binding found under the old
   key copied to the new one. No schema change.
 
-**(b) is preferred**, with one consequence worth stating plainly: it can only
+**(b) was implemented**, with one consequence worth stating plainly: it can only
 carry over associations for series **present in the feed at that moment**. A
 subject whose lessons have finished for the term, or a feed that is temporarily
-unreachable, would not be carried. That argues for offering carry-over on an
-explicit user action against a freshly fetched feed, not silently during save.
+unreachable, is not carried. Carry-over therefore runs on an explicit user
+action against a freshly fetched feed, not silently during save, and a zero
+result is reported honestly rather than as success.
 
-(b) also requires the *old* scope, which means computing it from the stored
-credential **before** `save_source` overwrites it (`work_calendar/mod.rs:409`).
+(b) also requires the *old* scope, which is computed from the stored credential
+**before** `save_source` overwrites it.
+
+To make (b) work at all, `semantics` now reports the distinct non-private series
+across the **whole expansion window** (`SeriesIdentity`), not just today's
+selections — otherwise a subject with no lesson today could never be carried
+over. Those UIDs are `skip_serializing` and do not cross IPC.
+
+#### Known limit: the previous scope is session state
+
+`PendingSourceChange` lives in `WorkCalendarState`, not on disk. Restarting the
+app before resolving a source change loses the ability to carry associations
+over. The bindings themselves survive untouched — only the automatic match is
+lost, and a user can still re-associate by hand.
+
+Persisting it would mean a workspace schema change, which M20 deliberately
+deferred. Revisit if this proves painful in daily use.
 
 ### 3. UID-change detection
 
@@ -128,19 +150,40 @@ unrelated one.
 
 ## Verification
 
-Planned. Nothing has run yet.
+**Automated: passing.** `cargo test` 108 passed / 0 failed (from 103 at
+baseline), `pnpm test` 16 suites, `tsc` and `vite build` clean, no compiler
+warnings.
 
-- Fixtures for both Google path shapes (public and secret address forms) and the
-  existing Microsoft shapes.
-- Rejection still holds for: non-HTTPS, credentialed, query or fragment present,
-  wrong port, wrong path shape, and unlisted hosts.
-- A redirecting source still fails closed.
-- `Europe/Kiev` and `Europe/Kyiv` both resolve.
-- Source change warns, preserves existing associations, and never attaches an
-  old association to an unrelated lesson.
-- A series split is detected and reported rather than silently orphaning.
-- Work mode, medicine behavior and existing Microsoft sources do not regress.
-- `pnpm test` and `cargo test` pass.
+Covered:
+
+- Both Google path shapes (public and secret address) accepted, alongside the
+  existing Microsoft shapes and `webcal://` normalisation.
+- Rejection still holds for non-HTTPS, credentialed, query present, wrong path
+  shape, and unlisted hosts — including `outlook.live.com`.
+- Provider path shapes are **not** interchangeable: a Google path on a Microsoft
+  host and vice versa are both rejected.
+- A source change is recorded only when the scope genuinely differs, and a
+  second unresolved change keeps the *original* previous scope — that is the one
+  still holding the associations.
+- The same series keys differently under two scopes, and recurring versus single
+  derivations do not collide.
+- An unreadable feed reports no workspace keys and therefore **no** unmatched
+  count, rather than orphaning every association at once.
+
+**Not run:** human visual review, and the installed upgrade gate. Neither the
+source-change prompt nor the unmatched-association notice has been seen on
+screen — both are reachable only by replacing a configured source, which no
+automated test exercises end to end.
+
+Still worth doing before this is considered complete:
+
+- Confirm the Google series-split inference with a fixture (see
+  [Open questions](#open-questions)).
+- Replace a configured calendar with a different one and check the prompt, both
+  choices, and the zero-carried-over wording.
+- Verify on both children's laptops with the real calendars.
+- Confirm Work mode, medicine behaviour and an existing Microsoft source do not
+  regress.
 
 Builds, installed verification and human acceptance retain their separate gates.
 A root-level `REVIEW-M21-SCHOOL-CALENDAR-SOURCE.cmd` is created only when manual
