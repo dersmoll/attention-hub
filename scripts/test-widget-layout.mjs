@@ -76,6 +76,7 @@ assert.equal(layout.todayPopupHeight(0, 8, 0), 346);
 assert.equal(layout.todayPopupHeight(0, 9, 0), 376);
 assert.equal(layout.todayPopupHeight(0, 99, 0), 376);
 assert.equal(layout.todayPopupHeight(0, 9, 1), 436);
+assert.equal(layout.todayPopupHeight(0, 0, 0, true), 100);
 assert.equal(layout.widgetUtilityWidth("recommended"), 20);
 assert.equal(layout.widgetUtilityWidth("slim"), 64);
 assert.equal(layout.widgetDestinationsWidth("recommended"), 88);

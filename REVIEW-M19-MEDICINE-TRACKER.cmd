@@ -1,5 +1,7 @@
 @echo off
-setlocal
+setlocal EnableExtensions
+cd /d "%~dp0"
+if errorlevel 1 exit /b 1
 title Attention Hub M19 medicine tracker review
 echo.
 echo Attention Hub M19 - current implementation review
@@ -111,12 +113,67 @@ echo      confirm both clamp into the 15 to 240 range when the field loses focus
 echo  54. With reminders enabled, leave a dose unrecorded until it is past the
 echo      grace window. Confirm it becomes Missed and raises no further toast.
 echo  55. Close Attention Hub, let a scheduled dose time pass with the app closed,
-echo      then reopen. Confirm the dose shows as Missed and no late toast appears.
+echo      then wait until the grace window has ALSO elapsed before reopening.
+echo      Confirm the dose shows as Missed and no late toast appears.
+echo      Reopening inside the grace window may still notify; that is expected.
 echo  56. Turn the reminder setting off and confirm no further toasts appear while
 echo      doses continue to become due.
 echo  57. In Settings / Reminders, select "Delete all medicine data" on a
 echo      disposable dataset. Confirm the confirmation names the treatment,
 echo      medicine and dose-record counts before you approve it.
+echo.
+echo  58. Type treatment notes and immediately close with the TITLE-BAR X.
+echo      Reopen and confirm the text persisted. Repeat with Alt+F4 and the
+echo      in-app Close button. If notes are already saving, the window stays
+echo      open; wait for Saved locally and retry. No typed text may be lost.
+echo  59. Type while an autosave completes, then switch treatments. Any newer
+echo      text must be saved before leaving, or the current treatment stays open.
+echo      Also type notes, then create a treatment: notes must persist, and editing
+echo      stays disabled while creation is being saved.
+echo  60. Escape closes Today and the Medicine popup. Reopen each and confirm
+echo      its controls still work and focus is visible.
+echo  61. Reopen both managers after moving between connected monitors. Confirm
+echo      their title bars and controls remain reachable. Check at your usual DPI.
+echo  62. Backup-cleanup failure is covered by automated fault injection only.
+echo      The expected result is updated active data plus a warning that the old
+echo      backup remains, never an unqualified successful permanent deletion.
+echo      Do not change real medicine files or permissions to force this case.
+echo  63. After installing this corrected beta.11 over the earlier beta.11,
+echo      confirm Meds appears once in the main widget with its badge. Hide it
+echo      in Settings, restart, and confirm that explicit choice stays hidden.
+echo  64. From Today, select a to-do title. Confirm the details window has the
+echo      same solid themed panel background, readable text and border as the
+echo      project quick views; no desktop content should show through the card.
+echo  65. Type treatment notes and immediately use the MAIN WIDGET close button.
+echo      Reopen Attention Hub and Medicine and confirm the notes persisted. If
+echo      saving is in progress or fails, the whole Hub must remain open.
+echo  66. In Today and the Medicine popup, compare recorded rows without Skip to
+echo      unresolved rows with Skip. Every Take/Undo checkbox must form one
+echo      straight right-hand column.
+echo  67. Hover Today to-do titles, checkboxes, Not today, and Medicine actions.
+echo      Confirm every hover uses the dark widget palette with readable text;
+echo      no control flashes to the default white button background.
+echo  68. In Project Hub, hover inactive projects and lists. Confirm the text and
+echo      counts stay readable against the manager hover background.
+echo  69. Recovered-data and failed backup-cleanup states are fault-injection
+echo      checks. Do not alter real files. Expected UI: a compact recovered-data
+echo      notice on Today, Medicine popup and manager, plus Advanced's dedicated
+echo      Remove retained backup action that does not delete active records.
+echo  70. Create a treatment. Confirm the form asks only for its name and explains
+echo      that its course dates come from the first medicine. Add medicines with
+echo      different ranges; confirm the treatment range follows the earliest
+echo      medicine start and latest medicine end.
+echo  71. In Advanced, select Export Medicine. Confirm the plain-text health-data
+echo      warning appears before the Save dialog. Export a disposable dataset and
+echo      confirm its JSON is separate from the workspace export.
+echo  72. With disposable Medicine data, select Import Medicine and choose that
+echo      export. Confirm the exact counts before approving. Import replaces the
+echo      current Medicine data and retains the previous valid store as its local
+echo      backup; it never merges the two datasets.
+echo  73. Open the Medicine popup and select Manage medicines. Close the manager,
+echo      reopen the popup, and repeat at least six times. Every selection must
+echo      show and focus the manager before the popup closes; no alternate click
+echo      may leave both windows hidden.
 echo.
 echo ================================================================
 echo RELEASE GATE - upgrade verification. Do NOT use this launcher.

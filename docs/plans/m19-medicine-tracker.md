@@ -1,6 +1,6 @@
 # M19 — Medicine tracker
 
-> **Status: IMPLEMENTING — partial delivery; reliability follow-up implemented, native and human validation pending.**
+> **Status: CLOSEOUT — beta.11 implementation complete; installed and human acceptance remain pending.**
 > Numbered M19 because **M18 is the active calendar-reliability repair**. See
 > §0 for the prerequisite that gates any M19 implementation work.
 
@@ -1798,3 +1798,138 @@ remain part of the storage/reminder closeout slice.
 The popup's footer-level manager link was not reliably discoverable in live
 use. The manager action is therefore now a persistent header control labelled
 **Manage medicines**, with the footer retained only as record context.
+
+
+## 14. M19 closeout — 2026-09-06
+
+This section is the current delivery and acceptance record. Earlier dated
+continuation lists remain historical. Checkpoint 6's app-chrome manager palette
+supersedes §12's widget-palette manager description; frameless popups continue
+to inherit the widget theme.
+
+| Checkpoint | Delivery |
+| --- | --- |
+| 1 — Foundation | Implemented. Native DST tests and TypeScript fixtures cover the same spring gap and autumn overlap. Serialized byte-budget tests are present. |
+| 2 — Manager | Implemented, including compact pointer/keyboard reorder and notes. Native close protection is part of this closeout. |
+| 3 — Today | Implemented: states, record actions and unresolved-first row allocation. |
+| 4 — Widget/popup | Implemented: optional segment, anchored popup, progress, bounded scrolling and unavailable badge. |
+| 5 — Reminders/data/docs | Implemented: opt-in generic notifications, shared grace, Advanced data controls, privacy and architecture docs. Installed acceptance remains open. |
+| 6 — Manager design system | Shared kit and subsequent control-style repairs implemented; final cross-manager visual review remains open. |
+
+### Closeout scope
+
+- Route native title-bar X, Alt+F4 and the in-app close through save-before-close.
+  Failed/conflicting saves keep the window open. If an autosave is already in
+  flight, let it finish and retry closing. Text typed during a save must not be
+  discarded by a treatment switch or close.
+- Verify destructive replacement failure against both a healthy primary and
+  backup recovery. Distinguish a committed deletion with backup-cleanup failure
+  from a failure to commit; expose the retained-backup warning and recovery action.
+- Reconcile the review launcher and release notes with the current source.
+
+### Acceptance record
+
+- Automated results: the complete frontend test chain and production frontend
+  build passed. Rust all-target tests passed: 97 passed, one reporting helper
+  intentionally ignored. Strict
+  all-target/all-feature Clippy, formatting and diff whitespace checks passed.
+  These are local results, not a remote CI or installed-app sign-off.
+- Human observations from earlier implementation remain valid only for the
+  behaviors and versions explicitly recorded in §12–13.
+- [ ] Final native close checks: type then immediately use X / Alt+F4 / in-app
+      Close; reopen and verify text. Repeat around an in-flight autosave.
+- [ ] Final daily-use checks: dose actions and schedule-edit history, generic
+      one-shot notifications, grace boundaries and cross-window updates.
+- [ ] Final visual checks: manager consistency, popup keyboard/focus, monitor/DPI
+      placement, scrolling, high contrast and taskbar-mirror alignment.
+- [ ] Installed upgrade/rollback and single-instance checks U1–U10 from the
+      root review launcher. Development runs cannot prove these.
+- [x] Release version: 0.6.0-beta.12; all four manifests match.
+- [x] Local installer build and artifact verification: optimized release + NSIS
+      succeeded; executable version and copied-installer SHA-256 verified. See
+      `docs/releases/attention-hub-0.6.0-beta.12.md` for the exact artifact.
+- [x] Publication approved by the product owner on 2026-09-06.
+
+Only one development process should use the shared `dev` profile at a time.
+Release single-instance protection and dev/release profile separation do not
+provide a lock between two development processes. No cross-process locking,
+tray, autostart or provider changes are added in this closeout.
+
+### Next interaction-polish proposal
+
+After M19 acceptance, choose one bounded follow-up covering contextual overflow
+navigation (open the hidden dose's treatment and Today view) and treatment-name
+creation followed by the first medicine, whose dates derive the course range.
+Preserve note drafts during navigation, including when the manager already exists.
+No reporting expansion or performance refactor is included. Performance ideas
+remain measurement candidates, not established regressions.
+
+### Installed beta.11 feedback
+
+The first local beta.11 install exposed two presentation regressions before
+acceptance:
+
+- An existing pre-M19 widget preference record normalized the optional Medicine
+  destination to hidden. A one-time installed-profile migration now enables
+  Meds for an existing profile, persists that migration, and then respects every
+  explicit Show in widget choice. A genuinely fresh profile keeps the original
+  default-off contract.
+- The Today to-do detail quick view rendered without a card background because
+  the shared manager refactor left its `--manager-*` tokens undefined. The quick
+  view root now bridges the current widget-panel palette into the shared manager
+  tokens. This repairs to-do details and the sibling Notes/To-dos quick views.
+
+Automated preference and satellite-window contract tests cover both regressions.
+Human checks 63–64 in the root launcher remain required on the corrected build.
+
+
+The local installer uses `scripts/tauri-review-build.json`, which runs the same
+frontend build tools directly and disables updater-artifact signing only for
+local review. The normal release configuration remains signed. Installing the
+local NSIS candidate tests replacement behavior; it does not prove signed
+in-app update discovery/download or publication.
+
+### Second beta.11 feedback closeout
+
+The next installed review found four reliability gaps and three visual defects.
+The verified repairs are part of M19 rather than the later polish milestone:
+
+- Closing the whole Hub now asks an open Medicine manager to finish its pending
+  treatment-note save. Failure, conflict, an in-flight save, or a missing reply
+  keeps the application and Medicine window open.
+- A failed destructive backup cleanup creates a small persistent status marker.
+  Advanced offers **Remove retained backup**, which revision-checks the readable
+  active store and removes only the old backup and marker. It never repeats the
+  original treatment, medicine, or store deletion.
+- Due-dose selection, toast copy, and `notifiedAt` writes now use one locked
+  store view and one timestamp. The no-op path preserves recovery and warning
+  metadata.
+- Today, the Medicine popup, and the manager identify recovered backup data.
+- Medicine row check controls keep the final grid column whether Skip is shown
+  or omitted. Today popup buttons use the widget theme hover token, and Project
+  Hub row hover uses the manager theme token for readable contrast.
+
+The original plan and council audit encoding damage was also repaired. Human
+checks 65–69 in the root review launcher cover the new interaction and visual
+acceptance work.
+
+### Medicine transfer and treatment-date amendment
+
+Medicine now has its own portable JSON export/import flow in Advanced. It is
+deliberately **replace-only**: the user previews treatment, medicine, and dose
+counts, then explicitly confirms that the selected export will replace the
+current local Medicine store. The native import checks both the current store
+revision and the selected-file digest, preserves the former valid store as the
+bounded local backup, and advances matching treatment-note revisions so a
+pre-import autosave cannot overwrite imported notes. The export warning makes
+clear that the JSON contains unencrypted health data. Workspace transfer remains
+separate and never includes Medicine data.
+
+New treatments now ask only for a name. The stored same-day placeholder is an
+internal schema bridge for an empty treatment; the visible course range appears
+only after medicines exist and always derives from their earliest start and
+latest end dates.
+
+The existing beta.11 installer predates this amendment. Beta.12 is the first
+release version that includes it; installed beta.12 review remains separate
+from source and package validation.

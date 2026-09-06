@@ -78,6 +78,12 @@ import {
   widgetPanelStyle,
   writeWidgetPreferences,
 } from "./widget-preferences";
+import { MEDICINE_MANAGER_WINDOW_LABEL } from "./medicine-manager-window";
+import {
+  MEDICINE_QUIT_SAVE_REQUEST_EVENT,
+  MEDICINE_QUIT_SAVE_RESULT_EVENT,
+  type MedicineQuitSaveResult,
+} from "./medicine-close-guard";
 import {
   INITIAL_ZOOM_MEETING_PRESENCE,
   nextZoomMeetingPresence,
@@ -725,6 +731,7 @@ export function WidgetView() {
   const widgetContextMenuRef = useRef<Menu | null>(null);
   const widgetNoticeTimerRef = useRef<number | null>(null);
   const widgetNoticeScopeRef = useRef<WidgetNoticeScope | null>(null);
+  const applicationQuitInFlightRef = useRef(false);
   const sourceActivationNoticeTimerRef = useRef<number | null>(null);
   const zoomActivationFeedbackTimerRef = useRef<number | null>(null);
   const announcedMeetingStartAlertsRef = useRef<ReadonlySet<string>>(new Set());
@@ -801,6 +808,47 @@ export function WidgetView() {
     widgetNoticeScopeRef.current = null;
     setWidgetError(null);
   }, []);
+  const requestApplicationQuit = useCallback(async () => {
+    if (applicationQuitInFlightRef.current) return;
+    applicationQuitInFlightRef.current = true;
+    try {
+      const manager = await WebviewWindow.getByLabel(MEDICINE_MANAGER_WINDOW_LABEL);
+      if (manager) {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const allowed = await new Promise<boolean>(async (resolve, reject) => {
+          let stop: (() => void) | undefined;
+          const timer = window.setTimeout(() => {
+            stop?.();
+            reject(new Error("Medicine did not finish its save-before-quit check."));
+          }, 5_000);
+          try {
+            stop = await listen<MedicineQuitSaveResult>(MEDICINE_QUIT_SAVE_RESULT_EVENT, ({ payload }) => {
+              if (payload.requestId !== requestId) return;
+              window.clearTimeout(timer);
+              stop?.();
+              resolve(payload.allowed);
+            });
+            await emitTo(MEDICINE_MANAGER_WINDOW_LABEL, MEDICINE_QUIT_SAVE_REQUEST_EVENT, { requestId });
+          } catch (reason) {
+            window.clearTimeout(timer);
+            stop?.();
+            reject(reason);
+          }
+        });
+        if (!allowed) {
+          await manager.show().catch(() => undefined);
+          await manager.setFocus().catch(() => undefined);
+          showWidgetNotice("medicine", "Attention Hub stayed open because Medicine notes are not saved yet. Review Medicine and try again.");
+          return;
+        }
+      }
+      await invoke("quit_application");
+    } catch {
+      showWidgetNotice("medicine", "Attention Hub stayed open because Medicine could not confirm that notes were saved. Review Medicine and try again.");
+    } finally {
+      applicationQuitInFlightRef.current = false;
+    }
+  }, [showWidgetNotice]);
   const publishTodayPopup = useCallback(() => {
     const payload = todayPopupPayloadRef.current;
     if (
@@ -3407,7 +3455,7 @@ export function WidgetView() {
         <button
           aria-label="Close Attention Hub"
           className="widget-close-control"
-          onClick={() => void invoke("quit_application")}
+          onClick={() => void requestApplicationQuit()}
           title="Close Attention Hub"
           type="button"
         >

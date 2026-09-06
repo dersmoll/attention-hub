@@ -11,7 +11,8 @@ mod zoom_meeting;
 
 use attention_signals::AttentionSignalSnapshot;
 use medicine::{
-    MedicineDeleteImpact, MedicineInput, MedicineSnapshot, MedicineState, TreatmentInput,
+    MedicineDeleteImpact, MedicineImportPreview, MedicineInput, MedicineSnapshot, MedicineState,
+    TreatmentInput,
 };
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
@@ -39,6 +40,43 @@ fn get_medicine_snapshot(
     state: tauri::State<'_, MedicineState>,
 ) -> Result<MedicineSnapshot, String> {
     medicine::get_snapshot(&app, state.inner())
+}
+
+#[tauri::command]
+fn export_medicine_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    destination_path: String,
+) -> Result<String, String> {
+    medicine::export_medicine(&app, state.inner(), destination_path)
+}
+
+#[tauri::command]
+fn preview_medicine_import(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    source_path: String,
+) -> Result<MedicineImportPreview, String> {
+    medicine::preview_medicine_import(&app, state.inner(), source_path)
+}
+
+#[tauri::command]
+fn import_medicine_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    source_path: String,
+    expected_revision: u64,
+    expected_digest: String,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::import_medicine(
+        &app,
+        state.inner(),
+        source_path,
+        expected_revision,
+        expected_digest,
+    )?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -288,20 +326,25 @@ fn delete_all_medicine_data(
     Ok(snapshot)
 }
 #[tauri::command]
+fn retry_medicine_backup_cleanup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MedicineState>,
+    expected_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let snapshot = medicine::retry_backup_cleanup(&app, state.inner(), expected_revision)?;
+    emit_medicine_changed(&app);
+    Ok(snapshot)
+}
+#[tauri::command]
 fn notify_due_doses(
     app: tauri::AppHandle,
     state: tauri::State<'_, MedicineState>,
     grace_minutes: i64,
 ) -> Result<MedicineSnapshot, String> {
-    // Compute the body before mutating, because marking the doses notified is
-    // what makes them stop counting as due.
-    let notification_body =
-        medicine::due_dose_notification_body(&app, state.inner(), grace_minutes)?;
-    let before = medicine::get_snapshot(&app, state.inner())?;
-    let snapshot = medicine::notify_due_doses(&app, state.inner(), grace_minutes)?;
-    if snapshot.revision != before.revision {
-        if let Some(body) = notification_body {
-            // Title carries no medicine name either; see due_dose_notification_body.
+    let outcome = medicine::notify_due_doses(&app, state.inner(), grace_minutes)?;
+    if outcome.changed {
+        if let Some(body) = outcome.notification_body {
+            // Neither title nor body carries medicine or treatment names.
             app.notification()
                 .builder()
                 .title("Attention Hub")
@@ -313,7 +356,7 @@ fn notify_due_doses(
         }
         emit_medicine_changed(&app);
     }
-    Ok(snapshot)
+    Ok(outcome.snapshot)
 }
 
 #[tauri::command]
@@ -1081,6 +1124,9 @@ pub fn run() {
             get_attention_signal_snapshot,
             get_workspace_snapshot,
             get_medicine_snapshot,
+            export_medicine_data,
+            preview_medicine_import,
+            import_medicine_data,
             create_treatment,
             update_treatment,
             move_treatment,
@@ -1100,6 +1146,7 @@ pub fn run() {
             delete_treatment,
             delete_medicine,
             delete_all_medicine_data,
+            retry_medicine_backup_cleanup,
             notify_due_doses,
             export_workspace_data,
             preview_workspace_import,

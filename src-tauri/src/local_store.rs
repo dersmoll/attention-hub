@@ -36,6 +36,43 @@ pub fn backup_path(path: &Path) -> PathBuf {
     sibling_path(path, "backup")
 }
 
+pub fn backup_cleanup_marker_path(path: &Path) -> PathBuf {
+    sibling_path(path, "backup-cleanup-required")
+}
+
+pub fn backup_cleanup_is_pending(path: &Path) -> bool {
+    backup_cleanup_marker_path(path).exists()
+}
+
+pub fn mark_backup_cleanup_pending(path: &Path, label: &str) -> Result<(), String> {
+    let marker = backup_cleanup_marker_path(path);
+    fs::write(marker, b"")
+        .map_err(|_| format!("{label} could not remember that backup cleanup is still required."))
+}
+
+pub fn clear_backup_cleanup_pending(path: &Path, label: &str) -> Result<(), String> {
+    let marker = backup_cleanup_marker_path(path);
+    if marker.exists() {
+        fs::remove_file(marker)
+            .map_err(|_| format!("{label} could not clear its backup cleanup status."))?;
+    }
+    Ok(())
+}
+
+/// Remove only the retained recovery copy and its status marker.
+///
+/// The active store is deliberately untouched. Callers must first verify that
+/// the active store is readable and that their confirmation revision is still
+/// current, because a backup can be the only readable copy after a failure.
+pub fn retry_backup_cleanup(path: &Path, label: &str) -> Result<(), String> {
+    let backup = backup_path(path);
+    if backup.exists() {
+        fs::remove_file(&backup)
+            .map_err(|_| format!("{label} could not remove its previous local backup."))?;
+    }
+    clear_backup_cleanup_pending(path, label)
+}
+
 /// Pending writes are per-process.
 ///
 /// With one shared name, two processes writing at once both target the same
@@ -147,6 +184,55 @@ pub fn write<T: Serialize>(
     source_recovered_from_backup: bool,
     label: &str,
 ) -> Result<(), String> {
+    match write_with_outcome(
+        path,
+        store,
+        preserve_previous,
+        source_recovered_from_backup,
+        label,
+    )? {
+        WriteOutcome::Complete => Ok(()),
+        WriteOutcome::BackupCleanupPending(message) => Err(message),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum WriteOutcome {
+    Complete,
+    // The primary is committed: callers must refresh their data even though
+    // deletion of the previous recovery copy has not completed.
+    BackupCleanupPending(String),
+}
+
+pub fn write_with_outcome<T: Serialize>(
+    path: &Path,
+    store: &T,
+    preserve_previous: bool,
+    source_recovered_from_backup: bool,
+    label: &str,
+) -> Result<WriteOutcome, String> {
+    write_with_operations(
+        path,
+        store,
+        preserve_previous,
+        source_recovered_from_backup,
+        label,
+        replace_file,
+        |backup| fs::remove_file(backup),
+    )
+}
+
+// Dependency injection is local to one write, so failure tests neither alter
+// global filesystem behavior nor race with writes in other tests.
+fn write_with_operations<T: Serialize>(
+    path: &Path,
+    store: &T,
+    preserve_previous: bool,
+    source_recovered_from_backup: bool,
+    label: &str,
+    replace: impl FnOnce(&Path, &Path, &str) -> Result<(), String>,
+    remove_backup: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> Result<WriteOutcome, String> {
     let directory = path
         .parent()
         .ok_or_else(|| format!("{label} storage path is invalid."))?;
@@ -169,15 +255,16 @@ pub fn write<T: Serialize>(
         fs::copy(path, &backup)
             .map_err(|_| format!("{label} could not update its local backup."))?;
     }
-    replace_file(&pending, path, label)?;
+    replace(&pending, path, label)?;
     // A destructive write may retire its recovery copy only after its replacement
     // has committed.  Otherwise a failed replacement can turn one write failure
     // into data loss when this store was already running from its backup.
-    if !preserve_previous && backup.exists() {
-        fs::remove_file(&backup)
-            .map_err(|_| format!("{label} could not remove its prior local backup."))?;
+    if !preserve_previous && backup.exists() && remove_backup(&backup).is_err() {
+        return Ok(WriteOutcome::BackupCleanupPending(format!(
+            "{label} active data was updated, but its previous local backup could not be removed. That backup may still contain deleted data."
+        )));
     }
-    Ok(())
+    Ok(WriteOutcome::Complete)
 }
 
 fn read_file<T, F>(path: &Path, schema_version: u32, valid: F) -> Result<T, ReadError>
@@ -380,6 +467,145 @@ mod tests {
             pending_name.contains(&std::process::id().to_string()),
             "pending writes must be scoped to this process: {pending_name}"
         );
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn destructive_replacement_failure_preserves_primary_and_recovery_copy() {
+        for primary in ["healthy", "corrupt", "missing"] {
+            let path = test_path(primary);
+            let original = Fixture {
+                schema_version: 1,
+                value: "original".into(),
+            };
+            write(&path, &original, true, false, "Medicine").unwrap();
+            fs::copy(&path, backup_path(&path)).unwrap();
+            if primary == "corrupt" {
+                fs::write(&path, b"invalid").unwrap();
+            }
+            if primary == "missing" {
+                fs::remove_file(&path).unwrap();
+            }
+            let original_bytes = fs::read(&path).ok();
+            let backup_bytes = fs::read(backup_path(&path)).unwrap();
+            let loaded = read::<Fixture, _>(&path, 1, valid).unwrap().unwrap();
+            let result = write_with_operations(
+                &path,
+                &Fixture {
+                    schema_version: 1,
+                    value: "deleted".into(),
+                },
+                false,
+                loaded.recovered_from_backup,
+                "Medicine",
+                |_, _, _| Err("Injected replacement failure".into()),
+                |_| panic!("The recovery copy must not be removed before commit"),
+            );
+            assert_eq!(result, Err("Injected replacement failure".into()));
+            assert_eq!(fs::read(&path).ok(), original_bytes);
+            assert_eq!(fs::read(backup_path(&path)).unwrap(), backup_bytes);
+            let after = read::<Fixture, _>(&path, 1, valid).unwrap().unwrap();
+            assert_eq!(after.store.value, "original");
+            assert_eq!(after.recovered_from_backup, loaded.recovered_from_backup);
+            fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn destructive_cleanup_failure_reports_committed_data_and_allows_retry() {
+        for recovered in [false, true] {
+            let path = test_path("cleanup-failure");
+            write(
+                &path,
+                &Fixture {
+                    schema_version: 1,
+                    value: "original".into(),
+                },
+                true,
+                false,
+                "Medicine",
+            )
+            .unwrap();
+            fs::copy(&path, backup_path(&path)).unwrap();
+            if recovered {
+                fs::write(&path, b"invalid").unwrap();
+            }
+            let replacement = Fixture {
+                schema_version: 1,
+                value: "deleted".into(),
+            };
+            let result = write_with_operations(
+                &path,
+                &replacement,
+                false,
+                recovered,
+                "Medicine",
+                replace_file,
+                |_| {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "Injected cleanup failure",
+                    ))
+                },
+            )
+            .unwrap();
+            let WriteOutcome::BackupCleanupPending(message) = result else {
+                panic!("Cleanup failure must be reported as a committed write");
+            };
+            assert!(message.contains("active data was updated"));
+            assert!(message.contains("may still contain deleted data"));
+            let after = read::<Fixture, _>(&path, 1, valid).unwrap().unwrap();
+            assert_eq!(after.store.value, "deleted");
+            assert!(!after.recovered_from_backup);
+            assert_eq!(
+                read_file::<Fixture, _>(&backup_path(&path), 1, valid)
+                    .unwrap()
+                    .value,
+                "original"
+            );
+            assert!(!pending_path(&path).exists());
+            assert_eq!(
+                write_with_outcome(&path, &replacement, false, false, "Medicine").unwrap(),
+                WriteOutcome::Complete
+            );
+            assert!(!backup_path(&path).exists());
+            assert_eq!(
+                read::<Fixture, _>(&path, 1, valid)
+                    .unwrap()
+                    .unwrap()
+                    .store
+                    .value,
+                "deleted"
+            );
+            fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn guarded_cleanup_removes_only_backup_and_marker() {
+        let path = test_path("guarded-cleanup");
+        let active = Fixture {
+            schema_version: 1,
+            value: "active".into(),
+        };
+        let previous = Fixture {
+            schema_version: 1,
+            value: "previous".into(),
+        };
+        write(&path, &active, true, false, "Medicine").unwrap();
+        fs::write(
+            backup_path(&path),
+            serde_json::to_vec_pretty(&previous).unwrap(),
+        )
+        .unwrap();
+        mark_backup_cleanup_pending(&path, "Medicine").unwrap();
+        let active_bytes = fs::read(&path).unwrap();
+
+        retry_backup_cleanup(&path, "Medicine").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), active_bytes);
+        assert!(!backup_path(&path).exists());
+        assert!(!backup_cleanup_is_pending(&path));
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 

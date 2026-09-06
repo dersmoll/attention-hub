@@ -44,9 +44,22 @@ export interface MedicineSnapshot {
   capturedAt?: string;
   storagePath?: string;
   recoveredFromBackup?: boolean;
+  storageWarning?: string | null;
   treatments: MedicineTreatment[];
   medicines: MedicineRecord[];
   doses: MedicineDose[];
+}
+export interface MedicineTransferCounts {
+  treatments: number;
+  medicines: number;
+  doses: number;
+}
+export interface MedicineImportPreview {
+  schemaVersion: 1;
+  exportedAt: string;
+  digest: string;
+  medicineRevision: number;
+  counts: MedicineTransferCounts;
 }
 
 export interface MedicineTreatment {

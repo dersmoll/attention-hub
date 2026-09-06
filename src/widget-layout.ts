@@ -183,11 +183,11 @@ export function widgetCalendarWidth(
     : WIDGET_CALENDAR_COMPACT_WIDTH;
 }
 
-export function todayPopupHeight(eventCount: number, doseCount = 0, todoCount = 0) {
+export function todayPopupHeight(eventCount: number, doseCount = 0, todoCount = 0, showsMedicineRecovery = false) {
   const boundedDoses = Math.min(TODAY_DOSE_MAX_ITEMS, Math.max(0, Math.trunc(doseCount)));
   const doseRows = boundedDoses + Number(doseCount > TODAY_DOSE_MAX_ITEMS);
   const boundedTodos = Math.min(TODAY_TODO_MAX_ITEMS, Math.max(0, Math.trunc(todoCount)));
-  return calendarDayPanelHeight(eventCount) + (doseRows > 0 ? TODAY_DOSE_SECTION_BASE_HEIGHT + doseRows * TODAY_DOSE_ROW_HEIGHT : 0) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
+  return calendarDayPanelHeight(eventCount) + (showsMedicineRecovery ? 24 : 0) + (doseRows > 0 ? TODAY_DOSE_SECTION_BASE_HEIGHT + doseRows * TODAY_DOSE_ROW_HEIGHT : 0) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
 }
 
 export function widgetFixedWidth(

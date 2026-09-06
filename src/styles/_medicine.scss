@@ -235,7 +235,7 @@
     display: grid;
     position: relative;
     grid-template-columns: 22px 72px minmax(0, 1fr) auto;
-    align-items: start;
+    align-items: center;
     gap: 6px;
     min-height: 46px;
     padding: 4px 6px;
@@ -270,6 +270,7 @@
   &__empty h2 { color: var(--medicine-text); font-size: 18px; font-weight: 650; }
   &__privacy { padding-top: 10px; border-top: 1px solid var(--medicine-border); }
   &__error { @include manager-error; font-size: var(--medicine-text-size); }
+  &__recovery { padding: 5px 7px; margin: 0; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--medicine-quiet); background: var(--medicine-raised); font-size: var(--medicine-helper-size); }
 
   &__treatment-row[data-dragging], &__schedule > li[data-dragging] { opacity: .45; }
   &__treatment-row[data-drop-edge]::after, &__schedule > li[data-drop-edge]::after {
@@ -325,7 +326,6 @@
   overflow-x: hidden;
   overflow-y: auto;
   /* Reserve the scrollbar so a clamped panel cannot overlay the check column. */
-  scrollbar-gutter: stable;
   border: 1px solid var(--widget-panel-border);
   border-radius: var(--radius-panel);
   color: var(--widget-panel-foreground);
@@ -336,22 +336,25 @@
 
   button { margin: 0; font-family: var(--font-ui); font-weight: 400; line-height: 1.2; text-transform: none; }
 
-  &__toolbar { display: flex; min-height: 24px; align-items: center; justify-content: space-between; gap: 8px; padding-right: 26px; border-bottom: 1px solid var(--widget-panel-border); }
+  &__toolbar { display: flex; min-height: 26px; align-items: center; justify-content: space-between; gap: 8px; padding-right: 26px; padding: 5px}
   &__toolbar strong { font-size: 13px; }
   &__toolbar button { min-height: 22px; padding: 2px 7px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; white-space: nowrap; }
-  section { display: grid; gap: 3px; min-width: 0; }
-  section + section { padding-top: 5px; border-top: 1px solid var(--widget-panel-border); }
+  &__toolbar button:hover:not(:disabled), &__toolbar button:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
+  section { display: grid; gap: 3px; min-width: 0; background: color-mix(in srgb, var(--widget-panel-accent) 5%, var(--widget-panel-solid));  }
+  section + section { padding-top: 0;  }
   /* No right padding: the close button only overlaps the toolbar, which
    * reserves its own space. Padding here shortened every progress bar and
    * pushed each "Day n of m" out of line with the dose rows below it. */
-  section > header { display: grid; gap: 4px; }
-  section > header > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+  section > header { display: grid; gap: 4px;   background: color-mix(in srgb, var(--widget-panel-accent) 16%, var(--widget-panel-solid)); padding: 2px 5px;}
+  section > header > div:first-child { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   section > header strong { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
   section > header span, section > footer { color: var(--widget-panel-muted); font-size: 10px; }
+  section > footer {  background: color-mix(in srgb, var(--widget-panel-accent) 16%, var(--widget-panel-solid)); text-align: center; }
   section > ol { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-  section > ol > li { display: grid; min-height: 32px; grid-template-columns: 46px minmax(0, 1fr) auto 22px; align-items: center; gap: 5px; margin: 0; padding: 2px 3px; border: 1px solid transparent; border-radius: var(--radius-chrome); }
-  time { color: var(--widget-panel-muted); font-family: var(--font-numeric); font-size: 12px; font-variant-numeric: tabular-nums; }
-  li > div { display: grid; min-width: 0; }
+  section > ol > li { display: grid; min-height: 32px; grid-template-columns: 46px minmax(0, 1fr) auto 22px; align-items: center; gap: 5px; margin: 0; padding: 3px; border: 1px solid transparent; border-bottom: 1px solid color-mix(in srgb, var(--widget-panel-border) 35%, transparent); }
+  section > ol > li:last-child { border: none; }
+  time { padding-top: 2px; color: var(--widget-panel-muted); font-family: var(--font-numeric); font-size: 12px; font-variant-numeric: tabular-nums; }
+  li > div { display: grid; min-width: 0; padding-top: 1px; }
   li strong, li small { @include truncate; }
   li strong { font-size: 11px; }
   li small { color: var(--widget-panel-muted); font-size: 9px; }
@@ -361,22 +364,27 @@
   /* Resting border, not transparent-until-hover. Take and Skip are the only
    * things this panel exists to do, and an invisible control reads as static
    * text. */
-  li > button { min-height: 20px; padding: 1px 5px; border: 1px solid #{panel-border-wash(70%)}; border-radius: var(--radius-pill); color: #{panel-foreground-wash(78%)}; background: #{panel-tint(4%)}; font-size: 10px; }
+  li > button { align-self: center; min-height: 20px; padding: 1px 5px; border: 1px solid #{panel-border-wash(70%)}; border-radius: var(--radius-pill); color: #{panel-foreground-wash(78%)}; background: #{panel-tint(4%)}; font-size: 10px; }
   li > button:hover, li > button:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(9%)}; }
-  li[data-state="due"], li[data-state="missed"] { border-color: color-mix(in srgb, var(--color-danger) 50%, var(--widget-panel-border)); background: color-mix(in srgb, var(--color-danger) 7%, transparent); }
+  li[data-state="due"], li[data-state="missed"] { background: color-mix(in srgb, var(--color-danger) 22%, transparent); }
   /* Struck-through still has to be readable; muted alone disappeared on a
    * dark panel. */
   li[data-state="taken"] strong, li[data-state="skipped"] strong { color: #{panel-foreground-wash(62%)}; text-decoration: line-through; text-decoration-thickness: 1px; }
   &__progress { width: 100%; height: 5px; overflow: hidden; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); background: #{panel-tint(5%)}; }
   &__progress i { display: block; height: 100%; background: var(--widget-panel-accent); transition: width .18s ease; }
-  &__check { @include icon-button(20px, 5px); padding: 0 !important; color: var(--widget-panel-foreground) !important; }
+  &__check { @include icon-button(20px, 5px); grid-column: 4; padding: 0 !important; color: var(--widget-panel-foreground) !important; }
+  &__check:hover:not(:disabled), &__check:focus-visible { color: var(--widget-panel-accent) !important; }
   li[data-state="taken"] &__check { color: var(--color-success) !important; }
-  &__close { position: absolute; top: 7px; right: 7px; @include square(22px); min-height: 22px; padding: 5px; z-index: 2; }
+  &__close { position: absolute; top: -5px; right: 2px; @include square(16px); min-height: 22px; padding: 5px; z-index: 2; border-color: transparent; color: var(--widget-panel-foreground); background: transparent; }
+  &__close:hover:not(:disabled), &__close:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(10%)}; }
   &__more { justify-self: center; min-height: 24px; padding: 2px 9px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; }
+  &__more:hover:not(:disabled), &__more:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
   &__footer { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 8px; padding-top: 5px; border-top: 1px solid var(--widget-panel-border); color: var(--widget-panel-muted); font-size: 10px; }
   &__footer button { min-height: 22px; padding: 2px 7px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; }
+  &__footer button:hover:not(:disabled), &__footer button:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
   button:focus-visible { @include widget-focus-ring; }
   &__error { position: absolute; right: 8px; bottom: 4px; left: 8px; padding: 2px 5px; margin: 0; color: var(--color-danger); background: var(--widget-panel-solid); font-size: 9px; @include truncate; }
+  .medicine-recovery-notice { padding: 3px 5px; margin: 0; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-chrome); color: var(--widget-panel-muted); background: #{panel-tint(6%)}; font-size: 9px; }
 
   @include reduced-motion { &__progress i { transition: none; } }
   @include forced-colors {

@@ -345,6 +345,7 @@ assert.deepEqual(
   preferences.DEFAULT_WIDGET_PREFERENCES,
 );
 
+storedValues.delete(preferences.MEDICINE_PANEL_UPGRADE_KEY);
 storedValues.set(
   preferences.WIDGET_PREFERENCES_KEY,
   JSON.stringify({
@@ -366,7 +367,7 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   showClocksPanel: true,
   showTodayPanel: true,
   showProjectsPanel: true,
-  showMedicinePanel: false,
+  showMedicinePanel: true,
   x: 10,
   y: 20,
   panelSurface: "light",
@@ -395,5 +396,18 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   ],
   liveVisualSources: ["teams", "telegram", "slack", "viber", "whatsapp"],
 });
+assert.equal(
+  storedValues.get(preferences.MEDICINE_PANEL_UPGRADE_KEY),
+  "1",
+  "an existing pre-M19 profile is migrated once",
+);
+assert.equal(
+  JSON.parse(storedValues.get(preferences.WIDGET_PREFERENCES_KEY)).showMedicinePanel,
+  true,
+  "the one-time migration is persisted",
+);
+const explicitlyHidden = preferences.writeWidgetPreferences({ showMedicinePanel: false });
+assert.equal(explicitlyHidden.showMedicinePanel, false);
+assert.equal(preferences.readWidgetPreferences().showMedicinePanel, false);
 
 console.log("widget preference migration tests passed");

@@ -4,8 +4,10 @@ use chrono::{
     TimeZone, Utc,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
+    fs,
     path::PathBuf,
     sync::{Mutex, MutexGuard},
 };
@@ -13,6 +15,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 const SCHEMA_VERSION: u32 = 1;
+const TRANSFER_FORMAT: &str = "attention-hub-medicine";
 const MAX_TREATMENTS: usize = 100;
 const MAX_MEDICINES: usize = 500;
 const MAX_MEDICINES_PER_TREATMENT: usize = 30;
@@ -22,14 +25,17 @@ const MAX_OCCURRENCES: usize = 10_000;
 const MAX_TREATMENT_DAYS: i64 = 365;
 const STALE_DELETE: &str =
     "Medicine data changed since this confirmation was shown. Review the impact and confirm again.";
+const BACKUP_CLEANUP_WARNING: &str = "Medicine active data was updated, but its previous local backup could not be removed. That backup may still contain deleted data. Use Remove retained backup in Advanced to retry cleanup without changing active Medicine data.";
 
 pub struct MedicineState {
-    gate: Mutex<()>,
+    // Keep a partial deletion warning visible across window refreshes and
+    // ordinary edits in this process. It is not part of the medicine schema.
+    gate: Mutex<Option<String>>,
 }
 impl MedicineState {
     pub fn new() -> Self {
         Self {
-            gate: Mutex::new(()),
+            gate: Mutex::new(None),
         }
     }
 }
@@ -98,6 +104,30 @@ struct Store {
     medicines: Vec<Medicine>,
     doses: Vec<Dose>,
 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MedicineTransfer {
+    format: String,
+    schema_version: u32,
+    exported_at: String,
+    medicine: Store,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MedicineTransferCounts {
+    pub treatments: usize,
+    pub medicines: usize,
+    pub doses: usize,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MedicineImportPreview {
+    pub schema_version: u32,
+    pub exported_at: String,
+    pub digest: String,
+    pub medicine_revision: u64,
+    pub counts: MedicineTransferCounts,
+}
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MedicineSnapshot {
@@ -106,6 +136,7 @@ pub struct MedicineSnapshot {
     pub captured_at: String,
     pub storage_path: String,
     pub recovered_from_backup: bool,
+    pub storage_warning: Option<String>,
     pub treatments: Vec<Treatment>,
     pub medicines: Vec<Medicine>,
     pub doses: Vec<Dose>,
@@ -169,7 +200,7 @@ fn path(app: &AppHandle) -> Result<PathBuf, String> {
         .map(|p| p.join("medicine.json"))
         .map_err(|_| "Attention Hub could not resolve its local medicine directory.".into())
 }
-fn lock(state: &MedicineState) -> Result<MutexGuard<'_, ()>, String> {
+fn lock(state: &MedicineState) -> Result<MutexGuard<'_, Option<String>>, String> {
     state
         .gate
         .lock()
@@ -361,6 +392,87 @@ fn valid_dose(store: &Store, v: &Dose) -> bool {
         && time(&v.slot_time)
         && !(v.taken_at.is_some() && v.skipped_at.is_some())
 }
+fn valid_transfer(transfer: &MedicineTransfer) -> bool {
+    transfer.format == TRANSFER_FORMAT
+        && transfer.schema_version == SCHEMA_VERSION
+        && DateTime::parse_from_rfc3339(&transfer.exported_at).is_ok()
+        && valid(&transfer.medicine)
+}
+fn transfer_counts(store: &Store) -> MedicineTransferCounts {
+    MedicineTransferCounts {
+        treatments: store.treatments.len(),
+        medicines: store.medicines.len(),
+        doses: store.doses.len(),
+    }
+}
+fn transfer_digest(transfer: &MedicineTransfer) -> Result<String, String> {
+    let bytes = serde_json::to_vec(transfer)
+        .map_err(|_| "Medicine import data could not be verified.".to_owned())?;
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+fn read_transfer(source: &std::path::Path) -> Result<MedicineTransfer, String> {
+    if source.as_os_str().is_empty() {
+        return Err("Choose an Attention Hub Medicine export to import.".to_owned());
+    }
+    match local_store::read_portable(source, SCHEMA_VERSION, valid_transfer) {
+        Ok(transfer) => Ok(transfer),
+        Err(local_store::ReadError::FutureVersion(version)) => Err(format!(
+            "This Medicine export uses newer schema version {version}. Update Attention Hub before importing it."
+        )),
+        Err(local_store::ReadError::Invalid) => {
+            Err("The selected file is not a valid Attention Hub Medicine export.".to_owned())
+        }
+        Err(local_store::ReadError::Unavailable) => {
+            Err("The selected Medicine export could not be read.".to_owned())
+        }
+    }
+}
+fn comparable_path(path: &std::path::Path) -> PathBuf {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return canonical;
+    }
+    let Some(file_name) = path.file_name() else {
+        return path.to_path_buf();
+    };
+    path.parent()
+        .and_then(|parent| fs::canonicalize(parent).ok())
+        .map(|parent| parent.join(file_name))
+        .unwrap_or_else(|| path.to_path_buf())
+}
+fn same_path(first: &std::path::Path, second: &std::path::Path) -> bool {
+    let first = comparable_path(first);
+    let second = comparable_path(second);
+    #[cfg(target_os = "windows")]
+    {
+        first
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&second.to_string_lossy())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        first == second
+    }
+}
+fn isolate_imported_note_revisions(imported: &mut Store, current: &Store) -> Result<(), String> {
+    for treatment in &mut imported.treatments {
+        let current_revision = current
+            .treatments
+            .iter()
+            .find(|current_treatment| current_treatment.id == treatment.id)
+            .map_or(0, |current_treatment| current_treatment.notes_revision);
+        treatment.notes_revision = treatment
+            .notes_revision
+            .max(current_revision)
+            .checked_add(1)
+            .ok_or_else(|| {
+                "A treatment notes revision has reached its supported limit.".to_owned()
+            })?;
+    }
+    Ok(())
+}
 fn load(app: &AppHandle) -> Result<(PathBuf, Store, bool), String> {
     let p = path(app)?;
     match local_store::read(&p, SCHEMA_VERSION, valid) {
@@ -381,10 +493,16 @@ fn snapshot(path: PathBuf, store: Store, recovered: bool) -> MedicineSnapshot {
         captured_at: now(),
         storage_path: path.to_string_lossy().into_owned(),
         recovered_from_backup: recovered,
+        storage_warning: None,
         treatments: store.treatments,
         medicines: store.medicines,
         doses: store.doses,
     }
+}
+fn current_storage_warning(path: &std::path::Path, in_memory: &Option<String>) -> Option<String> {
+    in_memory.clone().or_else(|| {
+        local_store::backup_cleanup_is_pending(path).then(|| BACKUP_CLEANUP_WARNING.to_owned())
+    })
 }
 fn mutate<F>(
     app: &AppHandle,
@@ -395,7 +513,7 @@ fn mutate<F>(
 where
     F: FnOnce(&mut Store) -> Result<(), String>,
 {
-    let _guard = lock(state)?;
+    let mut storage_warning = lock(state)?;
     let (p, mut store, recovered) = load(app)?;
     action(&mut store)?;
     if !valid(&store) {
@@ -405,13 +523,116 @@ where
         .revision
         .checked_add(1)
         .ok_or("Medicine revision has reached its supported limit.")?;
-    local_store::write(&p, &store, preserve, recovered, "Medicine")?;
-    Ok(snapshot(p, store, false))
+    match local_store::write_with_outcome(&p, &store, preserve, recovered, "Medicine")? {
+        local_store::WriteOutcome::Complete => {
+            if !preserve {
+                match local_store::clear_backup_cleanup_pending(&p, "Medicine") {
+                    Ok(()) => *storage_warning = None,
+                    Err(message) => *storage_warning = Some(message),
+                }
+            }
+        }
+        local_store::WriteOutcome::BackupCleanupPending(_) => {
+            *storage_warning = Some(BACKUP_CLEANUP_WARNING.to_owned());
+            if let Err(message) = local_store::mark_backup_cleanup_pending(&p, "Medicine") {
+                *storage_warning = Some(format!("{BACKUP_CLEANUP_WARNING} {message}"));
+            }
+        }
+    }
+    let mut result = snapshot(p, store, false);
+    result.storage_warning = storage_warning.clone();
+    Ok(result)
 }
 pub fn get_snapshot(app: &AppHandle, state: &MedicineState) -> Result<MedicineSnapshot, String> {
-    let _guard = lock(state)?;
+    let storage_warning = lock(state)?;
     let (p, store, recovered) = load(app)?;
-    Ok(snapshot(p, store, recovered))
+    let warning = current_storage_warning(&p, &storage_warning);
+    let mut result = snapshot(p, store, recovered);
+    result.storage_warning = warning;
+    Ok(result)
+}
+pub fn export_medicine(
+    app: &AppHandle,
+    state: &MedicineState,
+    destination_path: String,
+) -> Result<String, String> {
+    let _guard = lock(state)?;
+    let (medicine_path, store, _) = load(app)?;
+    let mut destination = PathBuf::from(destination_path.trim());
+    if destination.as_os_str().is_empty() {
+        return Err("Choose a destination for the Medicine export.".to_owned());
+    }
+    if destination.extension().is_none() {
+        destination.set_extension("json");
+    }
+    if same_path(&destination, &medicine_path)
+        || same_path(&destination, &local_store::backup_path(&medicine_path))
+        || same_path(&destination, &local_store::pending_path(&medicine_path))
+        || same_path(
+            &destination,
+            &local_store::backup_cleanup_marker_path(&medicine_path),
+        )
+    {
+        return Err("Choose a destination outside Attention Hub's live Medicine files.".to_owned());
+    }
+    let transfer = MedicineTransfer {
+        format: TRANSFER_FORMAT.to_owned(),
+        schema_version: SCHEMA_VERSION,
+        exported_at: now(),
+        medicine: store,
+    };
+    local_store::write_portable(&destination, &transfer)?;
+    Ok(destination.to_string_lossy().into_owned())
+}
+pub fn preview_medicine_import(
+    app: &AppHandle,
+    state: &MedicineState,
+    source_path: String,
+) -> Result<MedicineImportPreview, String> {
+    let _guard = lock(state)?;
+    let (_, current, _) = load(app)?;
+    let transfer = read_transfer(std::path::Path::new(source_path.trim()))?;
+    Ok(MedicineImportPreview {
+        schema_version: transfer.schema_version,
+        exported_at: transfer.exported_at.clone(),
+        digest: transfer_digest(&transfer)?,
+        medicine_revision: current.revision,
+        counts: transfer_counts(&transfer.medicine),
+    })
+}
+pub fn import_medicine(
+    app: &AppHandle,
+    state: &MedicineState,
+    source_path: String,
+    expected_revision: u64,
+    expected_digest: String,
+) -> Result<MedicineSnapshot, String> {
+    let storage_warning = lock(state)?;
+    let (medicine_path, current, recovered_from_backup) = load(app)?;
+    ensure_revision(&current, expected_revision)?;
+    let mut transfer = read_transfer(std::path::Path::new(source_path.trim()))?;
+    if transfer_digest(&transfer)? != expected_digest {
+        return Err(
+            "The selected Medicine export changed after preview. Select it again before importing."
+                .to_owned(),
+        );
+    }
+    isolate_imported_note_revisions(&mut transfer.medicine, &current)?;
+    transfer.medicine.revision = current
+        .revision
+        .checked_add(1)
+        .ok_or("Medicine revision has reached its supported limit.")?;
+    local_store::write(
+        &medicine_path,
+        &transfer.medicine,
+        true,
+        recovered_from_backup,
+        "Medicine",
+    )?;
+    let warning = current_storage_warning(&medicine_path, &storage_warning);
+    let mut result = snapshot(medicine_path, transfer.medicine, false);
+    result.storage_warning = warning;
+    Ok(result)
 }
 fn treatment_input(
     input: TreatmentInput,
@@ -1084,70 +1305,103 @@ fn notifiable_dose_count(store: &Store, grace_minutes: i64, at: DateTime<Utc>) -
         .count()
 }
 
+fn mark_notifiable_doses(
+    store: &mut Store,
+    grace_minutes: i64,
+    at: DateTime<Utc>,
+    timestamp: &str,
+) -> usize {
+    let notifiable = store
+        .doses
+        .iter()
+        .filter(|dose| dose_is_notifiable(store, dose, grace_minutes, at))
+        .map(|dose| {
+            (
+                dose.medicine_id.clone(),
+                dose.slot_day.clone(),
+                dose.slot_time.clone(),
+            )
+        })
+        .collect::<HashSet<_>>();
+    for dose in &mut store.doses {
+        let key = (
+            dose.medicine_id.clone(),
+            dose.slot_day.clone(),
+            dose.slot_time.clone(),
+        );
+        if notifiable.contains(&key) {
+            dose.notified_at = Some(timestamp.to_owned());
+            dose.updated_at = timestamp.to_owned();
+        }
+    }
+    notifiable.len()
+}
+
+pub struct DueDoseNotificationOutcome {
+    pub snapshot: MedicineSnapshot,
+    pub notification_body: Option<String>,
+    pub changed: bool,
+}
+
 /// Body text for the due-dose toast.
 ///
 /// Names nothing. A Windows toast can appear on a lock screen and persists in
 /// notification history, so neither this body nor the title carries a medicine
 /// name, a strength, or a treatment name. This is a considered divergence from
 /// the to-do path, which does put to-do titles in bodies.
-pub fn due_dose_notification_body(
-    app: &AppHandle,
-    state: &MedicineState,
-    grace_minutes: i64,
-) -> Result<Option<String>, String> {
-    let _guard = lock(state)?;
-    let (_, store, _) = load(app)?;
-    Ok(
-        match notifiable_dose_count(&store, grace_minutes, Utc::now()) {
-            0 => None,
-            1 => Some("A scheduled dose is due.".to_owned()),
-            count => Some(format!("{count} scheduled doses are due.")),
-        },
-    )
-}
-
-/// Mark every dose inside its grace window as notified, one shot per dose.
+/// Select and mark every due dose from one locked store view and one timestamp.
+/// The returned toast body is derived from that exact set, so a dose cannot be
+/// marked notified without also being represented in the notification.
 pub fn notify_due_doses(
     app: &AppHandle,
     state: &MedicineState,
     grace_minutes: i64,
-) -> Result<MedicineSnapshot, String> {
+) -> Result<DueDoseNotificationOutcome, String> {
     let at = Utc::now();
-    {
-        let _guard = lock(state)?;
-        let (path, store, _) = load(app)?;
-        if notifiable_dose_count(&store, grace_minutes, at) == 0 {
-            // Nothing due: return without writing, so an idle poll never
-            // bumps the revision or wakes the other windows.
-            return Ok(snapshot(path, store, false));
-        }
+    let mut storage_warning = lock(state)?;
+    let (path, mut store, recovered) = load(app)?;
+    let count = notifiable_dose_count(&store, grace_minutes, at);
+    if count == 0 {
+        // Nothing due: return without writing, so an idle poll never bumps the
+        // revision or loses recovery and storage-warning metadata.
+        let warning = current_storage_warning(&path, &storage_warning);
+        let mut result = snapshot(path, store, recovered);
+        result.storage_warning = warning;
+        return Ok(DueDoseNotificationOutcome {
+            snapshot: result,
+            notification_body: None,
+            changed: false,
+        });
     }
-    mutate(app, state, true, |store| {
-        let timestamp = now();
-        let notifiable = store
-            .doses
-            .iter()
-            .filter(|dose| dose_is_notifiable(store, dose, grace_minutes, at))
-            .map(|dose| {
-                (
-                    dose.medicine_id.clone(),
-                    dose.slot_day.clone(),
-                    dose.slot_time.clone(),
-                )
-            })
-            .collect::<HashSet<_>>();
-        for dose in &mut store.doses {
-            let key = (
-                dose.medicine_id.clone(),
-                dose.slot_day.clone(),
-                dose.slot_time.clone(),
-            );
-            if notifiable.contains(&key) {
-                dose.notified_at = Some(timestamp.clone());
-                dose.updated_at = timestamp.clone();
-            }
-        }
-        Ok(())
+    let timestamp = now();
+    debug_assert_eq!(
+        mark_notifiable_doses(&mut store, grace_minutes, at, &timestamp),
+        count
+    );
+    if !valid(&store) {
+        return Err("Medicine data failed validation before saving.".into());
+    }
+    store.revision = store
+        .revision
+        .checked_add(1)
+        .ok_or("Medicine revision has reached its supported limit.")?;
+    if let local_store::WriteOutcome::BackupCleanupPending(_) =
+        local_store::write_with_outcome(&path, &store, true, recovered, "Medicine")?
+    {
+        *storage_warning = Some(BACKUP_CLEANUP_WARNING.to_owned());
+        let _ = local_store::mark_backup_cleanup_pending(&path, "Medicine");
+    }
+    let warning = current_storage_warning(&path, &storage_warning);
+    let mut result = snapshot(path, store, false);
+    result.storage_warning = warning;
+    Ok(DueDoseNotificationOutcome {
+        snapshot: result,
+        notification_body: Some(if count == 1 {
+            "A scheduled dose is due.".to_owned()
+        } else {
+            format!("{count} scheduled doses are due.")
+        }),
+        changed: true,
     })
 }
 
@@ -1459,6 +1713,22 @@ pub fn delete_all(
         store.doses.clear();
         Ok(())
     })
+}
+
+pub fn retry_backup_cleanup(
+    app: &AppHandle,
+    state: &MedicineState,
+    expected_revision: u64,
+) -> Result<MedicineSnapshot, String> {
+    let mut storage_warning = lock(state)?;
+    let (p, store, recovered) = load(app)?;
+    ensure_revision(&store, expected_revision)?;
+    if recovered {
+        return Err("Medicine is currently using its previous local backup. Cleanup is blocked until the active data file is readable again.".into());
+    }
+    local_store::retry_backup_cleanup(&p, "Medicine")?;
+    *storage_warning = None;
+    Ok(snapshot(p, store, false))
 }
 
 #[cfg(test)]
@@ -1811,6 +2081,58 @@ mod tests {
                 0,
                 "a dose missed while the app was closed must not fire late"
             );
+        }
+
+        #[test]
+        fn one_timestamp_selects_and_marks_the_same_boundary_set() {
+            let mut store = store_with_one_dose();
+            let mut next_minute = store.doses[0].clone();
+            next_minute.slot_time = "09:01".into();
+            store.doses.push(next_minute);
+            let timestamp = "2026-03-29T09:00:00Z";
+
+            let marked = mark_notifiable_doses(&mut store, 60, slot_instant(), timestamp);
+
+            assert_eq!(marked, 1);
+            assert_eq!(store.doses[0].notified_at.as_deref(), Some(timestamp));
+            assert_eq!(store.doses[1].notified_at, None);
+        }
+
+        #[test]
+        fn medicine_transfer_is_identified_counted_and_isolates_note_revisions() {
+            let mut current = store_with_one_dose();
+            current.treatments[0].notes_revision = 8;
+            let mut imported = store_with_one_dose();
+            imported.treatments[0].notes_revision = 3;
+            let transfer = MedicineTransfer {
+                format: TRANSFER_FORMAT.into(),
+                schema_version: SCHEMA_VERSION,
+                exported_at: "2026-09-06T12:00:00Z".into(),
+                medicine: imported.clone(),
+            };
+
+            assert!(valid_transfer(&transfer));
+            let counts = transfer_counts(&transfer.medicine);
+            assert_eq!(counts.treatments, 1);
+            assert_eq!(counts.medicines, 1);
+            assert_eq!(counts.doses, 1);
+            let digest = transfer_digest(&transfer).unwrap();
+            let mut changed = transfer.clone();
+            changed.exported_at = "2026-09-06T12:00:01Z".into();
+            assert_ne!(transfer_digest(&changed).unwrap(), digest);
+            changed.format = "another-format".into();
+            assert!(!valid_transfer(&changed));
+
+            isolate_imported_note_revisions(&mut imported, &current).unwrap();
+            assert_eq!(imported.treatments[0].notes_revision, 9);
+            assert!(save_treatment_notes_in_store(
+                &mut imported,
+                "treatment-1",
+                vec![],
+                8,
+                "2026-09-06T12:00:00Z".into(),
+            )
+            .is_err());
         }
 
         #[test]

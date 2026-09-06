@@ -164,6 +164,8 @@
 }
 
 .workspace-delete-confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.workspace-storage-warning { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+.workspace-storage-warning p { flex: 1 1 24rem; margin: 0; }
 .workspace-import-confirm { display: grid; gap: .5rem; margin-top: .75rem; padding: .75rem; border: 1px solid var(--color-warning); border-radius: var(--radius-field); color: var(--color-warning-text); background: var(--color-warning-surface); }
 .workspace-import-confirm > div { display: flex; flex-wrap: wrap; gap: .5rem; }
 .workspace-import-confirm small { color: inherit; }
@@ -435,7 +437,7 @@
   color: var(--manager-text);
   background: color-mix(in srgb, var(--manager-text) 3%, transparent);
 
-  &:hover:not(:disabled) { border-color: var(--manager-border); background: #{panel-tint(12%)}; }
+  &:hover:not(:disabled) { border-color: var(--manager-border); background: var(--manager-hover); }
   &[aria-current="page"] { color: var(--manager-text); border-color: color-mix(in srgb, var(--manager-accent) 55%, var(--manager-border)); background: color-mix(in srgb, var(--manager-accent) 12%, var(--manager-hover)); box-shadow: inset 2px 0 0 var(--manager-accent); }
   &[aria-current="page"] small { color: currentColor; }
   &[data-due] { border-color: color-mix(in srgb, var(--manager-accent) 70%, var(--manager-border)); }
@@ -765,6 +767,20 @@
 }
 
 .project-quick-view {
+  // Quick views do not render inside .manager-shell, so bridge the widget
+  // palette into the shared manager component tokens at their own root.
+  --manager-surface: var(--widget-panel-solid);
+  --manager-sunken: color-mix(in srgb, var(--widget-panel-foreground) 5%, var(--widget-panel-solid));
+  --manager-raised: color-mix(in srgb, var(--widget-panel-foreground) 3%, var(--widget-panel-solid));
+  --manager-hover: color-mix(in srgb, var(--widget-panel-accent) 10%, var(--widget-panel-solid));
+  --manager-text: var(--widget-panel-foreground);
+  --manager-quiet: var(--widget-panel-muted);
+  --manager-border: var(--widget-panel-border);
+  --manager-border-soft: color-mix(in srgb, var(--widget-panel-border) 65%, transparent);
+  --manager-accent: var(--widget-panel-accent);
+  --manager-accent-fg: var(--widget-panel-accent-foreground);
+  --manager-accent-hover: color-mix(in srgb, var(--widget-panel-accent) 86%, var(--widget-panel-solid));
+
   display: grid;
   width: 100%;
   max-width: none;

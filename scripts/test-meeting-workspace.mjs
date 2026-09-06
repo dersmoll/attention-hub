@@ -139,6 +139,8 @@ assert.match(css, /html\[data-window="project-panel"\]/);
 assert.match(css, /background: transparent/);
 assert.match(css, /background: var\(--widget-panel-solid\)/);
 assert.match(css, /\.project-quick-view/);
+assert.match(css, /\.project-quick-view \{[\s\S]*?--manager-surface: var\(--widget-panel-solid\)/);
+assert.match(css, /\.project-quick-view \{[\s\S]*?--manager-text: var\(--widget-panel-foreground\)/);
 assert.match(css, /\.manager-todo-editor--inline/);
 
 // A window restored onto a monitor that is no longer connected is running,

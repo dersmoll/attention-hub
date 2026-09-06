@@ -463,3 +463,50 @@ discards every generation.
 §5's optimization candidates are untouched. They were filed as measurement
 candidates rather than demonstrated regressions, and nothing measured since has
 promoted them.
+
+
+## 9. Closeout qualification — 2026-09-06
+
+The §8 label "resolved" describes implementation changes; it does not establish
+all of the original acceptance criteria. A subsequent source review found:
+
+- F1's in-app close flush did not protect the native title-bar X / Alt+F4 path.
+  The closeout now intercepts native close requests and destroys the Medicine
+  window only after a successful save, with a Medicine-only capability. Repeated
+  close requests are coalesced. A pending/conflicting/failed save keeps the
+  window open. Creating a treatment now also flushes the prior treatment's notes.
+- F2's replacement-before-cleanup order was correct, but injected failure coverage
+  and committed-deletion reporting were missing. New tests cover replacement
+  failure with healthy/corrupt/missing primaries and cleanup failure after commit.
+  Medicine returns the new snapshot plus a retained-backup warning, so other
+  windows refresh. Retrying Delete all also works on an empty store.
+- The retained-backup warning is process-local. Restarting does not securely erase
+  the backup or persist that warning; empty-store cleanup remains available.
+- F6 still requires installed U10 evidence. Release single-instance protection
+  does not protect two development processes sharing the `dev` directory.
+
+The source changes and local automated verification are part of M19 closeout.
+Native-window interaction, installed upgrade/rollback and repeated-launch
+acceptance remain explicitly open in the M19 plan §14. No public release or
+remote CI result is claimed here.
+
+Contextual overflow navigation and simpler treatment creation remain the next
+bounded interaction-polish proposal. The performance candidates remain deferred
+pending measurement.
+
+## 10. Second beta.11 feedback qualification — 2026-09-06
+
+A later source audit found four additional M19 closeout issues. All were
+verified against the working tree and repaired before another candidate build:
+
+- Whole-app quit now coordinates the Medicine manager's save-before-close gate.
+- Retained-backup cleanup has a persistent marker and a dedicated operation
+  that leaves the active store byte-for-byte untouched.
+- Reminder selection and recording are one locked, timestamp-consistent
+  operation, with deterministic boundary coverage.
+- Recovery and storage-warning metadata survive idle reminder polls, and the
+  three dose-recording surfaces disclose recovered backup data.
+
+The accompanying visual pass fixes final-column dose check alignment, themed
+Today button hover states, and Project Hub hover contrast. These changes close
+M19 implementation scope; installed and human acceptance remain release gates.

@@ -106,6 +106,7 @@ export function MedicinePanelView() {
   return <main className="medicine-panel" ref={shellRef} style={panelStyle}>
     <button aria-label="Close Medicine panel" className="hub-close-button medicine-panel__close" onClick={() => void close()} type="button"><HubCloseIcon /></button>
     <header className="medicine-panel__toolbar"><strong>Medicine</strong><button aria-label="Manage medicines" onClick={() => void openManager()} type="button">Manage medicines</button></header>
+    {snapshot?.recoveredFromBackup && <p className="medicine-recovery-notice" role="status">Showing recovered Medicine backup data.</p>}
     {bounded.groups.map((group) => <section aria-labelledby={`medicine-panel-${group.treatment.id}`} key={group.treatment.id}>
       <header><div><strong id={`medicine-panel-${group.treatment.id}`}>{group.treatment.name}</strong><span>Day {group.progress.day} of {group.progress.total}</span></div>
         <div aria-label={`Day ${group.progress.day} of ${group.progress.total}`} aria-valuemax={group.progress.total} aria-valuemin={0} aria-valuenow={group.progress.day} aria-valuetext={`Day ${group.progress.day} of ${group.progress.total}`} className="medicine-panel__progress" role="progressbar"><i style={{ width: `${group.progress.fraction * 100}%` }} /></div></header>
