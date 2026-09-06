@@ -139,8 +139,10 @@ function workCalendarStopReasonMessage(stopReason: string | null) {
   if (stopReason === "httpStatus") {
     return "The calendar address was reached but refused the request. Check the link is the current address — regenerating it in the calendar makes the old one stop working.";
   }
+  // Five different conditions raise this, so it must not assert a cause. What
+  // is worth saying is the blast radius: one unreadable series stops everything.
   if (stopReason === "unsupportedRecurrence") {
-    return "This calendar contains a repeating-event change Attention Hub cannot read. Editing a series with “this and following events” can cause it; changing it with “All events” avoids it.";
+    return "A repeating event in this calendar could not be read, and one unreadable series stops the whole calendar from loading.";
   }
   if (stopReason === "unsupportedTimezone") {
     return "This calendar uses a time zone that could not be matched to a known zone, so event times cannot be trusted.";

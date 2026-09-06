@@ -855,6 +855,8 @@ fn recurrence_set(event: &NormalizedEvent, rule: &str) -> Result<RRuleSet, Seman
             event.start.format("%Y%m%dT%H%M%S")
         )
     };
+    let normalized = normalize_rrule_until(rule, timezone);
+    let rule = normalized.as_deref().unwrap_or(rule);
     let mut set = format!("{start_line}\nRRULE:{rule}")
         .parse::<RRuleSet>()
         .map_err(|_| {
@@ -967,6 +969,70 @@ fn parse_date_spec(
                 "A local DATE-TIME fell in an ambiguous or nonexistent timezone transition.",
             )
         })
+}
+
+/// Rewrite a non-UTC `UNTIL` into the UTC form the recurrence parser requires.
+///
+/// RFC 5545 §3.3.10 says that when `DTSTART` carries a time zone, `UNTIL` must
+/// be UTC, and the parser enforces that strictly. Google Calendar does not
+/// always comply: a recurrence whose end was picked as a *date* is exported as
+/// `UNTIL=20261224` with a TZID-qualified `DTSTART`. That combination fails
+/// validation, and because the failure propagates out of
+/// `extract_current_or_next` it discards **the entire feed** — every subject,
+/// not just the one series.
+///
+/// Returns `None` when nothing needed changing, so a conformant feed is passed
+/// through byte-for-byte.
+fn normalize_rrule_until(rule: &str, timezone: Tz) -> Option<String> {
+    let mut changed = false;
+    let parts = rule
+        .split(';')
+        .map(|part| {
+            let Some((key, value)) = part.split_once('=') else {
+                return part.to_owned();
+            };
+            if !key.eq_ignore_ascii_case("UNTIL") {
+                return part.to_owned();
+            }
+            let value = value.trim();
+            if value.ends_with(['Z', 'z']) {
+                return part.to_owned();
+            }
+            match local_until_to_utc(value, timezone) {
+                Some(utc) => {
+                    changed = true;
+                    format!("{key}={utc}")
+                }
+                // Leave anything unrecognised alone and let the parser reject
+                // it, rather than inventing a value.
+                None => part.to_owned(),
+            }
+        })
+        .collect::<Vec<_>>();
+    changed.then(|| parts.join(";"))
+}
+
+fn local_until_to_utc(value: &str, timezone: Tz) -> Option<String> {
+    let naive = if value.len() == 8 {
+        // A date-only UNTIL means the recurrence runs *through* that day.
+        // Reading it as midnight would silently drop the final occurrence —
+        // for a school timetable, the last lesson of term.
+        NaiveDate::parse_from_str(value, "%Y%m%d")
+            .ok()?
+            .and_hms_opt(23, 59, 59)?
+    } else {
+        NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S").ok()?
+    };
+    let resolved = timezone.from_local_datetime(&naive);
+    // A DST-ambiguous boundary takes the earlier instant. Being lenient here is
+    // right: the alternative is discarding the whole feed over one edge case.
+    let local = resolved.single().or_else(|| resolved.earliest())?;
+    Some(
+        local
+            .with_timezone(&Utc)
+            .format("%Y%m%dT%H%M%SZ")
+            .to_string(),
+    )
 }
 
 fn resolve_timezone(value: &str) -> Result<Tz, SemanticFailure> {
@@ -1458,6 +1524,48 @@ mod tests {
     }
 
     #[test]
+    fn accepts_a_google_date_only_until_without_losing_the_final_occurrence() {
+        // Google exports a recurrence whose end was picked as a date like this:
+        // a TZID-qualified DTSTART with a bare `UNTIL=YYYYMMDD`. RFC 5545 wants
+        // UTC there, and the parser enforces it, so before normalisation this
+        // discarded the whole feed.
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:Europe/Kiev\r\nBEGIN:VEVENT\r\nUID:lesson\r\nDTSTART;TZID=Europe/Kiev:20260907T090000\r\nDTEND;TZID=Europe/Kiev:20260907T094500\r\nRRULE:FREQ=WEEKLY;WKST=MO;UNTIL=20261224;BYDAY=MO\r\nSUMMARY:Lesson\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+        assert!(
+            result.is_ok(),
+            "a date-only UNTIL must not discard the feed"
+        );
+
+        // The last day must still be included. Reading the bare date as
+        // midnight would drop 24 December's lesson — the last of term.
+        let normalized = normalize_rrule_until(
+            "FREQ=WEEKLY;WKST=MO;UNTIL=20261224;BYDAY=MO",
+            chrono_tz::Europe::Kiev,
+        )
+        .expect("a date-only UNTIL is rewritten");
+        assert!(
+            normalized.contains("UNTIL=20261224T215959Z"),
+            "expected end of 24 December in Europe/Kiev, got {normalized}"
+        );
+
+        // A local date-time UNTIL is rewritten the same way.
+        let local = normalize_rrule_until(
+            "FREQ=WEEKLY;UNTIL=20261224T235959;BYDAY=MO",
+            chrono_tz::Europe::Kiev,
+        )
+        .expect("a local UNTIL is rewritten");
+        assert!(local.contains("UNTIL=20261224T215959Z"), "got {local}");
+
+        // A conformant UTC UNTIL is left exactly as it was.
+        assert_eq!(
+            normalize_rrule_until(
+                "FREQ=WEEKLY;UNTIL=20261224T215959Z;BYDAY=MO",
+                chrono_tz::Europe::Kiev
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn rejects_floating_times_and_this_and_future_overrides() {
         let floating = extract("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:floating\r\nDTSTART:20260811T130000\r\nDTEND:20260811T140000\r\nSUMMARY:Floating\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap_err();
         assert_eq!(floating.reason, SemanticFailureReason::AmbiguousTime);
@@ -1534,3 +1642,4 @@ mod tests {
         );
     }
 }
+
