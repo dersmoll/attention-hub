@@ -124,10 +124,17 @@ const TOKEN_SURVIVES_MISSED_POLLS: u64 = 8;
 /// The TTL above is only honest if it comfortably exceeds the interval at which
 /// the surface holding a token refreshes it; otherwise a token expires while
 /// still on screen and we have merely swapped one failure for its mirror image.
-/// `pins_the_token_lifetime_against_the_widget_poll_interval` enforces the
-/// relationship here, and `scripts/test-work-calendar-model.mjs` fails if this
-/// mirror drifts from the frontend constant.
+/// The compile-time assertion below enforces the relationship here, and
+/// `scripts/test-work-calendar-model.mjs` fails if this mirror drifts from the
+/// frontend constant.
 const WIDGET_CALENDAR_POLL_INTERVAL_MS: u64 = 120_000;
+
+/// A displayed token must survive several missed calendar polls.
+///
+/// Both sides are constants, so this is checked when the crate is built rather
+/// than when tests run — a runtime `assert!` on constants proves nothing at the
+/// moment it matters, and Clippy rightly rejects one.
+const _: () = assert!(JOIN_TOKEN_TTL_MS >= 5 * WIDGET_CALENDAR_POLL_INTERVAL_MS);
 
 /// Safety net only. A snapshot exposes at most an active selection, one
 /// overlapping event and one upcoming event, so the live set is a handful of
@@ -161,7 +168,10 @@ struct JoinTargetCache {
 /// anchor a persistent per-occurrence override would need: a token dying because
 /// its occurrence moved is correct for an ephemeral handle.
 fn occurrence_key(source_scope: Option<&str>, series_uid: &str, start: &str) -> String {
-    format!("{}\u{0}{series_uid}\u{0}{start}", source_scope.unwrap_or(""))
+    format!(
+        "{}\u{0}{series_uid}\u{0}{start}",
+        source_scope.unwrap_or("")
+    )
 }
 
 pub struct WorkCalendarState {
@@ -240,9 +250,9 @@ impl WorkCalendarState {
         // Drop what has aged out. Nothing here depends on how many snapshots
         // have been taken, so another window's refresh rate cannot retire a
         // token this one is still displaying.
-        cache
-            .targets
-            .retain(|_, target| now_unix_ms.saturating_sub(target.last_seen_unix_ms) < JOIN_TOKEN_TTL_MS);
+        cache.targets.retain(|_, target| {
+            now_unix_ms.saturating_sub(target.last_seen_unix_ms) < JOIN_TOKEN_TTL_MS
+        });
         cache
             .tokens_by_occurrence
             .retain(|_, token| cache.targets.contains_key(token));
@@ -261,7 +271,10 @@ impl WorkCalendarState {
                 {
                     cache.targets.insert(
                         existing.clone(),
-                        JoinTarget { last_seen_unix_ms: now_unix_ms, url: url.clone() },
+                        JoinTarget {
+                            last_seen_unix_ms: now_unix_ms,
+                            url: url.clone(),
+                        },
                     );
                     return existing;
                 }
@@ -269,7 +282,10 @@ impl WorkCalendarState {
                 let token = format!("join-{}", cache.next_token);
                 cache.targets.insert(
                     token.clone(),
-                    JoinTarget { last_seen_unix_ms: now_unix_ms, url: url.clone() },
+                    JoinTarget {
+                        last_seen_unix_ms: now_unix_ms,
+                        url: url.clone(),
+                    },
                 );
                 cache.tokens_by_occurrence.insert(key, token.clone());
                 token
@@ -575,9 +591,7 @@ fn join_url_at(
         .map_err(|_| "The work-calendar link cache is temporarily unavailable.".to_owned())?
         .targets
         .get(join_token)
-        .filter(|target| {
-            now_unix_ms.saturating_sub(target.last_seen_unix_ms) < JOIN_TOKEN_TTL_MS
-        })
+        .filter(|target| now_unix_ms.saturating_sub(target.last_seen_unix_ms) < JOIN_TOKEN_TTL_MS)
         .map(|target| target.url.clone())
         .ok_or_else(|| {
             "The meeting link is no longer current. Wait for calendar refresh.".to_owned()
@@ -863,7 +877,13 @@ mod tests {
         scope: Option<&str>,
     ) -> String {
         state
-            .expose_selections_at(now, Some(joinable_event(url, uid, start)), vec![], None, scope)
+            .expose_selections_at(
+                now,
+                Some(joinable_event(url, uid, start)),
+                vec![],
+                None,
+                scope,
+            )
             .0
             .and_then(|selection| selection.join_token)
             .expect("a joinable event exposes a token")
@@ -1004,17 +1024,6 @@ mod tests {
         assert_eq!(
             join_url_at(&state, &token, 2_000).unwrap(),
             "https://teams.microsoft.com/l/meetup-join/new"
-        );
-    }
-
-    /// A TTL is only honest if it outlasts the refresh cadence of the surface
-    /// holding the token; otherwise a token expires while still on screen and
-    /// the old failure has simply been mirrored.
-    #[test]
-    fn pins_the_token_lifetime_against_the_widget_poll_interval() {
-        assert!(
-            JOIN_TOKEN_TTL_MS >= 5 * WIDGET_CALENDAR_POLL_INTERVAL_MS,
-            "a displayed token must survive several missed calendar polls"
         );
     }
 
