@@ -208,4 +208,59 @@ assert.equal(school.minutesUntil(NOW + 61_000, NOW), 2);
 assert.equal(school.minutesUntil(NOW + 1, NOW), 1);
 assert.equal(school.minutesUntil(NOW - 60_000, NOW), 0);
 
+// The wording must never claim more than the state supports.
+{
+  const summarize = (daySelections, extra) =>
+    school.summarizeSchoolDay(
+      school.selectSchoolDayState(snapshot(daySelections, extra), NOW),
+      NOW,
+    );
+
+  const running = summarize([
+    lesson("Ukrainian", -80, -35),
+    lesson("English", -20, 25),
+    lesson("Maths", 40, 85),
+  ]);
+  assert.equal(running.headline, "English");
+  assert.equal(running.detail, "Ends in 25 min · next Maths");
+  assert.equal(running.progress, "Lesson 2 of 3");
+  assert.equal(running.active, true);
+
+  const last = summarize([lesson("English", -20, 25)]);
+  assert.equal(last.detail, "Ends in 25 min · last lesson");
+
+  const onBreak = summarize([
+    lesson("Ukrainian", -80, -35),
+    lesson("Maths", 15, 60),
+  ]);
+  assert.equal(onBreak.headline, "Break · next lesson in 15 min");
+  assert.equal(onBreak.progress, "Lesson 2 of 2");
+  assert.equal(onBreak.active, false);
+
+  const ended = summarize([lesson("Ukrainian", -180, -135)]);
+  assert.equal(ended.headline, "Today's lessons have ended");
+
+  // The distinction the plan insists on: stale data must not read as a
+  // finished day, and must not offer progress it cannot support.
+  const stalled = summarize([lesson("Ukrainian", -180, -135)], {
+    capturedAtUnixMs: NOW - school.SCHOOL_DAY_STALE_AFTER_MS - 1,
+  });
+  assert.equal(stalled.headline, "Timetable unavailable");
+  assert.notEqual(stalled.headline, ended.headline);
+  assert.equal(stalled.progress, null);
+  assert.equal(stalled.active, false);
+
+  // An empty day and an unreadable one must not read alike either.
+  const empty = summarize([]);
+  assert.equal(empty.headline, "No lessons today");
+  assert.notEqual(empty.headline, stalled.headline);
+
+  // Singular minute wording.
+  const oneMinute = summarize([
+    lesson("Ukrainian", -80, -35),
+    lesson("Maths", 1, 45),
+  ]);
+  assert.equal(oneMinute.headline, "Break · next lesson in 1 min");
+}
+
 console.log("school day model tests passed");

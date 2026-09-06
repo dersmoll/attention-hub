@@ -141,3 +141,82 @@ export function selectSchoolDayState(
 export function minutesUntil(targetMs: number, nowMs: number) {
   return Math.max(0, Math.ceil((targetMs - nowMs) / 60_000));
 }
+
+function minutePhrase(minutes: number) {
+  return minutes === 1 ? "1 min" : `${minutes} min`;
+}
+
+export interface SchoolDaySummary {
+  /** The headline: what is happening, or why we cannot say. */
+  headline: string;
+  /** Supporting line. Empty when there is nothing honest to add. */
+  detail: string;
+  /** "Lesson 3 of 8", or null when progress would not mean anything. */
+  progress: string | null;
+  /**
+   * Whether this describes a lesson happening right now. Surfaces use it to
+   * decide emphasis; it is never a claim that the child is attending.
+   */
+  active: boolean;
+}
+
+/**
+ * Turn the state into the copy a child reads.
+ *
+ * Kept separate from `selectSchoolDayState` so wording can change without
+ * touching the rules, and so the rules can be tested without asserting on
+ * prose.
+ */
+export function summarizeSchoolDay(
+  state: SchoolDayState,
+  nowMs = Date.now(),
+): SchoolDaySummary {
+  switch (state.kind) {
+    case "unknown":
+      // Says only what is true: we cannot see the timetable. It deliberately
+      // does not say the day has finished or that a break is running.
+      return {
+        headline: "Timetable unavailable",
+        detail: "The lesson list could not be read just now.",
+        progress: null,
+        active: false,
+      };
+    case "noLessons":
+      return {
+        headline: "No lessons today",
+        detail: "",
+        progress: null,
+        active: false,
+      };
+    case "beforeFirst":
+      return {
+        headline: `First lesson in ${minutePhrase(minutesUntil(state.next.startMs, nowMs))}`,
+        detail: state.next.subject,
+        progress: `Lesson 1 of ${state.total}`,
+        active: false,
+      };
+    case "lesson":
+      return {
+        headline: state.current.subject,
+        detail: state.next
+          ? `Ends in ${minutePhrase(minutesUntil(state.current.endMs, nowMs))} · next ${state.next.subject}`
+          : `Ends in ${minutePhrase(minutesUntil(state.current.endMs, nowMs))} · last lesson`,
+        progress: `Lesson ${state.current.position} of ${state.total}`,
+        active: true,
+      };
+    case "break":
+      return {
+        headline: `Break · next lesson in ${minutePhrase(minutesUntil(state.next.startMs, nowMs))}`,
+        detail: state.next.subject,
+        progress: `Lesson ${state.next.position} of ${state.total}`,
+        active: false,
+      };
+    case "dayEnded":
+      return {
+        headline: "Today's lessons have ended",
+        detail: "",
+        progress: `${state.total} of ${state.total} lessons`,
+        active: false,
+      };
+  }
+}

@@ -40,6 +40,10 @@ import {
   type WorkCalendarSelection,
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
+import {
+  selectSchoolDayState,
+  summarizeSchoolDay,
+} from "./school-day-model";
 import { createCalendarPollController } from "./calendar-poll-controller";
 import {
   convertZonedTimeToInstant,
@@ -2505,6 +2509,14 @@ export function WidgetView() {
     : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
   const calendarSelection = calendarDisplay.selection;
   const calendarNextSelection = calendarDisplay.companion;
+  // Only in School mode: a work diary has no breaks, no end of day, and no
+  // meaningful progress through one. See widget-preferences.schoolModeEnabled.
+  const schoolDay = preferences.schoolModeEnabled
+    ? summarizeSchoolDay(
+        selectSchoolDayState(workCalendar, now.getTime()),
+        now.getTime(),
+      )
+    : null;
   const activeEventKey =
     calendarSelection?.classification === "active" && !calendarSelection.allDay
       ? calendarDisplay.selectionKey
@@ -3151,6 +3163,28 @@ export function WidgetView() {
           className="widget-calendar__content"
           data-has-next={showNextEvent || undefined}
         >
+          {schoolDay ? (
+            <div
+              className="widget-school-day"
+              data-school-active={schoolDay.active || undefined}
+            >
+              <div className="widget-school-day__line">
+                <strong className="widget-school-day__headline">
+                  {schoolDay.headline}
+                </strong>
+                {schoolDay.progress ? (
+                  <span className="widget-school-day__progress">
+                    {schoolDay.progress}
+                  </span>
+                ) : null}
+              </div>
+              {schoolDay.detail ? (
+                <span className="widget-school-day__detail">
+                  {schoolDay.detail}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <div
             className="widget-calendar__event"
             data-workspace-actions={calendarSelection?.eventToken || undefined}

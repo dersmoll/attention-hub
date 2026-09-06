@@ -37,6 +37,7 @@ assert.deepEqual(legacy, {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,
   showTodayPanel: true,
@@ -81,6 +82,7 @@ assert.deepEqual(malformed, {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,
   showTodayPanel: true,
@@ -191,6 +193,30 @@ assert.equal(
     showClocksPanel: null,
   }).showAppsPanel,
   true,
+);
+
+// School mode must stay off for anyone upgrading: an existing work calendar
+// cannot start being narrated as a school day because the app updated.
+assert.equal(
+  preferences.normalizeWidgetPreferences({ sourceCatalogVersion: 2 })
+    .schoolModeEnabled,
+  false,
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    schoolModeEnabled: true,
+  }).schoolModeEnabled,
+  true,
+  "an explicit choice survives normalization",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    schoolModeEnabled: "yes",
+  }).schoolModeEnabled,
+  false,
+  "a non-boolean falls back to off rather than being coerced true",
 );
 
 const meetingSound = preferences.normalizeWidgetPreferences({
@@ -363,6 +389,7 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,
   showTodayPanel: true,

@@ -33,6 +33,15 @@ export interface WidgetPreferences {
   extraTimeZones: string[];
   clockLayout: ClockLayout;
   meetingStartSoundEnabled: boolean;
+  /**
+   * Read the calendar as a school timetable rather than a work diary.
+   *
+   * Scheduling and joining mechanics are shared; only the *reading* differs.
+   * "No meeting scheduled" is not a break, "the last meeting ended" is not the
+   * end of a workday, and progress through a day only means something for a
+   * timetable — so this stays off for an arbitrary mixed work calendar.
+   */
+  schoolModeEnabled: boolean;
   showAppsPanel: boolean;
   showClocksPanel: boolean;
   showTodayPanel: boolean;
@@ -85,6 +94,9 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  // Off by default: an existing work calendar must not start being narrated as
+  // a school day because the app updated.
+  schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,
   showTodayPanel: true,
@@ -325,6 +337,10 @@ export function normalizeWidgetPreferences(
       typeof value?.meetingStartSoundEnabled === "boolean"
         ? value.meetingStartSoundEnabled
         : DEFAULT_WIDGET_PREFERENCES.meetingStartSoundEnabled,
+    schoolModeEnabled:
+      typeof value?.schoolModeEnabled === "boolean"
+        ? value.schoolModeEnabled
+        : DEFAULT_WIDGET_PREFERENCES.schoolModeEnabled,
     showAppsPanel:
       typeof value?.showAppsPanel === "boolean"
         ? value.showAppsPanel

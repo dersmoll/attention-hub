@@ -1381,6 +1381,34 @@ function AdvancedView() {
 
         <div className="calendar-attention-settings">
           <div>
+            <h3>Reading the calendar</h3>
+            <p>
+              School mode reads the saved calendar as a timetable: which lesson
+              is on now, breaks between lessons, and when the day has finished.
+              It changes only how the schedule is read — the calendar, its
+              events and every other setting stay exactly as they are.
+            </p>
+          </div>
+          <label>
+            <input
+              checked={widgetPreferences.schoolModeEnabled}
+              onChange={(event) =>
+                applyWidgetPreferences({
+                  schoolModeEnabled: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />{" "}
+            Read this calendar as a school timetable
+          </label>
+          <small>
+            Leave this off for a work calendar. A day with no meetings is not a
+            break, and the last meeting ending is not the end of a workday.
+          </small>
+        </div>
+
+        <div className="calendar-attention-settings">
+          <div>
             <h3>Meeting start attention</h3>
             <p>
               The calendar panel pulses visually when a timed meeting starts.

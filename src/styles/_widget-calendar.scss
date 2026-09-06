@@ -106,6 +106,48 @@
     text-align: center;
   }
 
+  /* School mode only: how the school day reads right now. Spans both columns
+     so the two-column "next event" layout cannot squeeze it. */
+  .widget-school-day {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+    grid-column: 1 / -1;
+    margin-bottom: 3px;
+
+    &__line {
+      display: flex;
+      min-width: 0;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    &__headline,
+    &__detail {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* A lesson running now is the one thing worth emphasising. It is not a
+       claim that the child is attending it. */
+    &[data-school-active] &__headline {
+      color: var(--widget-panel-accent);
+    }
+
+    &__progress,
+    &__detail {
+      color: var(--widget-panel-muted);
+    }
+
+    &__progress {
+      flex: 0 0 auto;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
   &__metadata {
     min-width: 0;
 
