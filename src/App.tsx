@@ -128,6 +128,29 @@ function workCalendarStopReasonMessage(stopReason: string | null) {
   if (stopReason === "requestTimeout" || stopReason === "commandDeadline") {
     return "Calendar verification timed out safely. The pasted link is still available to retry.";
   }
+  // The calendar was read correctly and simply has nothing ahead. Saying
+  // "verification failed" here sends people hunting for a broken link.
+  if (stopReason === "noEligibleEvent") {
+    return "This calendar was read successfully but has no current or upcoming events. Add at least one event, then save the link again.";
+  }
+  if (stopReason === "htmlResponse") {
+    return "That link returned a web page, not a calendar file. Use the iCal/ICS address rather than the link that opens the calendar in a browser.";
+  }
+  if (stopReason === "httpStatus") {
+    return "The calendar address was reached but refused the request. Check the link is the current address — regenerating it in the calendar makes the old one stop working.";
+  }
+  if (stopReason === "unsupportedRecurrence") {
+    return "This calendar contains a repeating-event change Attention Hub cannot read. Editing a series with “this and following events” can cause it; changing it with “All events” avoids it.";
+  }
+  if (stopReason === "unsupportedTimezone") {
+    return "This calendar uses a time zone that could not be matched to a known zone, so event times cannot be trusted.";
+  }
+  if (stopReason === "ambiguousTime") {
+    return "This calendar contains events without a time zone, so their real start times are ambiguous.";
+  }
+  if (stopReason === "malformedEvent" || stopReason === "malformedCalendar") {
+    return "This calendar file could not be read as valid calendar data.";
+  }
   return "The source was not saved because bounded verification did not complete successfully.";
 }
 
