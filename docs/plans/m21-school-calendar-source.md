@@ -10,11 +10,13 @@
 > | 1. Google published-calendar support | **Done** — `1f66548` |
 > | 2. Warn-and-preserve on source change | **Done** — `f5108fa` |
 > | 3. UID-change detection | **Done** — `81f8193` |
+> | 4. Date-only `RRULE` `UNTIL` | **Done** — `3d72253`, found in real use |
+> | Truthful stop-reason messages | **Done** — `10b1d4c` |
 >
-> Item 1 has been confirmed working against a real Google calendar in the running
-> app by the product partner. Items 2 and 3 have automated coverage only — the
-> source-change prompt and the unmatched-association notice have **not** been
-> seen on screen yet.
+> Items 1 and 4 are confirmed in the running app against **both children's real
+> calendars**, including a full 26-series timetable. Items 2 and 3 have automated
+> coverage only — the source-change prompt and the unmatched-association notice
+> have **not** been seen on screen.
 
 - **Parent plan:** [School mode](school-mode.md). This milestone implements its
   Step 1 only; Steps 2–4 are not approved.
@@ -139,6 +141,44 @@ Report it rather than fixing it automatically — a new UID may legitimately be 
 different lesson series, and an old association must never attach to an
 unrelated one.
 
+### 4. Date-only `RRULE` `UNTIL` (found in real use, 2026-09-07)
+
+Not in the original scope. Found when a real 26-series timetable failed to save
+while a smaller test calendar succeeded.
+
+Google Calendar exports a recurrence whose end was chosen as a **date** as a
+bare `UNTIL=YYYYMMDD` alongside a TZID-qualified `DTSTART`. RFC 5545 §3.3.10
+requires `UNTIL` to be UTC when `DTSTART` carries a zone, the `rrule` parser
+enforces that strictly, and the reconstructed-RRULE parse at
+`semantics.rs` turns any parse failure into `UnsupportedRecurrence`.
+
+Reproduced directly against `rrule` 0.14:
+
+```
+kiev tzid + utc until + byday:  OK
+kiev tzid + DATE-only until:    FAIL
+kiev tzid + local until:        FAIL
+```
+
+**This is the whole-feed blast radius in practice.** One recurrence end typed as
+a date discarded all 26 subjects. It is the strongest evidence so far that the
+§5 correction — whole *feed*, not whole *series* — matters more than the
+original draft assumed.
+
+Fixed by normalising a local or date-only `UNTIL` to UTC before parsing. A
+date-only value is read as the **end** of that day in the series time zone;
+reading it as midnight parses cleanly but silently drops the final occurrence,
+which for a timetable is the last lesson of term.
+
+Two process notes worth keeping:
+
+- The Step 0 probe reported "none present — the feed should parse". It checked
+  the four *data-shape* triggers and could not see a malformed RRULE value. A
+  diagnostic only covers what its author thought to ask.
+- The `unsupportedRecurrence` message initially named "this and following
+  events" as the cause. **Six** distinct conditions raise that reason, so the
+  message now states the blast radius instead of guessing a cause.
+
 ## Out of scope
 
 - Per-occurrence joining-link overrides and recurrence-anchor threading (Step 2).
@@ -174,6 +214,9 @@ Covered:
 source-change prompt nor the unmatched-association notice has been seen on
 screen — both are reachable only by replacing a configured source, which no
 automated test exercises end to end.
+
+**Confirmed in the running app:** both children's real Google calendars load,
+including a 26-series timetable whose every series carries a date-only `UNTIL`.
 
 Still worth doing before this is considered complete:
 
