@@ -1,4 +1,4 @@
-# M21 — School calendar source
+# M21 — School calendar source and school-day reading
 
 > **Status: all three scope items implemented; automated checks green. Human
 > visual review and the installed upgrade gate are outstanding. Not released.**
@@ -12,6 +12,7 @@
 > | 3. UID-change detection | **Done** — `81f8193` |
 > | 4. Date-only `RRULE` `UNTIL` | **Done** — `3d72253`, found in real use |
 > | Truthful stop-reason messages | **Done** — `10b1d4c` |
+> | 5. School-day reading (plan Step 3) | **Done** — `ca6625f`, `38c65bb`, `1005e9f` |
 >
 > Items 1 and 4 are confirmed in the running app against **both children's real
 > calendars**, including a full 26-series timetable. Items 2 and 3 have automated
@@ -179,6 +180,42 @@ Two process notes worth keeping:
   events" as the cause. **Six** distinct conditions raise that reason, so the
   message now states the blast radius instead of guessing a cause.
 
+### 5. School-day reading (plan Step 3, pulled ahead)
+
+Added after Step 1 landed and both real calendars were confirmed working. The
+plan had put the joining-link override (Step 2) first, on the grounds that the
+parent is a single point of failure for link changes. That still holds, but its
+value depends on **how often a link actually changes mid-morning**, which has
+never been measured; the school-day reading pays off at every transition
+regardless. Step 2 is still next.
+
+`src/school-day-model.ts` derives the day's state — a lesson running, a break,
+before the first lesson, the schedule finished, no lessons, or *unknown* — plus
+the child's position through the day. Wording lives in a separate
+`summarizeSchoolDay`, so the rules can be tested without asserting on prose.
+
+Two constraints from the plan shaped it:
+
+- **Stale data must never masquerade as a break or a finished day.** Both are
+  *absences* of a scheduled lesson, and an absence is precisely what a stalled
+  refresh looks like. `unknown` is therefore a first-class result, returned for
+  any non-observed snapshot and for one older than three poll intervals. A
+  snapshot captured in the future is clock skew rather than freshness.
+- **Progress describes the schedule, not attendance.** Cancelled lessons and
+  all-day entries are excluded, so a cancelled lesson is neither reported as in
+  progress nor counted in "Lesson 3 of 8", and nothing infers that a child
+  attended anything.
+
+Also handles overlapping lessons without offering an already-started one as
+"next", and drops unparseable or backwards times rather than letting them
+poison the ordering.
+
+**A new `schoolModeEnabled` preference** gates the display, defaulting off and
+staying off through migration. Plan §6 requires the schedule *reading* to be
+mode-scoped even though scheduling and joining mechanics are shared. This is
+deliberately only the flag Step 3 needs to be truthful — **not** the Work/School
+vocabulary work, which stays a later step.
+
 ## Out of scope
 
 - Per-occurrence joining-link overrides and recurrence-anchor threading (Step 2).
@@ -217,6 +254,12 @@ automated test exercises end to end.
 
 **Confirmed in the running app:** both children's real Google calendars load,
 including a 26-series timetable whose every series carries a date-only `UNTIL`.
+
+**School-day reading:** 17 frontend suites including a new
+`scripts/test-school-day-model.mjs`, covering a lesson in progress, a break,
+before the first lesson, the finished day, an empty day, cancelled and all-day
+exclusion, staleness, clock skew, every non-observed status, malformed times,
+overlaps, and the wording for each. Not yet seen on screen.
 
 Still worth doing before this is considered complete:
 
