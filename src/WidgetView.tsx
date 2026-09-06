@@ -2511,12 +2511,17 @@ export function WidgetView() {
   const calendarNextSelection = calendarDisplay.companion;
   // Only in School mode: a work diary has no breaks, no end of day, and no
   // meaningful progress through one. See widget-preferences.schoolModeEnabled.
-  const schoolDay = preferences.schoolModeEnabled
-    ? summarizeSchoolDay(
-        selectSchoolDayState(workCalendar, now.getTime()),
-        now.getTime(),
-      )
-    : null;
+  //
+  // Suppressed when no calendar is saved at all: the band would report the
+  // timetable as unavailable next to a prompt already explaining there is no
+  // calendar, which is two messages for one fact.
+  const schoolDay =
+    preferences.schoolModeEnabled && workCalendar?.status !== "notConfigured"
+      ? summarizeSchoolDay(
+          selectSchoolDayState(workCalendar, now.getTime()),
+          now.getTime(),
+        )
+      : null;
   const activeEventKey =
     calendarSelection?.classification === "active" && !calendarSelection.allDay
       ? calendarDisplay.selectionKey
