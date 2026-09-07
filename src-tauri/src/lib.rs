@@ -869,37 +869,22 @@ async fn save_work_calendar_source(
         _ => work_calendar::SourceReplacement::AskFirst,
     };
 
-    let work_calendar::SaveOutcome {
-        mut snapshot,
-        remap,
-    } = work_calendar::save_source(
+    let carry_app = app.clone();
+    let carry_workspace_state = workspace_state.inner();
+    let mut snapshot = work_calendar::save_source(
         state.inner(),
         published_url,
         title_capability_confirmed,
         decision,
+        move |pairs| {
+            workspace::carry_over_calendar_associations(&carry_app, carry_workspace_state, pairs)
+                .map(|(_, carried)| {
+                    let _ = carry_app.emit("workspace-changed", ());
+                    carried
+                })
+        },
     )
     .await;
-
-    // The remap belongs to *this* request. It is never read from shared state,
-    // so an overlapping save cannot apply another request's carry-over — the
-    // interleaving that let a keep-separate decision carry associations across.
-    if let Some(remap) = remap {
-        let pairs = remap
-            .into_iter()
-            .map(|entry| (entry.previous_key, entry.current_key))
-            .collect::<Vec<_>>();
-        match workspace::carry_over_calendar_associations(&app, workspace_state.inner(), &pairs) {
-            Ok((_, carried)) => {
-                snapshot.diagnostics.push(format!(
-                    "Carried {carried} calendar association(s) onto the new source. Previous associations were preserved."
-                ));
-                let _ = app.emit("workspace-changed", ());
-            }
-            Err(error) => snapshot.diagnostics.push(format!(
-                "Calendar associations were not carried over: {error}"
-            )),
-        }
-    }
 
     let _ = workspace::enrich_calendar_snapshot(&app, workspace_state.inner(), &mut snapshot);
     work_calendar::log_snapshot("save", &snapshot);

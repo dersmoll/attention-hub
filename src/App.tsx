@@ -16,7 +16,6 @@ import { MedicineDataPanel } from "./MedicineDataPanel";
 import { EventSettingsView } from "./EventSettingsView";
 import { ManagerView } from "./ManagerView";
 import { ProjectPanelWindow } from "./ProjectPanelWindow";
-import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { TodayPopupView } from "./TodayPopupView";
 import { MedicineManagerView } from "./MedicineManagerView";
@@ -29,9 +28,10 @@ import {
   type AttentionSourceKey,
   type TeamsMirrorStatus,
 } from "./attention-model";
-import type {
-  WorkCalendarConfiguration,
-  WorkCalendarSnapshot,
+import {
+  type WorkCalendarConfiguration,
+  type WorkCalendarSnapshot,
+  workCalendarSaveResultMessage,
 } from "./work-calendar-model";
 import {
   type AttentionAppKey,
@@ -436,7 +436,7 @@ function AdvancedView() {
     }
     if (!titleCapabilityConfirmed) {
       setWorkCalendarError(
-        "Confirm the exact Outlook publication level before saving this source.",
+        "Confirm that this published calendar shares event titles before saving this source.",
       );
       return;
     }
@@ -453,11 +453,19 @@ function AdvancedView() {
           },
         );
       setWorkCalendarSnapshot(nextSnapshot);
+      const saveResult = workCalendarSaveResultMessage(nextSnapshot);
       if (nextSnapshot.sourceChange?.confirmationRequired) {
         // Verified but deliberately not saved. Keep the pasted link in the
         // field so the user can confirm without typing it again, and say
         // nothing that implies it applied.
         setWorkCalendarError(null);
+      } else if (saveResult?.tone === "error") {
+        // A carry failure happens after the verified source is saved, while
+        // credential failures leave the pasted link available to retry.
+        if (nextSnapshot.status === "observed" && nextSnapshot.configured) {
+          setPublishedIcsUrl("");
+        }
+        setWorkCalendarError(saveResult.message);
       } else if (nextSnapshot.status === "observed" && nextSnapshot.configured) {
         setPublishedIcsUrl("");
         setWorkCalendarError(null);
@@ -651,6 +659,9 @@ function AdvancedView() {
 
   const activePageDetails =
     ADVANCED_PAGES.find((page) => page.id === activePage) ?? ADVANCED_PAGES[0];
+  const workCalendarSaveResult = workCalendarSnapshot
+    ? workCalendarSaveResultMessage(workCalendarSnapshot)
+    : null;
 
   return (
     <main className="advanced-shell">
@@ -685,11 +696,6 @@ function AdvancedView() {
           Local-first Windows observer
           {appVersion ? ` · v${appVersion}` : ""}
         </p>
-        {import.meta.env.DEV && (
-          <button onClick={() => void openManagerWindow()} type="button">
-            Preview Project Hub
-          </button>
-        )}
       </aside>
 
       <div className="advanced-content">
@@ -1431,6 +1437,10 @@ function AdvancedView() {
               maxLength={4096}
               onChange={(event) => {
                 setPublishedIcsUrl(event.target.value);
+                // The confirmation applies to the exact link that was present
+                // when it was checked. Editing the candidate requires a fresh
+                // acknowledgement, regardless of provider.
+                setTitleCapabilityConfirmed(false);
                 // A confirmation describes one specific candidate. Once the
                 // field changes it no longer describes what is in it, so it
                 // must be raised again rather than applied to a different link.
@@ -1438,7 +1448,7 @@ function AdvancedView() {
                   current?.sourceChange?.confirmationRequired ? null : current,
                 );
               }}
-              placeholder="Outlook …/calendar.ics or Google …/basic.ics"
+              placeholder="Paste an Outlook or Google published iCal/ICS link"
               spellCheck={false}
               type="password"
               value={publishedIcsUrl}
@@ -1457,6 +1467,8 @@ function AdvancedView() {
             </button>
           </div>
           <small id="published-ics-url-help">
+            For Outlook, publish with “Can view titles and locations”. Google
+            iCal links already include the event titles visible in that calendar. {" "}
             The field is cleared once the link is saved. It is kept if
             verification fails, or while a replacement is waiting for your
             decision, so you do not have to paste it again. The link is never
@@ -1471,8 +1483,8 @@ function AdvancedView() {
               }
               type="checkbox"
             />{" "}
-            I set this exact Outlook calendar publication to “Can view titles
-            and locations”. Attention Hub will discard location.
+            I understand this published calendar shares event titles with
+            Attention Hub. Attention Hub will discard location.
           </label>
         </form>
 
@@ -1584,13 +1596,18 @@ function AdvancedView() {
         {workCalendarError && (
           <p className="error">Work calendar: {workCalendarError}</p>
         )}
+        {workCalendarSaveResult?.tone === "success" ? (
+          <p role="status">{workCalendarSaveResult.message}</p>
+        ) : null}
         {workCalendarSnapshot && (
           <p>
             Saved-source result: {" "}
             <strong>{workCalendarSnapshot.status}</strong>. {" "}
             {workCalendarSnapshot.selection
               ? `The widget received one fresh active-or-next event${workCalendarSnapshot.overlappingSelections.length > 0 ? " and one simultaneous or overlapping event" : ""}.`
-              : "No cached event was retained."}
+              : workCalendarSnapshot.status === "observed"
+                ? "The source was read successfully; no active-or-next event is available."
+                : "No cached event was retained."}
           </p>
         )}
 

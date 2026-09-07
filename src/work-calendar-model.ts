@@ -55,6 +55,24 @@ export interface WorkCalendarSourceChange {
   confirmationRequired: boolean;
 }
 
+export type WorkCalendarSaveResult =
+  | {
+      status: "carryOverApplied";
+      carriedAssociationCount: number;
+    }
+  | {
+      status:
+        | "carryOverFailed"
+        | "credentialReadFailed"
+        | "credentialWriteFailed";
+      carriedAssociationCount?: never;
+    };
+
+export interface WorkCalendarSaveResultMessage {
+  tone: "success" | "error";
+  message: string;
+}
+
 export interface WorkCalendarSnapshot {
   status: WorkCalendarStatus;
   configured: boolean;
@@ -85,6 +103,7 @@ export interface WorkCalendarSnapshot {
    */
   daySelectionsComplete: boolean;
   sourceChange?: WorkCalendarSourceChange;
+  saveResult?: WorkCalendarSaveResult;
   /**
    * Saved associations matching no series in the current feed.
    *
@@ -94,6 +113,49 @@ export interface WorkCalendarSnapshot {
    * unavailable calendar.
    */
   unmatchedAssociationCount?: number;
+}
+
+/** Safe, actionable Calendar-page copy for structured native save outcomes. */
+export function workCalendarSaveResultMessage(
+  snapshot: WorkCalendarSnapshot,
+): WorkCalendarSaveResultMessage | null {
+  const result = snapshot.saveResult;
+  if (!result) return null;
+
+  switch (result.status) {
+    case "carryOverApplied": {
+      const count = result.carriedAssociationCount;
+      if (count === 0) {
+        return {
+          tone: "success",
+          message:
+            "0 calendar associations were carried over. The new source is saved, and previous associations were preserved.",
+        };
+      }
+      return {
+        tone: "success",
+        message: `Carried ${count} calendar ${count === 1 ? "association" : "associations"} onto the new source. Previous associations were preserved.`,
+      };
+    }
+    case "carryOverFailed":
+      return {
+        tone: "error",
+        message:
+          "The new calendar source was saved, but its associations could not be carried over. Previous associations were preserved.",
+      };
+    case "credentialReadFailed":
+      return {
+        tone: "error",
+        message:
+          "Windows Credential Manager could not read the existing calendar source. The pasted link was not saved, the existing source is unchanged, and the pasted link is still available to retry.",
+      };
+    case "credentialWriteFailed":
+      return {
+        tone: "error",
+        message:
+          "The calendar verified, but Windows Credential Manager could not save it. The pasted link is still available to retry.",
+      };
+  }
 }
 
 export interface WorkCalendarDisplay {

@@ -102,6 +102,18 @@ echo      calendar band, Join, Today and the day panel behave as before.
 echo  23. Confirm Medicine, Projects and the Today to-dos are untouched.
 echo.
 echo ---------------------------------------------------------------
+echo G. Final UI polish recheck
+echo ---------------------------------------------------------------
+echo  24. In Advanced - Calendar, enter a Google iCal address. The
+echo      placeholder and checkbox must describe Outlook and Google
+echo      truthfully; the checkbox must not claim this is Outlook.
+echo  25. Set Compact single-line mode and choose Europe/Belgrade.
+echo      Its visible clock label must be BEL, with no clipping. Other
+echo      compact clock labels must use no more than three characters.
+echo  26. Open Advanced settings. The sidebar must not contain a
+echo      "Preview Project Hub" button.
+echo.
+echo ---------------------------------------------------------------
 echo U. Upgrade gate - installed build only
 echo ---------------------------------------------------------------
 echo  U1. Install over the previous release without uninstalling first.

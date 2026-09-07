@@ -26,6 +26,12 @@ async function loadModule(relativePath) {
 }
 
 const school = await loadModule("../src/school-day-model.ts");
+const crossLayerContract = JSON.parse(
+  await readFile(
+    new URL("../tests/fixtures/school-day-contract.json", import.meta.url),
+    "utf8",
+  ),
+);
 
 const NOW = Date.parse("2026-09-07T09:20:00Z");
 const TODAY = "2026-09-07";
@@ -65,6 +71,27 @@ function snapshot(daySelections, extra = {}) {
     diagnostics: [],
     ...extra,
   };
+}
+
+// Shared with the Rust adapter test. These are serialized native snapshots,
+// then consumed by the same day-state functions used by Widget and Today.
+for (const contractCase of crossLayerContract) {
+  assert.equal(
+    school.calendarDayState(contractCase.snapshot, {
+      nowMs: NOW,
+      viewerToday: TODAY,
+    }),
+    contractCase.expectedDayState,
+    `${contractCase.name}: native snapshot must produce the expected Today day state`,
+  );
+  assert.equal(
+    school.selectSchoolDayState(contractCase.snapshot, {
+      nowMs: NOW,
+      viewerToday: TODAY,
+    }).kind,
+    contractCase.expectedSchoolState,
+    `${contractCase.name}: native snapshot must produce the expected school state`,
+  );
 }
 
 // A lesson is running now.

@@ -28,6 +28,60 @@ const pollController = await import(
 assert.equal(calendar.workCalendarJoinLabel(false), "Join");
 assert.equal(calendar.workCalendarJoinLabel(true), "Rejoin");
 
+assert.deepEqual(
+  calendar.workCalendarSaveResultMessage({
+    saveResult: { status: "carryOverApplied", carriedAssociationCount: 0 },
+  }),
+  {
+    tone: "success",
+    message:
+      "0 calendar associations were carried over. The new source is saved, and previous associations were preserved.",
+  },
+  "zero carry-over must be stated explicitly rather than presented as generic success",
+);
+const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+assert.match(appSource, /Paste an Outlook or Google published iCal\/ICS link/);
+assert.match(appSource, /Google\s+iCal links already include the event titles/);
+assert.match(appSource, /I understand this published calendar shares event titles/);
+assert.match(
+  appSource,
+  /setPublishedIcsUrl\(event\.target\.value\);[\s\S]{0,300}setTitleCapabilityConfirmed\(false\);/,
+  "editing a link must retire the exact-link title acknowledgement",
+);
+assert.doesNotMatch(appSource, /I set this exact Outlook calendar publication/);
+assert.doesNotMatch(appSource, /Preview Project Hub/);
+assert.match(
+  calendar.workCalendarSaveResultMessage({
+    saveResult: { status: "carryOverApplied", carriedAssociationCount: 1 },
+  }).message,
+  /^Carried 1 calendar association onto/,
+);
+assert.match(
+  calendar.workCalendarSaveResultMessage({
+    saveResult: { status: "carryOverApplied", carriedAssociationCount: 2 },
+  }).message,
+  /^Carried 2 calendar associations onto/,
+);
+assert.deepEqual(
+  calendar.workCalendarSaveResultMessage({
+    saveResult: { status: "carryOverFailed" },
+  }),
+  {
+    tone: "error",
+    message:
+      "The new calendar source was saved, but its associations could not be carried over. Previous associations were preserved.",
+  },
+);
+const credentialReadFailure = calendar.workCalendarSaveResultMessage({
+  saveResult: { status: "credentialReadFailed" },
+});
+assert.equal(credentialReadFailure.tone, "error");
+assert.match(credentialReadFailure.message, /could not read the existing calendar source/i);
+assert.match(credentialReadFailure.message, /was not saved/i);
+assert.match(credentialReadFailure.message, /existing source is unchanged/i);
+assert.match(credentialReadFailure.message, /available to retry/i);
+assert.equal(calendar.workCalendarSaveResultMessage({}), null);
+
 assert.equal(
   calendar.workCalendarOccupiedMinutes(
     [

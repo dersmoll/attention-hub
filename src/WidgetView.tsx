@@ -57,6 +57,7 @@ import {
 } from "./time-zone-converter";
 import {
   canonicalTimeZone,
+  compactTimeZoneLabel,
   getCommonTimeZones,
   shortTimeZoneLabel,
   timeZoneOptionLabel,
@@ -222,22 +223,6 @@ function formatClockDay(now: Date, timeZone?: string) {
     day: "numeric",
     timeZone,
   }).format(now);
-}
-
-const COMPACT_TIME_ZONE_LABELS: Record<string, string> = {
-  "America/Anchorage": "ANC",
-  "America/Chicago": "CHI",
-  "America/Denver": "DEN",
-  "America/Los_Angeles": "LA",
-  "America/New_York": "NY",
-  "America/Sao_Paulo": "SP",
-  "Europe/London": "LDN",
-  "Pacific/Honolulu": "HNL",
-};
-
-function compactTimeZoneLabel(timeZone: string) {
-  const canonical = canonicalTimeZone(timeZone);
-  return COMPACT_TIME_ZONE_LABELS[canonical] ?? shortTimeZoneLabel(canonical);
 }
 
 function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {

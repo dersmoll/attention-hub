@@ -69,6 +69,12 @@ pub struct WorkCalendarSnapshot {
     /// carries it, so no prompt can outlive the save that raised it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_change: Option<WorkCalendarSourceChange>,
+    /// User-facing outcome of the save operation that produced this snapshot.
+    ///
+    /// Kept structured so the frontend never needs to display native error text
+    /// or infer whether verification ran from a missing stop reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_result: Option<WorkCalendarSaveResult>,
     /// Saved calendar associations matching no series in the current feed.
     ///
     /// Three causes are indistinguishable from here, and the wording must not
@@ -219,6 +225,23 @@ pub struct WorkCalendarSourceChange {
     pub previous_association_count: usize,
     /// True when the source was **not** written and is waiting for a decision.
     pub confirmation_required: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkCalendarSaveResultStatus {
+    CarryOverApplied,
+    CarryOverFailed,
+    CredentialReadFailed,
+    CredentialWriteFailed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkCalendarSaveResult {
+    pub status: WorkCalendarSaveResultStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub carried_association_count: Option<usize>,
 }
 
 pub struct WorkCalendarState {
@@ -455,18 +478,6 @@ pub enum SourceReplacement {
     ReplaceAndKeepSeparate,
 }
 
-/// A save's result, plus any carry-over it authorised.
-///
-/// The remap travels **with the result to its own caller**. An earlier design
-/// left it in a slot on the shared state, which the caller drained after the
-/// request gate had been released — so two overlapping saves could cross, and a
-/// keep-separate decision could apply the carry-over pairs belonging to a
-/// different replacement. Ownership is the fix; a single-drain slot was not.
-pub struct SaveOutcome {
-    pub snapshot: WorkCalendarSnapshot,
-    pub remap: Option<Vec<WorkspaceKeyRemap>>,
-}
-
 /// What a save may do, decided **before** anything is verified or written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SaveAction {
@@ -490,7 +501,7 @@ enum SaveAction {
 /// `Ok(None)` with `Err(_)` into a single `_ => None` arm. That made a
 /// transient credential-read failure look like "no source saved", so an
 /// `AskFirst` save skipped confirmation and overwrote the saved source. Pulling
-/// the decision out makes all nine combinations testable without touching
+/// the decision out makes all twelve combinations testable without touching
 /// Windows Credential Manager, and makes that collapse impossible to
 /// reintroduce silently.
 fn save_action(
@@ -513,21 +524,16 @@ fn save_action(
     }
 }
 
-impl From<WorkCalendarSnapshot> for SaveOutcome {
-    fn from(snapshot: WorkCalendarSnapshot) -> Self {
-        Self {
-            snapshot,
-            remap: None,
-        }
-    }
-}
-
-pub async fn save_source(
+pub async fn save_source<F>(
     state: &WorkCalendarState,
     mut published_url: String,
     title_capability_confirmed: bool,
     replacement: SourceReplacement,
-) -> SaveOutcome {
+    carry_over: F,
+) -> WorkCalendarSnapshot
+where
+    F: FnOnce(&[(String, String)]) -> Result<usize, String> + Send,
+{
     let _guard = state.request_gate.lock().await;
     let source_scope = calendar_source_scope(&published_url);
 
@@ -574,10 +580,13 @@ pub async fn save_source(
             viewer_day: None,
             day_selections_complete: false,
             source_change: None,
+            save_result: Some(WorkCalendarSaveResult {
+                status: WorkCalendarSaveResultStatus::CredentialReadFailed,
+                carried_association_count: None,
+            }),
             unmatched_association_count: None,
             feed_workspace_keys: Vec::new(),
-        }
-        .into();
+        };
     }
 
     let probe = published_ics::get_semantic_probe_with_deadline(
@@ -600,8 +609,7 @@ pub async fn save_source(
             probe,
             get_configuration().configured,
             Some(&source_scope),
-        )
-        .into();
+        );
     }
 
     // Warn *before* applying, as school-mode.md section 9 requires. The saved
@@ -619,26 +627,50 @@ pub async fn save_source(
         snapshot.diagnostics.push(
             "The pasted calendar verified successfully and was not saved: it replaces a different source, which needs an explicit decision first.".to_owned(),
         );
-        return snapshot.into();
+        return snapshot;
     }
 
     let write_result = credential_store::write(&published_url);
     zero_string(&mut published_url);
     match write_result {
         Ok(()) => {
-            // Computed inside the gate that read the outgoing credential and
-            // performed the write, and returned to this request's own caller —
-            // never left where an overlapping save could pick it up.
+            // Compute and apply the remap while this function still owns the
+            // request gate. The credential transition and workspace mutation
+            // therefore cannot be overtaken by another save or removal.
             let remap = match (action, previous_scope) {
                 (SaveAction::ReplaceCarryingOver, Ok(Some(previous_scope))) => {
                     Some(remap_from_probe(&probe, &previous_scope, &source_scope))
                 }
                 _ => None,
             };
-            SaveOutcome {
-                snapshot: snapshot_from_probe(state, probe, true, Some(&source_scope)),
-                remap,
+            let mut snapshot = snapshot_from_probe(state, probe, true, Some(&source_scope));
+            if let Some(remap) = remap {
+                let pairs = remap
+                    .into_iter()
+                    .map(|entry| (entry.previous_key, entry.current_key))
+                    .collect::<Vec<_>>();
+                match carry_over(&pairs) {
+                    Ok(carried) => {
+                        snapshot.save_result = Some(WorkCalendarSaveResult {
+                            status: WorkCalendarSaveResultStatus::CarryOverApplied,
+                            carried_association_count: Some(carried),
+                        });
+                        snapshot.diagnostics.push(format!(
+                            "Carried {carried} calendar association(s) onto the new source. Previous associations were preserved."
+                        ));
+                    }
+                    Err(error) => {
+                        snapshot.save_result = Some(WorkCalendarSaveResult {
+                            status: WorkCalendarSaveResultStatus::CarryOverFailed,
+                            carried_association_count: None,
+                        });
+                        snapshot.diagnostics.push(format!(
+                            "Calendar associations were not carried over: {error}"
+                        ));
+                    }
+                }
             }
+            snapshot
         }
         Err(_) => {
             state.clear_join_targets();
@@ -662,10 +694,13 @@ pub async fn save_source(
                 viewer_day: None,
                 day_selections_complete: false,
                 source_change: None,
+                save_result: Some(WorkCalendarSaveResult {
+                    status: WorkCalendarSaveResultStatus::CredentialWriteFailed,
+                    carried_association_count: None,
+                }),
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
             }
-            .into()
         }
     }
 }
@@ -698,6 +733,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 viewer_day: None,
                 day_selections_complete: false,
                 source_change: None,
+                save_result: None,
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
             };
@@ -725,6 +761,7 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 viewer_day: None,
                 day_selections_complete: false,
                 source_change: None,
+                save_result: None,
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
             };
@@ -759,6 +796,7 @@ fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapsh
         viewer_day: None,
         day_selections_complete: false,
         source_change: None,
+        save_result: None,
         unmatched_association_count: None,
         feed_workspace_keys: Vec::new(),
     }
@@ -902,6 +940,7 @@ fn snapshot_from_probe(
         // and asks for a decision. An ordinary refresh never carries it, so no
         // stale prompt can outlive the save that raised it.
         source_change: None,
+        save_result: None,
         // Both filled in by the workspace layer, which owns the bindings.
         unmatched_association_count: None,
         feed_workspace_keys: probe
@@ -1072,6 +1111,36 @@ mod tests {
     use super::*;
     use crate::published_ics::{PublishedIcsContentTypeState, PublishedIcsProbeStatus};
 
+    fn observed_school_contract_probe() -> PublishedIcsSemanticProbe {
+        PublishedIcsSemanticProbe {
+            status: PublishedIcsProbeStatus::Observed,
+            captured_at_unix_ms: 1_788_772_800_000,
+            url_accepted: true,
+            webcal_normalized_to_https: false,
+            source_identity_state: "test",
+            semantic_extraction_allowed: true,
+            title_capability_confirmed: true,
+            http_status: Some(200),
+            content_type_state: PublishedIcsContentTypeState::Calendar,
+            series_identities: Vec::new(),
+            viewer_day: Some("2026-09-07".to_owned()),
+            day_selections_complete: true,
+            response_bytes: 1,
+            request_ms: 1,
+            parse_ms: 1,
+            eligible_candidate_count: 0,
+            active_candidate_count: 0,
+            expanded_occurrence_count: 0,
+            private_title_redacted: false,
+            selection: None,
+            overlapping_selections: Vec::new(),
+            next_selection: None,
+            day_selections: Vec::new(),
+            stop_reason: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
     #[test]
     fn unavailable_probe_never_exposes_a_selection() {
         let state = WorkCalendarState::new();
@@ -1130,33 +1199,7 @@ mod tests {
     #[test]
     fn an_observed_read_without_a_selection_keeps_its_verified_day() {
         let state = WorkCalendarState::new();
-        let probe = PublishedIcsSemanticProbe {
-            status: PublishedIcsProbeStatus::Observed,
-            captured_at_unix_ms: 1,
-            url_accepted: true,
-            webcal_normalized_to_https: false,
-            source_identity_state: "test",
-            semantic_extraction_allowed: true,
-            title_capability_confirmed: true,
-            http_status: Some(200),
-            content_type_state: PublishedIcsContentTypeState::Calendar,
-            series_identities: Vec::new(),
-            viewer_day: Some("2026-08-17".to_owned()),
-            day_selections_complete: true,
-            response_bytes: 1,
-            request_ms: 1,
-            parse_ms: 1,
-            eligible_candidate_count: 0,
-            active_candidate_count: 0,
-            expanded_occurrence_count: 0,
-            private_title_redacted: false,
-            selection: None,
-            overlapping_selections: Vec::new(),
-            next_selection: None,
-            day_selections: Vec::new(),
-            stop_reason: None,
-            diagnostics: Vec::new(),
-        };
+        let probe = observed_school_contract_probe();
         let snapshot = snapshot_from_probe(&state, probe, true, None);
 
         // The inverse of what this test asserted before RF1. An empty or
@@ -1166,8 +1209,82 @@ mod tests {
         // making the selection optional.
         assert!(matches!(snapshot.status, WorkCalendarStatus::Observed));
         assert!(snapshot.selection.is_none());
-        assert_eq!(snapshot.viewer_day.as_deref(), Some("2026-08-17"));
+        assert_eq!(snapshot.viewer_day.as_deref(), Some("2026-09-07"));
         assert!(snapshot.day_selections_complete);
+    }
+
+    #[test]
+    fn serialized_school_day_contract_matches_the_frontend_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/school-day-contract.json"
+        ))
+        .unwrap();
+        let state = WorkCalendarState::new();
+
+        for contract_case in fixture.as_array().unwrap() {
+            let name = contract_case["name"].as_str().unwrap();
+            let mut probe = match name {
+                "failed" => {
+                    let mut failed = PublishedIcsSemanticProbe::command_failed(true);
+                    failed.captured_at_unix_ms = 1_788_772_800_000;
+                    failed
+                }
+                _ => observed_school_contract_probe(),
+            };
+
+            if matches!(name, "finished" | "selected") {
+                probe.day_selections.push(DayEventSelection {
+                    subject: if name == "selected" {
+                        "Mathematics".into()
+                    } else {
+                        "History".into()
+                    },
+                    start: if name == "selected" {
+                        "2026-09-07T09:00:00Z".into()
+                    } else {
+                        "2026-09-07T07:00:00Z".into()
+                    },
+                    end: if name == "selected" {
+                        "2026-09-07T10:00:00Z".into()
+                    } else {
+                        "2026-09-07T08:00:00Z".into()
+                    },
+                    all_day: false,
+                    cancelled: false,
+                    series_uid: format!("{name}-series"),
+                    recurring: true,
+                    private: false,
+                });
+            }
+            if name == "selected" {
+                probe.selection = Some(EventSelection {
+                    subject: "Mathematics".into(),
+                    start: "2026-09-07T09:00:00Z".into(),
+                    end: "2026-09-07T10:00:00Z".into(),
+                    all_day: false,
+                    classification: EventClassification::Active,
+                    meeting_link_present: Some(false),
+                    meeting_provider: None,
+                    meeting_url: None,
+                    series_uid: "selected-series".into(),
+                    recurring: true,
+                    private: false,
+                });
+            }
+
+            let actual =
+                serde_json::to_value(snapshot_from_probe(&state, probe, true, None)).unwrap();
+            let expected = &contract_case["snapshot"];
+            for field in [
+                "status",
+                "selection",
+                "daySelections",
+                "viewerDay",
+                "daySelectionsComplete",
+            ] {
+                assert_eq!(actual[field], expected[field], "{name}: {field}");
+            }
+        }
     }
 
     fn joinable_event(url: &str, uid: &str, start: &str) -> EventSelection {
@@ -1350,8 +1467,8 @@ mod tests {
     /// like "no source saved" and let an `AskFirst` save overwrite the existing
     /// source without the decision the design promises.
     ///
-    /// All nine combinations of read outcome and replacement choice, because
-    /// the defect was a missing case rather than a wrong rule.
+    /// All twelve combinations of read/source relationship and replacement
+    /// choice, because the defect was a missing case rather than a wrong rule.
     #[test]
     fn a_credential_read_failure_never_reaches_a_write() {
         use SourceReplacement::*;
@@ -1409,19 +1526,34 @@ mod tests {
         );
     }
 
-    /// Audit F5, then RF3. The remap was first built from scopes remembered
-    /// across a user decision, which went stale behind a removal or a second
-    /// replacement. Moving it into a single-drain slot on the shared state fixed
-    /// staleness but not *ownership*: the caller drained the slot after the
-    /// request gate had been released, so two overlapping saves could cross and
-    /// a keep-separate decision could apply another replacement's pairs.
-    ///
-    /// It is now returned with the result to its own caller. There is no shared
-    /// slot to interleave on, which is why this test asserts the pairs travel
-    /// with the outcome rather than asserting single-drain mechanics — the
-    /// audit's point being that single-drain proved the wrong property.
     #[test]
-    fn a_remap_travels_with_its_own_save_outcome() {
+    fn save_result_serializes_as_the_frontend_contract() {
+        assert_eq!(
+            serde_json::to_value(WorkCalendarSaveResult {
+                status: WorkCalendarSaveResultStatus::CarryOverApplied,
+                carried_association_count: Some(0),
+            })
+            .unwrap(),
+            serde_json::json!({
+                "status": "carryOverApplied",
+                "carriedAssociationCount": 0
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(WorkCalendarSaveResult {
+                status: WorkCalendarSaveResultStatus::CredentialReadFailed,
+                carried_association_count: None,
+            })
+            .unwrap(),
+            serde_json::json!({ "status": "credentialReadFailed" })
+        );
+    }
+
+    /// The mapping itself contains only the requested old/new source pair. Its
+    /// application now happens inside `save_source`, before that function drops
+    /// the request gate, so a later save or removal cannot overtake it.
+    #[test]
+    fn a_remap_contains_only_its_expected_source_pair() {
         let previous = calendar_source_scope("https://calendar.google.com/a/basic.ics");
         let current = calendar_source_scope("https://calendar.google.com/b/basic.ics");
         assert_ne!(previous, current);
@@ -1443,30 +1575,6 @@ mod tests {
             remap[0].current_key,
             recurring_series_key(&current, "maths-weekly")
         );
-
-        // A keep-separate outcome carries no pairs at all, so there is nothing
-        // an unrelated request could pick up.
-        let keep_separate = SaveOutcome::from(WorkCalendarSnapshot {
-            status: WorkCalendarStatus::Observed,
-            configured: true,
-            storage_available: true,
-            source_identity_state: SOURCE_IDENTITY_STATE,
-            captured_at_unix_ms: 1,
-            selection: None,
-            overlapping_selections: Vec::new(),
-            next_selection: None,
-            day_selections: Vec::new(),
-            stop_reason: None,
-            request_ms: 0,
-            parse_ms: 0,
-            diagnostics: Vec::new(),
-            viewer_day: None,
-            day_selections_complete: false,
-            source_change: None,
-            unmatched_association_count: None,
-            feed_workspace_keys: Vec::new(),
-        });
-        assert!(keep_separate.remap.is_none());
     }
 
     /// A feed the probe never read yields no pairs, so a carry-over requested

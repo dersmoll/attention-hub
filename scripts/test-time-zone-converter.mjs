@@ -133,6 +133,18 @@ assert.equal(
   "Europe/Kyiv — UTC+03:00",
 );
 assert.equal(options.shortTimeZoneLabel("America/New_York"), "New York");
+assert.equal(options.compactTimeZoneLabel("America/New_York"), "NYC");
+assert.equal(options.compactTimeZoneLabel("America/Los_Angeles"), "LAX");
+assert.equal(options.compactTimeZoneLabel("Europe/Belgrade"), "BEL");
+assert.equal(options.compactTimeZoneLabel("Europe/Kyiv"), "KYI");
+assert.equal(options.compactTimeZoneLabel("America/Sao_Paulo"), "SAO");
+assert.equal(options.compactTimeZoneLabel("UTC"), "UTC");
+for (const timeZone of options.getSupportedTimeZones()) {
+  assert.ok(
+    options.compactTimeZoneLabel(timeZone).length <= 3,
+    `${timeZone} must fit the compact single-line label`,
+  );
+}
 assert.equal(
   options.shortTimeZoneLabel("Africa/Johannesburg"),
   "Johannesburg",

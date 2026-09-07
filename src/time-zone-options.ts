@@ -73,6 +73,17 @@ const TIME_ZONE_SEARCH_ALIASES: Record<string, string> = {
     "Serbia Serbian Bosnia Bosnia and Herzegovina Bosnian Macedonia North Macedonia Macedonian Sarajevo Skopje",
 };
 
+const COMPACT_TIME_ZONE_LABELS: Record<string, string> = {
+  "America/Anchorage": "ANC",
+  "America/Chicago": "CHI",
+  "America/Denver": "DEN",
+  "America/Los_Angeles": "LAX",
+  "America/New_York": "NYC",
+  "America/Sao_Paulo": "SAO",
+  "Europe/London": "LDN",
+  "Pacific/Honolulu": "HNL",
+};
+
 const DISCOVERABLE_TIME_ZONES = Object.keys(TIME_ZONE_SEARCH_ALIASES);
 
 export function canonicalTimeZone(timeZone: string) {
@@ -142,6 +153,18 @@ export function shortTimeZoneLabel(timeZone: string) {
   }
   const parts = canonical.split("/");
   return (parts[parts.length - 1] || canonical).replace(/_/g, " ");
+}
+
+/** At most three visible characters for the compact single-line clock rail. */
+export function compactTimeZoneLabel(timeZone: string) {
+  const canonical = canonicalTimeZone(timeZone);
+  const label = COMPACT_TIME_ZONE_LABELS[canonical] ?? shortTimeZoneLabel(canonical);
+  return label
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .slice(0, 3)
+    .toUpperCase();
 }
 
 export function timeZoneOptionLabel(timeZone: string, value = new Date()) {

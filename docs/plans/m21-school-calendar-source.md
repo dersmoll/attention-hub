@@ -250,9 +250,10 @@ vocabulary work, which stays a later step.
 
 ## Verification
 
-**Automated: passing.** `cargo test` 108 passed / 0 failed (from 103 at
-baseline), `pnpm test` 16 suites, `tsc` and `vite build` clean, no compiler
-warnings.
+**Automated at the current working tree: passing.** `cargo test` 117 passed / 0
+failed / 1 ignored reporting helper; all 17 frontend test scripts passed;
+`tsc --noEmit`, `cargo fmt --check`, and Clippy with warnings denied are clean.
+The frontend production build also passes after the final audit repairs.
 
 Covered:
 
@@ -269,16 +270,31 @@ Covered:
   derivations do not collide.
 - An unreadable feed reports no workspace keys and therefore **no** unmatched
   count, rather than orphaning every association at once.
+- A replacement's workspace remap now runs while the source request gate is
+  still held, so a later save or removal cannot overtake it. Carry success,
+  literal zero, and failure are structured native results rendered in Calendar.
+- Credential read and write failures are distinct structured save results. A
+  read failure says verification did not run, the pasted link was not saved,
+  and the existing source remains unchanged.
+- One sanitized fixture is asserted by both the Rust snapshot adapter and the
+  frontend day-state model for empty, finished, selected, and failed feeds. This
+  closes the probe → snapshot → Today gap that let a green layer test pin RF1.
 
-**Not run:** human visual review, and the installed upgrade gate. Neither the
+**Not run:** the complete human review, and the installed upgrade gate. Neither the
 source-change prompt nor the unmatched-association notice has been seen on
 screen — both are reachable only by replacing a configured source, which no
 automated test exercises end to end.
 
+**Brief human pass:** the milestone was generally sound. Three polish issues
+were then reported and repaired: provider-specific Outlook copy on the shared
+Google/Outlook form, overflowing compact timezone labels such as Belgrade, and
+the development-only Project Hub preview button in Advanced. Launcher steps
+24–26 cover the required recheck; they have not yet been observed after repair.
+
 **Confirmed in the running app:** both children's real Google calendars load,
 including a 26-series timetable whose every series carries a date-only `UNTIL`.
 
-**School-day reading:** 17 frontend suites including a new
+**School-day reading:** 17 frontend test scripts including
 `scripts/test-school-day-model.mjs`, covering a lesson in progress, a break,
 before the first lesson, the finished day, an empty day, cancelled and all-day
 exclusion, staleness, clock skew, every non-observed status, malformed times,
@@ -294,9 +310,10 @@ Still worth doing before this is considered complete:
 - Confirm Work mode, medicine behaviour and an existing Microsoft source do not
   regress.
 
-Builds, installed verification and human acceptance retain their separate gates.
-A root-level `REVIEW-M21-SCHOOL-CALENDAR-SOURCE.cmd` is created only when manual
-review scope is approved.
+The production build, installed verification and human acceptance retain their
+separate gates. Run the tracked root-level
+`REVIEW-M21-SCHOOL-CALENDAR-SOURCE.cmd` from this project folder for the manual
+review; steps 5–6, 10, and 18 are the required audit-repair checks.
 
 Use sanitized fixtures only. No real publication URL, school name, child
 identity or joining link enters tests, diagnostics or committed evidence.
