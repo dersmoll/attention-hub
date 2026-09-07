@@ -1,10 +1,10 @@
 # Attention Hub 0.6.0-beta.13
 
-- Prepared: 2026-09-07
-- Status: local beta candidate
+- Released: 2026-09-07
+- Status: public beta
 - Platform: Windows x64
 - Format: NSIS setup executable
-- Tag: not published
+- Tag: `v0.6.0-beta.13`
 
 ## Milestone 21 — School calendar source
 
@@ -56,7 +56,7 @@ Published ICS credential target and local profile directories remained present.
 ## Known limits
 
 - The Windows installer remains Authenticode-unsigned. Signed Tauri updater
-  metadata is produced only by the separate tag-triggered GitHub release flow.
+  metadata validates in-app beta updates separately from Windows code signing.
 - The supported source remains one user-provided Published ICS feed. There is
   no Graph, OCR, cloud synchronization, or multi-calendar aggregation.
 - Source scope is session-local, carry-over is limited to series present in the
