@@ -1,9 +1,11 @@
 # M21 — School calendar source and school-day reading
 
-> **Status: implemented and automated checks green, but a cross-audit
-> requested changes on 2026-09-07. Not merge-ready. Not released.**
-> See [the audit](../council/2026-09-07-m21-school-calendar-audit-codex.md) and
-> [the response](../council/2026-09-07-m21-school-calendar-audit-response.md).
+> **Status: all seven cross-audit findings repaired; automated checks green.
+> Human visual review and the installed upgrade gate are outstanding.
+> Not merged. Not released.**
+> See [the audit](../council/2026-09-07-m21-school-calendar-audit-codex.md), the
+> [response](../council/2026-09-07-m21-school-calendar-audit-response.md), and
+> `REVIEW-M21-SCHOOL-CALENDAR-SOURCE.cmd` for the manual pass.
 > Baseline: `main` at `1ccb036`, after M20 and the CI repair merged. Branch:
 > `codex/m21-school-calendar-source`.
 >
@@ -15,6 +17,11 @@
 > | 4. Date-only `RRULE` `UNTIL` | **Done** — `3d72253`, found in real use |
 > | Truthful stop-reason messages | **Done** — `10b1d4c` |
 > | 5. School-day reading (plan Step 3) | **Done** — `ca6625f`, `38c65bb`, `1005e9f` |
+> | 6. Calendar vocabulary | **Done** — `f944dcf` |
+> | Audit F1, F2 — a read feed with nothing upcoming | **Done** — `0f0345c` |
+> | Audit F1, F3, F4 — one day-validity contract | **Done** — `ddd7ad3` |
+> | Audit F5, F6 — warn before replacing | **Done** — `32a7ef5` |
+> | Audit F7 — explicit UTC is not absent | **Done** — `612d231` |
 >
 > Items 1 and 4 are confirmed in the running app against **both children's real
 > calendars**, including a full 26-series timetable. Items 2 and 3 have automated

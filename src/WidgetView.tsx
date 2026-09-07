@@ -2814,11 +2814,16 @@ export function WidgetView() {
       dayState: calendarDay,
     };
     publishTodayPopup();
+    // `calendarDay` and the mode both feed the payload, so an open popup must
+    // re-publish when either changes rather than waiting for an unrelated
+    // dependency to move.
   }, [
+    calendarDay,
     calendarDayPanelLogicalHeight,
     calendarDayPanelOpen,
     calendarDaySelections,
     calendarOccupiedMinutes,
+    preferences.schoolModeEnabled,
     publishTodayPopup,
     systemTimeZone,
   ]);

@@ -183,9 +183,39 @@ Made now, before any repair, as the audit asked.
 "Nothing is blocked on code" is withdrawn. F1–F6 are contract defects and F7 is
 a reachable parser defect.
 
-## Proposed bounded repair scope
+## Repair status — all seven landed
 
-Offered for approval, not started. The audit's grouping is right and I have kept
+Approved by the product partner on 2026-09-07 and implemented. Two product
+decisions were taken at the same time and folded in rather than bolted on:
+**warn before applying** (which removed F5's cause instead of patching it) and
+**accept a calendar with nothing upcoming** (which F2 needed anyway).
+
+| Finding | Commit |
+| --- | --- |
+| F1, F2 — a read feed with nothing upcoming is not unavailable | `0f0345c` |
+| F1, F3, F4 — one day-validity contract across the surfaces | `ddd7ad3` |
+| F5, F6 — warn before replacing; truthful association claims | `32a7ef5` |
+| F7 — an explicit UTC timezone is not an absent one | `612d231` |
+
+`cargo test` 114 passed (from 108), 17 frontend suites, `tsc`, `vite build`,
+`cargo fmt --check` and `cargo clippy -D warnings` all clean.
+`REVIEW-M21-SCHOOL-CALENDAR-SOURCE.cmd` now exists, with the source-change,
+carry-over, untruthful-state and upgrade cases the audit asked for.
+
+Two notes on how the repairs differ from the proposal below:
+
+- **F5 was removed rather than hardened.** The proposal was to retire the
+  pending decision on removal and validate the scope under the gate. Warning
+  before applying meant no decision needs to outlive a write at all: scopes are
+  read and used inside the same gate, and the resulting key pairs land in a slot
+  that can only be drained once. There is nothing left to go stale.
+- **F6 narrowed the claim rather than adding provenance.** Three causes are
+  indistinguishable without per-binding provenance, so the wording now says
+  "not in use by this calendar" and names all three, including preserved
+  history. Old bindings are still never deleted. The schema change stays a
+  separate bounded decision, as the audit suggested.
+
+### The original proposal, for reference The audit's grouping is right and I have kept
 it, adding fixtures per finding.
 
 ### R1 — One calendar-day validity contract (F1, F2, F3)
