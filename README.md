@@ -11,10 +11,9 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.12` is the current public beta. Version
-`0.6.0-beta.13` is the current local beta candidate.
+Version `0.6.0-beta.13` is the current public beta.
 
-[Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.12)
+[Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.13)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
 page publishes the exact installer checksum for verification. Attention Hub's
