@@ -128,11 +128,6 @@ function workCalendarStopReasonMessage(stopReason: string | null) {
   if (stopReason === "requestTimeout" || stopReason === "commandDeadline") {
     return "Calendar verification timed out safely. The pasted link is still available to retry.";
   }
-  // The calendar was read correctly and simply has nothing ahead. Saying
-  // "verification failed" here sends people hunting for a broken link.
-  if (stopReason === "noEligibleEvent") {
-    return "This calendar was read successfully but has no current or upcoming events. Add at least one event, then save the link again.";
-  }
   if (stopReason === "htmlResponse") {
     return "That link returned a web page, not a calendar file. Use the iCal/ICS address rather than the link that opens the calendar in a browser.";
   }
@@ -213,11 +208,8 @@ function AdvancedView() {
   const [workCalendarSnapshot, setWorkCalendarSnapshot] =
     useState<WorkCalendarSnapshot | null>(null);
   const [workCalendarPending, setWorkCalendarPending] = useState<
-    "save" | "refresh" | "remove" | "carryOver" | null
+    "save" | "refresh" | "remove" | null
   >(null);
-  const [sourceChangeResult, setSourceChangeResult] = useState<string | null>(
-    null,
-  );
   const [workCalendarError, setWorkCalendarError] = useState<string | null>(null);
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
@@ -429,7 +421,12 @@ function AdvancedView() {
     });
   }, []);
 
-  const saveWorkCalendarSource = useCallback(async () => {
+  const saveWorkCalendarSource = useCallback(async (
+    replacement:
+      | "askFirst"
+      | "replaceAndCarryOver"
+      | "replaceAndKeepSeparate" = "askFirst",
+  ) => {
     const secretUrl = publishedIcsUrl.trim();
     setWorkCalendarSnapshot(null);
     setWorkCalendarError(null);
@@ -444,7 +441,6 @@ function AdvancedView() {
       return;
     }
 
-    setSourceChangeResult(null);
     setWorkCalendarPending("save");
     try {
       const nextSnapshot =
@@ -453,10 +449,16 @@ function AdvancedView() {
           {
             publishedUrl: secretUrl,
             titleCapabilityConfirmed,
+            replacement,
           },
         );
       setWorkCalendarSnapshot(nextSnapshot);
-      if (nextSnapshot.status === "observed" && nextSnapshot.configured) {
+      if (nextSnapshot.sourceChange?.confirmationRequired) {
+        // Verified but deliberately not saved. Keep the pasted link in the
+        // field so the user can confirm without typing it again, and say
+        // nothing that implies it applied.
+        setWorkCalendarError(null);
+      } else if (nextSnapshot.status === "observed" && nextSnapshot.configured) {
         setPublishedIcsUrl("");
         setWorkCalendarError(null);
       } else {
@@ -481,50 +483,14 @@ function AdvancedView() {
 
   /// The backend has already cleared the pending change; drop it locally too so
   /// the prompt does not linger until the next poll.
-  const clearLocalSourceChange = useCallback(() => {
-    setWorkCalendarSnapshot((current) =>
-      current?.sourceChange ? { ...current, sourceChange: undefined } : current,
-    );
-  }, []);
-
-  const carryOverCalendarAssociations = useCallback(async () => {
-    setWorkCalendarPending("carryOver");
-    setSourceChangeResult(null);
-    try {
-      const carried = await invoke<number>(
-        "carry_over_work_calendar_associations",
+  const resolveSourceReplacement = useCallback(
+    async (carryOver: boolean) => {
+      await saveWorkCalendarSource(
+        carryOver ? "replaceAndCarryOver" : "replaceAndKeepSeparate",
       );
-      // Report zero honestly rather than implying success: it means nothing in
-      // the current feed matched a previous association.
-      setSourceChangeResult(
-        carried === 0
-          ? "No lessons in the current feed matched a previous association. Nothing was changed."
-          : `Carried over ${carried} calendar ${carried === 1 ? "association" : "associations"}.`,
-      );
-      clearLocalSourceChange();
-    } catch (error) {
-      // Keep the prompt on screen so the action can be retried.
-      setSourceChangeResult(
-        typeof error === "string"
-          ? error
-          : "Associations could not be carried over. Nothing was changed.",
-      );
-    } finally {
-      setWorkCalendarPending(null);
-    }
-  }, [clearLocalSourceChange]);
-
-  const dismissSourceChange = useCallback(async () => {
-    setSourceChangeResult(
-      "Previous associations were left as they are. They are still stored.",
-    );
-    clearLocalSourceChange();
-    try {
-      await invoke("dismiss_work_calendar_source_change");
-    } catch {
-      // The warning is advisory; failing to dismiss it is not worth reporting.
-    }
-  }, [clearLocalSourceChange]);
+    },
+    [saveWorkCalendarSource],
+  );
 
   const refreshSavedWorkCalendar = useCallback(async () => {
     setWorkCalendarPending("refresh");
@@ -1500,52 +1466,44 @@ function AdvancedView() {
           </label>
         </form>
 
-        {workCalendarSnapshot?.sourceChange ? (
+        {workCalendarSnapshot?.sourceChange?.confirmationRequired ? (
           <div className="calendar-source-change" role="alert">
             <p>
-              <strong>This is a different calendar link.</strong>{" "}
-              {workCalendarSnapshot.sourceChange.previousAssociationCount > 0
-                ? `${workCalendarSnapshot.sourceChange.previousAssociationCount} existing calendar ${
-                    workCalendarSnapshot.sourceChange
-                      .previousAssociationCount === 1
-                      ? "association was"
-                      : "associations were"
-                  } made with the previous link and no longer apply.`
-                : "Existing calendar associations were made with the previous link and no longer apply."}
+              <strong>This link replaces a different calendar.</strong> It
+              verified successfully and has <strong>not</strong> been saved yet.
             </p>
             <p>
-              Nothing was deleted. If this is the same calendar republished at a
-              new address, the associations can be carried over. If it is a
-              different calendar, leave them alone.
+              {workCalendarSnapshot.sourceChange.previousAssociationCount > 0
+                ? `Your ${workCalendarSnapshot.sourceChange.previousAssociationCount} saved calendar ${
+                    workCalendarSnapshot.sourceChange
+                      .previousAssociationCount === 1
+                      ? "association"
+                      : "associations"
+                  } were made with the current link. Nothing is ever deleted, but they stop matching unless they are carried across.`
+                : "Nothing is ever deleted, but existing calendar associations stop matching unless they are carried across."}
             </p>
             <div className="actions">
               <button
                 disabled={workCalendarPending !== null}
-                onClick={() => void carryOverCalendarAssociations()}
+                onClick={() => void resolveSourceReplacement(true)}
                 type="button"
               >
-                {workCalendarPending === "carryOver"
-                  ? "Carrying over…"
-                  : "Same calendar — carry associations over"}
+                Same calendar — replace and carry across
               </button>
               <button
                 disabled={workCalendarPending !== null}
-                onClick={() => void dismissSourceChange()}
+                onClick={() => void resolveSourceReplacement(false)}
                 type="button"
               >
-                Different calendar — leave them
+                Different calendar — replace only
               </button>
             </div>
-            {sourceChangeResult ? <small>{sourceChangeResult}</small> : null}
             <small>
-              Carrying over only covers lessons currently in the feed. A subject
-              with no upcoming lessons cannot be matched.
+              Carrying across only covers series the new calendar contains right
+              now. A subject with no remaining lessons cannot be matched. To
+              cancel, clear the link field — nothing has changed.
             </small>
           </div>
-        ) : sourceChangeResult ? (
-          <p className="calendar-source-change__result" role="status">
-            {sourceChangeResult}
-          </p>
         ) : null}
 
         <div className="calendar-configuration">
@@ -1589,12 +1547,13 @@ function AdvancedView() {
             <small className="calendar-configuration__unmatched" role="status">
               {workCalendarSnapshot.unmatchedAssociationCount} saved calendar{" "}
               {workCalendarSnapshot.unmatchedAssociationCount === 1
-                ? "association matches no lesson"
-                : "associations match no lessons"}{" "}
-              in this calendar. That happens when a series is replaced — editing
-              “this and following events” gives the remaining lessons a new
-              identity — or when a subject’s lessons have simply ended. Nothing
-              was deleted.
+                ? "association is not in use"
+                : "associations are not in use"}{" "}
+              by this calendar. Nothing was deleted. This is expected for a
+              subject whose lessons have ended, and for associations kept from a
+              previous calendar link. It can also mean a series was replaced —
+              editing “this and following events” gives the remaining lessons a
+              new identity.
             </small>
           ) : null}
           <small>

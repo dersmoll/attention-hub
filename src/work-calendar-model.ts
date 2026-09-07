@@ -48,6 +48,11 @@ export interface WorkCalendarEventWorkspaceSummary {
  */
 export interface WorkCalendarSourceChange {
   previousAssociationCount: number;
+  /**
+   * True when the pasted source verified but was **not saved**, because it
+   * replaces a different one and needs an explicit decision first.
+   */
+  confirmationRequired: boolean;
 }
 
 export interface WorkCalendarSnapshot {

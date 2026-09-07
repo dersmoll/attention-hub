@@ -64,17 +64,20 @@ pub struct WorkCalendarSnapshot {
     /// False when the day list was truncated, so it cannot support a lesson
     /// total, an empty day, or an end-of-day claim.
     pub day_selections_complete: bool,
-    /// Present while a source change is unresolved. See `PendingSourceChange`.
+    /// Set only by `save_source`, on the path that verifies a replacing source
+    /// and declines to write it pending a decision. An ordinary refresh never
+    /// carries it, so no prompt can outlive the save that raised it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_change: Option<WorkCalendarSourceChange>,
     /// Saved calendar associations matching no series in the current feed.
     ///
-    /// A Google "this and following" edit splits a series and gives the
-    /// remainder a **new UID**, which silently detaches that subject's
-    /// materials, notes and homework because the workspace key derives from
-    /// `series_uid`. This reports that something detached. It deliberately does
-    /// **not** claim to know why: a subject whose lessons simply finished looks
-    /// identical from here, and guessing wrong would be worse than saying less.
+    /// Three causes are indistinguishable from here, and the wording must not
+    /// pick one: a Google "this and following" edit that gave the remaining
+    /// lessons a new UID; a subject whose lessons have simply ended; and
+    /// associations preserved from a previous source, since carry-over is
+    /// additive by design. Telling them apart needs per-binding provenance,
+    /// which the workspace schema does not carry — deferred as a bounded
+    /// decision rather than guessed at.
     ///
     /// `None` when the workspace layer has not filled it in, so an
     /// un-enriched snapshot never asserts zero.
@@ -207,37 +210,30 @@ fn occurrence_key(source_scope: Option<&str>, series_uid: &str, start: &str) -> 
     )
 }
 
-/// A save replaced a different publication URL.
-///
-/// Workspace keys are derived from the source scope, which is a digest of the
-/// saved URL (`calendar_source_scope`), so every existing calendar association
-/// stops matching. The records are **preserved, not deleted** — what breaks is
-/// their association with displayed events. Carrying them over needs the
-/// previous scope, which is held here because it cannot be recovered once the
-/// credential has been overwritten.
-///
-/// This is session state. Restarting before resolving it loses the ability to
-/// carry associations over; the bindings themselves survive.
-#[derive(Clone)]
-struct PendingSourceChange {
-    previous_scope: String,
-    current_scope: String,
-}
-
-/// Reported when the saved calendar source has changed and existing
-/// associations no longer apply.
+/// Reported when a verified calendar source differs from the one already saved.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkCalendarSourceChange {
     /// Associations made under the previous source. Filled in by the workspace
     /// layer, which owns the store; zero until then.
     pub previous_association_count: usize,
+    /// True when the source was **not** written and is waiting for a decision.
+    pub confirmation_required: bool,
 }
 
 pub struct WorkCalendarState {
     request_gate: Mutex<()>,
     join_targets: StdMutex<JoinTargetCache>,
-    pending_source_change: StdMutex<Option<PendingSourceChange>>,
+    /// Key pairs produced by a replacement that has **already been applied**,
+    /// waiting to be handed to the workspace layer.
+    ///
+    /// This deliberately holds no scopes and survives no decision. An earlier
+    /// design remembered the previous and current scopes across user
+    /// interaction, which went stale whenever the source was removed or
+    /// replaced again — the remap then wrote associations under a scope that was
+    /// no longer the saved source, and reported success. Computing the pairs
+    /// inside the same gate as the write removes the window entirely.
+    completed_remap: StdMutex<Option<Vec<WorkspaceKeyRemap>>>,
 }
 
 impl WorkCalendarState {
@@ -245,37 +241,23 @@ impl WorkCalendarState {
         Self {
             request_gate: Mutex::new(()),
             join_targets: StdMutex::new(JoinTargetCache::default()),
-            pending_source_change: StdMutex::new(None),
+            completed_remap: StdMutex::new(None),
         }
     }
 
-    fn note_source_change(&self, previous_scope: String, current_scope: String) {
-        if let Ok(mut pending) = self.pending_source_change.lock() {
-            // An earlier unresolved change keeps its original previous scope:
-            // that is the one holding the associations worth carrying over.
-            match pending.as_mut() {
-                Some(existing) => existing.current_scope = current_scope,
-                None => {
-                    *pending = Some(PendingSourceChange {
-                        previous_scope,
-                        current_scope,
-                    })
-                }
-            }
+    fn set_completed_remap(&self, remap: Vec<WorkspaceKeyRemap>) {
+        if let Ok(mut slot) = self.completed_remap.lock() {
+            *slot = Some(remap);
         }
     }
 
-    fn pending_source_change(&self) -> Option<PendingSourceChange> {
-        self.pending_source_change
+    /// Takes the pending remap, leaving nothing behind, so it can only ever be
+    /// applied once.
+    pub fn take_completed_remap(&self) -> Option<Vec<WorkspaceKeyRemap>> {
+        self.completed_remap
             .lock()
             .ok()
-            .and_then(|pending| pending.clone())
-    }
-
-    pub fn clear_source_change(&self) {
-        if let Ok(mut pending) = self.pending_source_change.lock() {
-            *pending = None;
-        }
+            .and_then(|mut slot| slot.take())
     }
 
     fn clear_join_targets(&self) {
@@ -487,16 +469,31 @@ pub fn get_configuration() -> WorkCalendarConfiguration {
     }
 }
 
+/// What the caller has decided about replacing an already-saved source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceReplacement {
+    /// No decision yet. A verified URL that differs from the saved one is
+    /// reported back for confirmation and **not** written.
+    AskFirst,
+    /// Replace, and copy existing calendar associations onto the new source.
+    ReplaceAndCarryOver,
+    /// Replace, leaving existing associations where they are.
+    ReplaceAndKeepSeparate,
+}
+
 pub async fn save_source(
     state: &WorkCalendarState,
     mut published_url: String,
     title_capability_confirmed: bool,
+    replacement: SourceReplacement,
 ) -> WorkCalendarSnapshot {
     let _guard = state.request_gate.lock().await;
     let source_scope = calendar_source_scope(&published_url);
 
-    // Read the outgoing source before the write below overwrites it. Its scope
-    // cannot be recovered afterwards, and carrying associations over needs it.
+    // Read the outgoing source *inside the gate*, immediately before the
+    // decision that depends on it. Nothing is remembered between calls: the
+    // previous scope is derived from the credential that is still saved, so it
+    // cannot go stale behind a removal or a second replacement.
     let previous_scope = match credential_store::read() {
         Ok(Some(mut previous)) => {
             let scope = calendar_source_scope(&previous);
@@ -505,6 +502,10 @@ pub async fn save_source(
         }
         _ => None,
     };
+    // Re-pasting the identical URL changes nothing and needs no confirmation.
+    let replaces_a_different_source = previous_scope
+        .as_deref()
+        .is_some_and(|previous| previous != source_scope);
 
     let probe = published_ics::get_semantic_probe_with_deadline(
         published_url.clone(),
@@ -529,15 +530,38 @@ pub async fn save_source(
         );
     }
 
+    // Warn *before* applying, as school-mode.md section 9 requires. The saved
+    // source is untouched on this path, so declining costs nothing and there is
+    // no half-applied state to recover from. The candidate URL is discarded
+    // rather than held in memory awaiting a decision — the caller still has
+    // what the user typed and re-submits it with an explicit choice.
+    if replaces_a_different_source && replacement == SourceReplacement::AskFirst {
+        zero_string(&mut published_url);
+        let mut snapshot = snapshot_from_probe(state, probe, get_configuration().configured, None);
+        snapshot.source_change = Some(WorkCalendarSourceChange {
+            previous_association_count: 0,
+            confirmation_required: true,
+        });
+        snapshot.diagnostics.push(
+            "The pasted calendar verified successfully and was not saved: it replaces a different source, which needs an explicit decision first.".to_owned(),
+        );
+        return snapshot;
+    }
+
     let write_result = credential_store::write(&published_url);
     zero_string(&mut published_url);
     match write_result {
         Ok(()) => {
-            // Re-pasting the identical URL is safe and changes nothing, so only
-            // a genuinely different scope raises the warning.
-            if let Some(previous_scope) = previous_scope {
-                if previous_scope != source_scope {
-                    state.note_source_change(previous_scope, source_scope.clone());
+            if replacement == SourceReplacement::ReplaceAndCarryOver {
+                if let Some(previous_scope) = previous_scope {
+                    // The remap runs here, inside the same gate that read the
+                    // outgoing credential and performed the write, so the scope
+                    // pair cannot be overtaken by another save or a removal.
+                    state.set_completed_remap(remap_from_probe(
+                        &probe,
+                        &previous_scope,
+                        &source_scope,
+                    ));
                 }
             }
             snapshot_from_probe(state, probe, true, Some(&source_scope))
@@ -795,12 +819,10 @@ fn snapshot_from_probe(
         diagnostics: probe.diagnostics,
         viewer_day: probe.viewer_day,
         day_selections_complete: probe.day_selections_complete,
-        source_change: state.pending_source_change().map(|_| {
-            WorkCalendarSourceChange {
-                // The workspace layer owns the store and fills this in.
-                previous_association_count: 0,
-            }
-        }),
+        // Only `save_source` sets this, on the one path that declines to write
+        // and asks for a decision. An ordinary refresh never carries it, so no
+        // stale prompt can outlive the save that raised it.
+        source_change: None,
         // Both filled in by the workspace layer, which owns the bindings.
         unmatched_association_count: None,
         feed_workspace_keys: probe
@@ -870,42 +892,28 @@ pub struct WorkspaceKeyRemap {
 /// carried over. A subject whose lessons have ended, or an unreachable feed,
 /// yields nothing, which is why this runs on an explicit action rather than
 /// silently during save.
-pub async fn source_change_remap(
-    state: &WorkCalendarState,
-) -> Result<Vec<WorkspaceKeyRemap>, String> {
-    let pending = state
-        .pending_source_change()
-        .ok_or_else(|| "No calendar source change is waiting for a decision.".to_owned())?;
-
-    let _guard = state.request_gate.lock().await;
-    let published_url = match credential_store::read() {
-        Ok(Some(secret)) => secret,
-        Ok(None) => return Err("No saved calendar source is configured.".to_owned()),
-        Err(_) => {
-            return Err("Windows Credential Manager could not read the calendar source.".to_owned())
-        }
-    };
-
-    let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
-    if !matches!(probe.status, PublishedIcsProbeStatus::Observed) {
-        return Err(
-            "The calendar could not be read just now, so associations were not carried over. Nothing was changed."
-                .to_owned(),
-        );
-    }
-
-    Ok(probe
+/// Key pairs for every series the freshly read feed reported, under the
+/// outgoing and incoming scopes.
+///
+/// Only series present in the feed can be matched, because a stored binding
+/// holds a one-way digest and the UID is not recoverable from it. A subject
+/// whose lessons have ended is therefore not carried over — stated in the
+/// milestone rather than hidden.
+fn remap_from_probe(
+    probe: &PublishedIcsSemanticProbe,
+    previous_scope: &str,
+    current_scope: &str,
+) -> Vec<WorkspaceKeyRemap> {
+    probe
         .series_identities
         .iter()
         .filter_map(|series| {
-            let previous_key = workspace_key_for(&pending.previous_scope, series)?;
-            let current_key = workspace_key_for(&pending.current_scope, series)?;
             Some(WorkspaceKeyRemap {
-                previous_key,
-                current_key,
+                previous_key: workspace_key_for(previous_scope, series)?,
+                current_key: workspace_key_for(current_scope, series)?,
             })
         })
-        .collect())
+        .collect()
 }
 
 fn workspace_key_for(scope: &str, series: &published_ics::SeriesIdentity) -> Option<String> {
@@ -1248,32 +1256,55 @@ mod tests {
         );
     }
 
+    /// Audit F5. A remap used to be built from remembered scopes that outlived
+    /// the decision, so removing the source and saving a third one still
+    /// applied the *old* pair — writing associations under a scope that was no
+    /// longer saved, and reporting success. There is now nothing to go stale:
+    /// pairs are computed from a probe plus the two scopes at hand, and the
+    /// slot they land in can only be drained once.
     #[test]
-    fn a_source_change_is_recorded_only_when_the_scope_actually_differs() {
+    fn a_completed_remap_is_applied_exactly_once_and_holds_no_scopes() {
         let state = WorkCalendarState::new();
-        let first = calendar_source_scope("https://calendar.google.com/a/basic.ics");
-        let second = calendar_source_scope("https://calendar.google.com/b/basic.ics");
-        assert_ne!(first, second);
+        assert!(state.take_completed_remap().is_none());
 
-        // Re-pasting the identical URL is safe and must not warn.
-        assert!(state.pending_source_change().is_none());
-        state.note_source_change(first.clone(), second.clone());
-        let pending = state.pending_source_change().expect("change recorded");
-        assert_eq!(pending.previous_scope, first);
-        assert_eq!(pending.current_scope, second);
+        let previous = calendar_source_scope("https://calendar.google.com/a/basic.ics");
+        let current = calendar_source_scope("https://calendar.google.com/b/basic.ics");
+        assert_ne!(previous, current);
 
-        // A second change before the first is resolved keeps the ORIGINAL
-        // previous scope: that is the one still holding the associations.
-        let third = calendar_source_scope("https://calendar.google.com/c/basic.ics");
-        state.note_source_change(second, third.clone());
-        let pending = state
-            .pending_source_change()
-            .expect("change still recorded");
-        assert_eq!(pending.previous_scope, first);
-        assert_eq!(pending.current_scope, third);
+        let mut probe = PublishedIcsSemanticProbe::command_failed(true);
+        probe.series_identities = vec![published_ics::SeriesIdentity {
+            uid: "maths-weekly".to_owned(),
+            recurring: true,
+        }];
 
-        state.clear_source_change();
-        assert!(state.pending_source_change().is_none());
+        let remap = remap_from_probe(&probe, &previous, &current);
+        assert_eq!(remap.len(), 1);
+        assert_ne!(remap[0].previous_key, remap[0].current_key);
+        assert_eq!(
+            remap[0].previous_key,
+            recurring_series_key(&previous, "maths-weekly")
+        );
+        assert_eq!(
+            remap[0].current_key,
+            recurring_series_key(&current, "maths-weekly")
+        );
+
+        state.set_completed_remap(remap);
+        assert_eq!(
+            state.take_completed_remap().map(|entries| entries.len()),
+            Some(1)
+        );
+        // Draining it leaves nothing, so a later save cannot re-apply a
+        // replacement the user already resolved.
+        assert!(state.take_completed_remap().is_none());
+    }
+
+    /// A feed the probe never read yields no pairs, so a carry-over requested
+    /// against an unreachable calendar changes nothing rather than guessing.
+    #[test]
+    fn an_unreadable_feed_produces_no_remap() {
+        let probe = PublishedIcsSemanticProbe::command_failed(true);
+        assert!(remap_from_probe(&probe, "previous", "current").is_empty());
     }
 
     #[test]

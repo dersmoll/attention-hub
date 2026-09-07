@@ -844,6 +844,14 @@ fn get_work_calendar_configuration() -> WorkCalendarConfiguration {
     work_calendar::get_configuration()
 }
 
+/// Save a verified calendar source.
+///
+/// `replacement` carries the user's decision. With `askFirst`, a URL that
+/// verifies but replaces a *different* saved source is reported back for
+/// confirmation and **not written** — the warning arrives before anything
+/// applies, so declining leaves no half-applied state. The caller re-submits
+/// with an explicit choice; nothing about the pending URL is held here between
+/// calls.
 #[tauri::command]
 async fn save_work_calendar_source(
     app: tauri::AppHandle,
@@ -851,47 +859,48 @@ async fn save_work_calendar_source(
     workspace_state: tauri::State<'_, WorkspaceState>,
     published_url: String,
     title_capability_confirmed: bool,
+    replacement: Option<String>,
 ) -> Result<WorkCalendarSnapshot, ()> {
-    let mut snapshot =
-        work_calendar::save_source(state.inner(), published_url, title_capability_confirmed).await;
+    let decision = match replacement.as_deref() {
+        Some("replaceAndCarryOver") => work_calendar::SourceReplacement::ReplaceAndCarryOver,
+        Some("replaceAndKeepSeparate") => work_calendar::SourceReplacement::ReplaceAndKeepSeparate,
+        // Anything unrecognised asks rather than assumes. A typo must not
+        // silently replace a saved calendar.
+        _ => work_calendar::SourceReplacement::AskFirst,
+    };
+
+    let mut snapshot = work_calendar::save_source(
+        state.inner(),
+        published_url,
+        title_capability_confirmed,
+        decision,
+    )
+    .await;
+
+    // A replacement that asked to carry associations over left its key pairs
+    // behind, computed inside the same gate as the write. Apply them once.
+    if let Some(remap) = state.inner().take_completed_remap() {
+        let pairs = remap
+            .into_iter()
+            .map(|entry| (entry.previous_key, entry.current_key))
+            .collect::<Vec<_>>();
+        match workspace::carry_over_calendar_associations(&app, workspace_state.inner(), &pairs) {
+            Ok((_, carried)) => {
+                snapshot.diagnostics.push(format!(
+                    "Carried {carried} calendar association(s) onto the new source. Previous associations were preserved."
+                ));
+                let _ = app.emit("workspace-changed", ());
+            }
+            Err(error) => snapshot.diagnostics.push(format!(
+                "Calendar associations were not carried over: {error}"
+            )),
+        }
+    }
+
     let _ = workspace::enrich_calendar_snapshot(&app, workspace_state.inner(), &mut snapshot);
     work_calendar::log_snapshot("save", &snapshot);
     let _ = app.emit("work-calendar-changed", ());
     Ok(snapshot)
-}
-
-/// Carry calendar associations from the previous source onto the new one.
-///
-/// Only offered after the user has confirmed this is the same calendar under a
-/// new URL. It is additive — the previous bindings stay — so declining, or a
-/// feed that cannot be read right now, loses nothing.
-#[tauri::command]
-async fn carry_over_work_calendar_associations(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, WorkCalendarState>,
-    workspace_state: tauri::State<'_, WorkspaceState>,
-) -> Result<usize, String> {
-    let remap = work_calendar::source_change_remap(state.inner()).await?;
-    let pairs = remap
-        .into_iter()
-        .map(|entry| (entry.previous_key, entry.current_key))
-        .collect::<Vec<_>>();
-    let (_, carried) =
-        workspace::carry_over_calendar_associations(&app, workspace_state.inner(), &pairs)?;
-    state.inner().clear_source_change();
-    let _ = app.emit("work-calendar-changed", ());
-    let _ = app.emit("workspace-changed", ());
-    Ok(carried)
-}
-
-/// Dismiss the source-change warning without carrying anything over.
-#[tauri::command]
-fn dismiss_work_calendar_source_change(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, WorkCalendarState>,
-) {
-    state.inner().clear_source_change();
-    let _ = app.emit("work-calendar-changed", ());
 }
 
 #[tauri::command]
@@ -1223,8 +1232,6 @@ pub fn run() {
             open_event_workspace_link_from_workspace,
             get_work_calendar_configuration,
             save_work_calendar_source,
-            carry_over_work_calendar_associations,
-            dismiss_work_calendar_source_change,
             get_work_calendar_snapshot,
             remove_work_calendar_source,
             open_work_calendar_join_url,
