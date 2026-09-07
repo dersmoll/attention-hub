@@ -13,6 +13,12 @@
   [M21](../plans/m21-school-calendar-source.md),
   [M20](../plans/m20-daily-polish.md)
 
+> **Superseded in part.** A cross-audit on 2026-09-07 requested changes; see
+> [the audit](2026-09-07-m21-school-calendar-audit-codex.md) and
+> [the response](2026-09-07-m21-school-calendar-audit-response.md). Three claims
+> in this brief were wrong and are struck through or corrected in place. Its
+> "nothing is blocked on code" conclusion is **withdrawn**.
+
 ## Ground rules for the reviewer
 
 1. **Verify every claim against the source and cite `file:line`.** Several
@@ -187,8 +193,11 @@ Two plan constraints drive it:
 - **Stale data must never masquerade as a break or a finished day.** Both are
   *absences* of a scheduled lesson, and an absence is precisely what a stalled
   refresh looks like. `unknown` is a first-class result, returned for any
-  non-observed snapshot and anything older than three poll intervals. A snapshot
-  captured in the future is clock skew, not freshness.
+  non-observed snapshot and anything older than three poll intervals.
+  **Corrected 2026-09-07:** a snapshot captured in the future is *clamped to
+  zero age and treated as fresh*, not rejected — the original wording implied
+  rejection. The model also never checks **which day** `daySelections` describe,
+  which the audit's F3 identifies as a defect.
 - **Progress describes the schedule, not attendance.** Cancelled lessons and
   all-day entries are excluded, so a cancelled lesson is neither reported as in
   progress nor counted in "Lesson 3 of 8". Nothing infers attendance.
@@ -278,9 +287,10 @@ Please engage with the reasoning rather than re-reporting these as new.
 4. **`RANGE=THISANDFUTURE` support is still absent** and still fails the whole
    feed. Believed unreachable from a Google source; still live for the parent's
    Outlook work calendar.
-5. **"Meeting started" is unchanged in School mode.** It sits above the school
-   label in priority because it is an attention signal; renaming it is
-   vocabulary work that now exists but was not applied to that path.
+5. ~~"Meeting started" is unchanged in School mode.~~ **Withdrawn 2026-09-07:
+   false.** `calendar-vocabulary.ts` supplies "Lesson started" and
+   `WidgetView.tsx:2623-2624` uses it. The claim was stale the moment the
+   vocabulary commit landed.
 6. **`summarizeSchoolDay` is currently unused.** It is tested and correct, and
    is intended for the day panel, which is not height-constrained the way the
    band is. Not dead by accident.
@@ -308,8 +318,9 @@ An auditor should know where the judgement was poor, not just where the code is.
 
 ### Immediate
 
-Nothing is blocked on code. The open decisions are the partner's: whether to
-merge M21, whether to release, and the holiday / no-upcoming-events case.
+~~Nothing is blocked on code.~~ **Withdrawn:** the cross-audit found six
+contract defects and one reachable parser defect. See the response for the
+proposed repair scope.
 
 ### Next milestone work, in the current intended order
 

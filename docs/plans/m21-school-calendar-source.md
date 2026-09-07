@@ -1,8 +1,10 @@
 # M21 — School calendar source and school-day reading
 
-> **Status: all three scope items implemented; automated checks green. Human
-> visual review and the installed upgrade gate are outstanding. Not released.**
-> Baseline: `main` at `cc3e58b`, after M20 merged. Branch:
+> **Status: implemented and automated checks green, but a cross-audit
+> requested changes on 2026-09-07. Not merge-ready. Not released.**
+> See [the audit](../council/2026-09-07-m21-school-calendar-audit-codex.md) and
+> [the response](../council/2026-09-07-m21-school-calendar-audit-response.md).
+> Baseline: `main` at `1ccb036`, after M20 and the CI repair merged. Branch:
 > `codex/m21-school-calendar-source`.
 >
 > | Item | State |
@@ -19,8 +21,10 @@
 > coverage only — the source-change prompt and the unmatched-association notice
 > have **not** been seen on screen.
 
-- **Parent plan:** [School mode](school-mode.md). This milestone implements its
-  Step 1 only; Steps 2–4 are not approved.
+- **Parent plan:** [School mode](school-mode.md). This milestone implements
+  Step 1, and Step 3's school-day reading and calendar vocabulary, which were
+  pulled forward after Step 1 landed. Step 2 and Step 4's presentation work are
+  not approved.
 - **Approved:** 2026-09-07, by the product partner, after Step 0 passed.
 - **Preceding work:** [M20 daily polish](m20-daily-polish.md).
 
@@ -28,9 +32,9 @@
 
 Step 0 established that the children's Outlook calendars cannot be published at
 all, and replaced them with a **parent-owned Google calendar per child**. The
-app currently accepts two Microsoft 365 hosts and nothing else
-(`published_ics/mod.rs:507-510`), so **it cannot read the real calendars**.
-Everything else in School mode is blocked behind that.
+app accepted two Microsoft 365 hosts and nothing else before this milestone, so
+**it could not read the real calendars at all**. Everything else in School mode
+was blocked behind that.
 
 The full Step 0 evidence is in [School mode §8](school-mode.md#step-0-results-2026-09-07).
 The two results that shaped this scope:
@@ -219,10 +223,14 @@ vocabulary work, which stays a later step.
 ## Out of scope
 
 - Per-occurrence joining-link overrides and recurrence-anchor threading (Step 2).
-- Any School vocabulary, layout or presentation work (Steps 3–4).
-- `RANGE=THISANDFUTURE` support. Still absent, still fails the whole feed, and
-  still relevant to Outlook work calendars — but not reachable from a Google
-  source.
+- Layout and presentation work: the setup-time Work/School preference,
+  Subjects/Materials/Homework presentation, and the quiet panel preset (Step 4).
+  Calendar-surface **vocabulary** was added after this section was first
+  written — see item 6 — so only the presentation half remains out of scope.
+- `RANGE=THISANDFUTURE` support. Still absent and still fails the whole feed.
+  Still relevant to Outlook work calendars, and **believed** unreachable from a
+  Google source on the strength of an unverified inference — see
+  [Open questions](#open-questions).
 - Non-ICS provider integrations.
 
 ## Verification
@@ -293,8 +301,11 @@ For anyone picking this up cold, including a cross-reviewing agent:
 - The plan and its rationale live in [school-mode.md](school-mode.md); this file
   holds scope and status. Do not merge them.
 - Step 0's conclusions were reached by measurement, not assumption, but the
-  measurements were made against a **test** calendar with fabricated events. The
-  children's real calendars have not been read by the app yet.
+  measurements were made against a **test** calendar with fabricated events.
+  Both children's real calendars have since been read by the app successfully
+  (2026-09-07), which is how the date-only `UNTIL` defect in item 4 was found.
+  Neither the source-change prompt nor the unmatched-association notice has been
+  seen on screen.
 - Claims in these documents cite `file:line`. Verify against the source before
   relying on them; several claims in the original draft did not survive that
   check, including the `RANGE=THISANDFUTURE` blast radius.
