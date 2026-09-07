@@ -1,8 +1,9 @@
 # M21 — School calendar source and school-day reading
 
-> **Status: all seven cross-audit findings repaired; automated checks green.
-> Human visual review and the installed upgrade gate are outstanding.
-> Not merged. Not released.**
+> **Status: two audit rounds repaired. The second round found that the
+> empty/finished-day repair was only half applied, so the tracker's earlier
+> "F1/F2 done" was wrong. Automated checks green; human visual review and the
+> installed upgrade gate outstanding. Not merged. Not released.**
 > See [the audit](../council/2026-09-07-m21-school-calendar-audit-codex.md), the
 > [response](../council/2026-09-07-m21-school-calendar-audit-response.md), and
 > `REVIEW-M21-SCHOOL-CALENDAR-SOURCE.cmd` for the manual pass.
@@ -22,6 +23,13 @@
 > | Audit F1, F3, F4 — one day-validity contract | **Done** — `ddd7ad3` |
 > | Audit F5, F6 — warn before replacing | **Done** — `32a7ef5` |
 > | Audit F7 — explicit UTC is not absent | **Done** — `612d231` |
+> | Audit RF1 — empty/finished day reached the adapter | **Done** — `3616d90` |
+> | Audit RF2 — credential read error bypassed the write barrier | **Done** — `3616d90` |
+> | Audit RF3 — remap could be drained by another save | **Done** — `3616d90` |
+> | Audit H2 — secret-field copy and stale prompt | **Done** — `3616d90` |
+>
+> **Review-launcher steps 5–6 could not have passed before `3616d90`.** They
+> were written believing the F1/F2 repair worked. Re-run them.
 >
 > Items 1 and 4 are confirmed in the running app against **both children's real
 > calendars**, including a full 26-series timetable. Items 2 and 3 have automated
