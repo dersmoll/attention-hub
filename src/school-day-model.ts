@@ -146,6 +146,38 @@ function minutePhrase(minutes: number) {
   return minutes === 1 ? "1 min" : `${minutes} min`;
 }
 
+/**
+ * Short label for the calendar band's status pill, or `null` to leave the
+ * existing work-calendar wording alone.
+ *
+ * School mode currently changes **only** this label. The title, detail,
+ * countdown and every other element keep rendering exactly as they do for a
+ * work calendar, so no geometry changes: the widget band has a fixed height and
+ * adding a row to it pushes the layout apart.
+ *
+ * `unknown` returns `null` deliberately. The existing wording already
+ * distinguishes retrying, checking and unavailable, and is more accurate about
+ * *why* than anything school-specific would be — overriding it would trade
+ * real diagnostics for vocabulary.
+ */
+export function schoolDayStatusLabel(state: SchoolDayState): string | null {
+  switch (state.kind) {
+    case "unknown":
+      return null;
+    case "noLessons":
+      return "No lessons";
+    case "beforeFirst":
+      return "Day starts";
+    case "lesson":
+      // Kept numeric so the pill stays about as wide as "In progress" was.
+      return `${state.current.position} of ${state.total}`;
+    case "break":
+      return "Break";
+    case "dayEnded":
+      return "Day ended";
+  }
+}
+
 export interface SchoolDaySummary {
   /** The headline: what is happening, or why we cannot say. */
   headline: string;

@@ -208,6 +208,52 @@ assert.equal(school.minutesUntil(NOW + 61_000, NOW), 2);
 assert.equal(school.minutesUntil(NOW + 1, NOW), 1);
 assert.equal(school.minutesUntil(NOW - 60_000, NOW), 0);
 
+// The status pill is the only thing School mode changes in the widget, so its
+// label must be short and must never override real data-health wording.
+{
+  const label = (daySelections, extra) =>
+    school.schoolDayStatusLabel(
+      school.selectSchoolDayState(snapshot(daySelections, extra), NOW),
+    );
+
+  assert.equal(
+    label([lesson("Ukrainian", -80, -35), lesson("English", -20, 25)]),
+    "2 of 2",
+  );
+  assert.equal(
+    label([lesson("Ukrainian", -80, -35), lesson("Maths", 15, 60)]),
+    "Break",
+  );
+  assert.equal(label([lesson("Maths", 15, 60)]), "Day starts");
+  assert.equal(label([lesson("Ukrainian", -180, -135)]), "Day ended");
+  assert.equal(label([]), "No lessons");
+
+  // Unknown must yield null so the existing "Calendar checking" / retry
+  // wording stands: it says *why*, which no school label could.
+  assert.equal(
+    label([lesson("Ukrainian", -180, -135)], {
+      capturedAtUnixMs: NOW - school.SCHOOL_DAY_STALE_AFTER_MS - 1,
+    }),
+    null,
+  );
+  assert.equal(label([], { status: "unavailable" }), null);
+  assert.equal(school.schoolDayStatusLabel({ kind: "unknown" }), null);
+
+  // The pill is width-constrained, so every label stays compact.
+  for (const value of [
+    label([lesson("A", -80, -35), lesson("B", -20, 25)]),
+    label([lesson("A", -80, -35), lesson("B", 15, 60)]),
+    label([lesson("A", 15, 60)]),
+    label([lesson("A", -180, -135)]),
+    label([]),
+  ]) {
+    assert.ok(
+      value !== null && value.length <= 11,
+      `pill label "${value}" is too long for the status pill`,
+    );
+  }
+}
+
 // The wording must never claim more than the state supports.
 {
   const summarize = (daySelections, extra) =>

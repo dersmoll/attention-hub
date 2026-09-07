@@ -41,8 +41,8 @@ import {
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
 import {
+  schoolDayStatusLabel,
   selectSchoolDayState,
-  summarizeSchoolDay,
 } from "./school-day-model";
 import { createCalendarPollController } from "./calendar-poll-controller";
 import {
@@ -2512,15 +2512,13 @@ export function WidgetView() {
   // Only in School mode: a work diary has no breaks, no end of day, and no
   // meaningful progress through one. See widget-preferences.schoolModeEnabled.
   //
-  // Suppressed when no calendar is saved at all: the band would report the
-  // timetable as unavailable next to a prompt already explaining there is no
-  // calendar, which is two messages for one fact.
-  const schoolDay =
+  // This substitutes the status pill's text and nothing else. The band has a
+  // fixed height, so adding any element to it pushes the widget layout apart.
+  // Suppressed with no saved calendar, where the existing setup prompt already
+  // says everything true.
+  const schoolDayLabel =
     preferences.schoolModeEnabled && workCalendar?.status !== "notConfigured"
-      ? summarizeSchoolDay(
-          selectSchoolDayState(workCalendar, now.getTime()),
-          now.getTime(),
-        )
+      ? schoolDayStatusLabel(selectSchoolDayState(workCalendar, now.getTime()))
       : null;
   const activeEventKey =
     calendarSelection?.classification === "active" && !calendarSelection.allDay
@@ -2612,14 +2610,15 @@ export function WidgetView() {
       ? "Meeting started"
       : calendarStartingSoon
         ? "Starting soon"
-        : calendarSelection.classification === "active"
-          ? "In progress"
-          : "Up next"
+        : (schoolDayLabel ??
+          (calendarSelection.classification === "active"
+            ? "In progress"
+            : "Up next"))
     : calendarNotConfigured
       ? "Calendar"
       : workCalendarRefreshing
         ? "Calendar checking"
-        : "Calendar unavailable";
+        : (schoolDayLabel ?? "Calendar unavailable");
   const calendarTitle = calendarSelection
     ? calendarSelection.subject
     : calendarNotConfigured
@@ -3168,28 +3167,6 @@ export function WidgetView() {
           className="widget-calendar__content"
           data-has-next={showNextEvent || undefined}
         >
-          {schoolDay ? (
-            <div
-              className="widget-school-day"
-              data-school-active={schoolDay.active || undefined}
-            >
-              <div className="widget-school-day__line">
-                <strong className="widget-school-day__headline">
-                  {schoolDay.headline}
-                </strong>
-                {schoolDay.progress ? (
-                  <span className="widget-school-day__progress">
-                    {schoolDay.progress}
-                  </span>
-                ) : null}
-              </div>
-              {schoolDay.detail ? (
-                <span className="widget-school-day__detail">
-                  {schoolDay.detail}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
           <div
             className="widget-calendar__event"
             data-workspace-actions={calendarSelection?.eventToken || undefined}
