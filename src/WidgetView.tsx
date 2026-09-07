@@ -41,8 +41,10 @@ import {
   type WorkCalendarSnapshot,
 } from "./work-calendar-model";
 import {
+  calendarDayState,
   schoolDayStatusLabel,
   selectSchoolDayState,
+  viewerLocalDate,
 } from "./school-day-model";
 import {
   calendarVocabulary,
@@ -2200,6 +2202,7 @@ export function WidgetView() {
         ),
         systemTimeZone,
         schoolMode: preferences.schoolModeEnabled,
+        dayState: calendarDay,
         selections: workCalendar?.daySelections ?? [],
       };
       todayPopupPayloadRef.current = payload;
@@ -2523,6 +2526,13 @@ export function WidgetView() {
   // One lookup for every school/work wording difference. See
   // calendar-vocabulary.ts; components never test the mode themselves.
   const vocabulary = calendarVocabulary(preferences.schoolModeEnabled);
+  // The host system zone, matching what Rust used to stamp `viewerDay`. Not
+  // `primaryTimeZone`, which only changes which clock is displayed.
+  const viewerToday = viewerLocalDate(now, systemTimeZone);
+  const calendarDay = calendarDayState(workCalendar, {
+    nowMs: now.getTime(),
+    viewerToday,
+  });
   // Only in School mode: a work diary has no breaks, no end of day, and no
   // meaningful progress through one. See widget-preferences.schoolModeEnabled.
   //
@@ -2532,7 +2542,15 @@ export function WidgetView() {
   // says everything true.
   const schoolDayLabel =
     preferences.schoolModeEnabled && workCalendar?.status !== "notConfigured"
-      ? schoolDayStatusLabel(selectSchoolDayState(workCalendar, now.getTime()))
+      ? schoolDayStatusLabel(
+          selectSchoolDayState(workCalendar, {
+            nowMs: now.getTime(),
+            viewerToday,
+            // The ordinal must name the same lesson the title names; see
+            // SchoolDayInputs.displayedStart.
+            displayedStart: calendarSelection?.start ?? null,
+          }),
+        )
       : null;
   const activeEventKey =
     calendarSelection?.classification === "active" && !calendarSelection.allDay
@@ -2793,6 +2811,7 @@ export function WidgetView() {
       selections: calendarDaySelections,
       systemTimeZone,
       schoolMode: preferences.schoolModeEnabled,
+      dayState: calendarDay,
     };
     publishTodayPopup();
   }, [

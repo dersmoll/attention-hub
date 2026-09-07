@@ -41,8 +41,14 @@ export interface CalendarVocabulary {
   openLink: string;
   /** Failure notice when a joining link will not open. */
   linkOpenFailed: string;
-  /** Day-panel empty state. */
+  /** Day-panel state when a successful read found nothing. */
   emptyDay: string;
+  /** Day-panel state when the day list could not be established. */
+  unknownDay: string;
+  /** Day-panel state while the first read is still in flight. */
+  loadingDay: string;
+  /** Day-panel state when the list was truncated and cannot be trusted. */
+  incompleteDay: string;
   /** Accessible name for the day panel's close button. */
   closeDayPanel: string;
   /** Trailing phrase after the day's occupied time, e.g. "2h 30m in calls". */
@@ -66,6 +72,9 @@ const WORK_VOCABULARY: CalendarVocabulary = {
   openLink: "Open meeting link",
   linkOpenFailed: "The meeting link could not be opened.",
   emptyDay: "No calls today.",
+  unknownDay: "Today's calls could not be read.",
+  loadingDay: "Reading the calendar…",
+  incompleteDay: "Today's list is too long to show every meeting.",
   closeDayPanel: "Close today's meeting summary",
   occupiedSuffix: "in calls",
 };
@@ -92,6 +101,9 @@ const SCHOOL_VOCABULARY: CalendarVocabulary = {
   openLink: "Open lesson link",
   linkOpenFailed: "The lesson link could not be opened.",
   emptyDay: "No lessons today.",
+  unknownDay: "Today's lessons could not be read.",
+  loadingDay: "Reading the timetable…",
+  incompleteDay: "Today's list is too long to show every lesson.",
   closeDayPanel: "Close today's lessons",
   occupiedSuffix: "in lessons",
 };

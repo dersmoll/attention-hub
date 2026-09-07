@@ -64,6 +64,21 @@ export interface WorkCalendarSnapshot {
   requestMs: number;
   parseMs: number;
   diagnostics: string[];
+  /**
+   * Viewer-local date the day list describes, `YYYY-MM-DD`, absent when the
+   * feed was not read.
+   *
+   * An empty `daySelections` **with** a `viewerDay` is a verified empty day;
+   * an empty list **without** one means the calendar could not be read. Age
+   * cannot substitute: a snapshot taken at 23:59 is seconds old at 00:00 and
+   * describes the wrong day.
+   */
+  viewerDay?: string;
+  /**
+   * False when the day list was truncated for payload bounds, so it cannot
+   * support a lesson total, an empty day, or an end-of-day claim.
+   */
+  daySelectionsComplete: boolean;
   sourceChange?: WorkCalendarSourceChange;
   /**
    * Saved associations matching no series in the current feed.

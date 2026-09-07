@@ -28,6 +28,7 @@ async function loadModule(relativePath) {
 const school = await loadModule("../src/school-day-model.ts");
 
 const NOW = Date.parse("2026-09-07T09:20:00Z");
+const TODAY = "2026-09-07";
 const at = (offsetMinutes) =>
   new Date(NOW + offsetMinutes * 60_000).toISOString();
 
@@ -52,6 +53,8 @@ function snapshot(daySelections, extra = {}) {
     storageAvailable: true,
     sourceIdentityState: "userSavedSinglePublishedCalendarTitleCapable",
     capturedAtUnixMs: NOW,
+    viewerDay: TODAY,
+    daySelectionsComplete: true,
     selection: null,
     overlappingSelections: [],
     nextSelection: null,
@@ -66,14 +69,11 @@ function snapshot(daySelections, extra = {}) {
 
 // A lesson is running now.
 {
-  const state = school.selectSchoolDayState(
-    snapshot([
+  const state = school.selectSchoolDayState(snapshot([
       lesson("Ukrainian", -80, -35),
       lesson("English", -20, 25),
       lesson("Maths", 40, 85),
-    ]),
-    NOW,
-  );
+    ]), { nowMs: NOW, viewerToday: TODAY });
   assert.equal(state.kind, "lesson");
   assert.equal(state.current.subject, "English");
   assert.equal(state.current.position, 2);
@@ -83,10 +83,7 @@ function snapshot(daySelections, extra = {}) {
 
 // Between lessons.
 {
-  const state = school.selectSchoolDayState(
-    snapshot([lesson("Ukrainian", -80, -35), lesson("Maths", 15, 60)]),
-    NOW,
-  );
+  const state = school.selectSchoolDayState(snapshot([lesson("Ukrainian", -80, -35), lesson("Maths", 15, 60)]), { nowMs: NOW, viewerToday: TODAY });
   assert.equal(state.kind, "break");
   assert.equal(state.previous.subject, "Ukrainian");
   assert.equal(state.next.subject, "Maths");
@@ -96,10 +93,7 @@ function snapshot(daySelections, extra = {}) {
 
 // Before the first lesson: a break needs a lesson behind it.
 {
-  const state = school.selectSchoolDayState(
-    snapshot([lesson("Ukrainian", 30, 75), lesson("Maths", 90, 135)]),
-    NOW,
-  );
+  const state = school.selectSchoolDayState(snapshot([lesson("Ukrainian", 30, 75), lesson("Maths", 90, 135)]), { nowMs: NOW, viewerToday: TODAY });
   assert.equal(state.kind, "beforeFirst");
   assert.equal(state.next.subject, "Ukrainian");
   assert.equal(state.total, 2);
@@ -107,10 +101,7 @@ function snapshot(daySelections, extra = {}) {
 
 // Every lesson is behind us.
 {
-  const state = school.selectSchoolDayState(
-    snapshot([lesson("Ukrainian", -180, -135), lesson("Maths", -90, -45)]),
-    NOW,
-  );
+  const state = school.selectSchoolDayState(snapshot([lesson("Ukrainian", -180, -135), lesson("Maths", -90, -45)]), { nowMs: NOW, viewerToday: TODAY });
   assert.equal(state.kind, "dayEnded");
   assert.equal(state.last.subject, "Maths");
   assert.equal(state.total, 2);
@@ -118,22 +109,22 @@ function snapshot(daySelections, extra = {}) {
 
 // A day with nothing scheduled is not a finished school day.
 {
-  const state = school.selectSchoolDayState(snapshot([]), NOW);
+  const state = school.selectSchoolDayState(snapshot([]), {
+    nowMs: NOW,
+    viewerToday: TODAY,
+  });
   assert.equal(state.kind, "noLessons");
 }
 
 // Cancelled lessons and all-day entries must not inflate progress, and a
 // cancelled lesson must not be presented as the one happening now.
 {
-  const state = school.selectSchoolDayState(
-    snapshot([
+  const state = school.selectSchoolDayState(snapshot([
       lesson("Term ends", -600, 600, { allDay: true }),
       lesson("Ukrainian", -80, -35),
       lesson("Cancelled art", -20, 25, { cancelled: true }),
       lesson("Maths", 40, 85),
-    ]),
-    NOW,
-  );
+    ]), { nowMs: NOW, viewerToday: TODAY });
   assert.equal(state.kind, "break", "a cancelled lesson is not in progress");
   assert.equal(state.total, 2, "cancelled and all-day entries are not lessons");
   assert.equal(state.next.subject, "Maths");
@@ -146,7 +137,7 @@ function snapshot(daySelections, extra = {}) {
     capturedAtUnixMs: NOW - school.SCHOOL_DAY_STALE_AFTER_MS - 1,
   });
   assert.equal(
-    school.selectSchoolDayState(stale, NOW).kind,
+    school.selectSchoolDayState(stale, { nowMs: NOW, viewerToday: TODAY }).kind,
     "unknown",
     "a stalled refresh must not report the day as ended",
   );
@@ -154,7 +145,7 @@ function snapshot(daySelections, extra = {}) {
   const fresh = snapshot([lesson("Ukrainian", -180, -135)], {
     capturedAtUnixMs: NOW - school.SCHOOL_DAY_STALE_AFTER_MS + 1,
   });
-  assert.equal(school.selectSchoolDayState(fresh, NOW).kind, "dayEnded");
+  assert.equal(school.selectSchoolDayState(fresh, { nowMs: NOW, viewerToday: TODAY }).kind, "dayEnded");
 }
 
 // A snapshot captured "in the future" is clock skew, not freshness, and must
@@ -163,43 +154,70 @@ function snapshot(daySelections, extra = {}) {
   const skewed = snapshot([lesson("English", -20, 25)], {
     capturedAtUnixMs: NOW + 60_000,
   });
-  assert.equal(school.selectSchoolDayState(skewed, NOW).kind, "lesson");
+  assert.equal(school.selectSchoolDayState(skewed, { nowMs: NOW, viewerToday: TODAY }).kind, "lesson");
 }
 
 // Anything short of an observed snapshot is unknown, not an empty day.
 for (const status of ["unavailable", "notConfigured", "busy", "error"]) {
   assert.equal(
-    school.selectSchoolDayState(snapshot([], { status }), NOW).kind,
+    school.selectSchoolDayState(snapshot([], { status }), { nowMs: NOW, viewerToday: TODAY }).kind,
     "unknown",
     `${status} must not report an empty school day`,
   );
 }
-assert.equal(school.selectSchoolDayState(null, NOW).kind, "unknown");
+assert.equal(school.selectSchoolDayState(null, { nowMs: NOW, viewerToday: TODAY }).kind, "unknown");
 
 // Malformed times are dropped rather than poisoning the ordering.
 {
-  const state = school.selectSchoolDayState(
-    snapshot([
+  const state = school.selectSchoolDayState(snapshot([
       lesson("Broken", 0, 0, { start: "not-a-date", end: "also-not" }),
       lesson("Backwards", 60, 30),
       lesson("English", -20, 25),
-    ]),
-    NOW,
-  );
+    ]), { nowMs: NOW, viewerToday: TODAY });
   assert.equal(state.kind, "lesson");
   assert.equal(state.total, 1);
   assert.equal(state.current.subject, "English");
 }
 
-// Overlapping lessons: what comes next never points backwards.
+// Overlapping lessons. The ordinal must name the lesson the surface displays,
+// because the backend resolves competing active events by *latest* start while
+// this model sorts ascending — deriving them independently let the pill label
+// one lesson with another's position (audit F4).
 {
-  const state = school.selectSchoolDayState(
-    snapshot([lesson("Long", -30, 60), lesson("Short", -10, 20)]),
-    NOW,
+  const overlapping = snapshot([
+    lesson("Long", -30, 60),
+    lesson("Short", -10, 20),
+  ]);
+
+  // With no displayed start, fall back to the backend's own tie-break.
+  const fallback = school.selectSchoolDayState(overlapping, {
+    nowMs: NOW,
+    viewerToday: TODAY,
+  });
+  assert.equal(fallback.kind, "lesson");
+  assert.equal(
+    fallback.current.subject,
+    "Short",
+    "the latest start wins, matching the backend",
   );
-  assert.equal(state.kind, "lesson");
-  assert.equal(state.current.subject, "Long", "the earlier start wins");
-  assert.equal(state.next, null, "an already-started overlap is not 'next'");
+  assert.equal(fallback.next, null, "an already-started overlap is not 'next'");
+
+  // When the surface displays the longer lesson, the ordinal follows it.
+  const aligned = school.selectSchoolDayState(overlapping, {
+    nowMs: NOW,
+    viewerToday: TODAY,
+    displayedStart: at(-30),
+  });
+  assert.equal(aligned.current.subject, "Long");
+  assert.equal(aligned.current.position, 1);
+
+  const alignedShort = school.selectSchoolDayState(overlapping, {
+    nowMs: NOW,
+    viewerToday: TODAY,
+    displayedStart: at(-10),
+  });
+  assert.equal(alignedShort.current.subject, "Short");
+  assert.equal(alignedShort.current.position, 2);
 }
 
 // minutesUntil rounds up so a lesson never reads as starting in 0 minutes
@@ -208,12 +226,129 @@ assert.equal(school.minutesUntil(NOW + 61_000, NOW), 2);
 assert.equal(school.minutesUntil(NOW + 1, NOW), 1);
 assert.equal(school.minutesUntil(NOW - 60_000, NOW), 0);
 
+// Audit F3: age cannot establish which day a list describes.
+{
+  // Midnight rollover before the next poll. Captured 23:59:30, read 00:00:15 —
+  // 45 seconds old, and describing the wrong day. Reporting "Day ended" from
+  // yesterday's lessons was the actual defect.
+  const lateYesterday = Date.parse("2026-09-07T23:59:30Z");
+  const justAfterMidnight = Date.parse("2026-09-08T00:00:15Z");
+  const yesterdaysList = {
+    ...snapshot([
+      {
+        subject: "Ukrainian",
+        start: "2026-09-07T09:00:00Z",
+        end: "2026-09-07T09:45:00Z",
+        allDay: false,
+        cancelled: false,
+        recurring: true,
+        eventToken: null,
+        eventWorkspace: null,
+      },
+    ]),
+    capturedAtUnixMs: lateYesterday,
+    viewerDay: "2026-09-07",
+  };
+  assert.equal(
+    school.selectSchoolDayState(yesterdaysList, {
+      nowMs: justAfterMidnight,
+      viewerToday: "2026-09-08",
+    }).kind,
+    "unknown",
+    "yesterday's lessons must not be reported as today's finished day",
+  );
+  // The same list is fine while it is still that day.
+  assert.equal(
+    school.selectSchoolDayState(
+      { ...yesterdaysList, capturedAtUnixMs: lateYesterday },
+      { nowMs: lateYesterday + 1_000, viewerToday: "2026-09-07" },
+    ).kind,
+    "dayEnded",
+  );
+
+  // A clock rolled backwards makes old data look fresh; a capture far in the
+  // future is disbelieved rather than trusted.
+  assert.equal(
+    school.selectSchoolDayState(
+      snapshot([lesson("Ukrainian", -180, -135)], {
+        capturedAtUnixMs: NOW + school.SCHOOL_DAY_MAX_CLOCK_SKEW_MS + 1,
+      }),
+      { nowMs: NOW, viewerToday: TODAY },
+    ).kind,
+    "unknown",
+    "a rolled-back clock must not make stale data look current",
+  );
+
+  // A missing viewer day means the feed was not read.
+  assert.equal(
+    school.selectSchoolDayState(snapshot([], { viewerDay: undefined }), {
+      nowMs: NOW,
+      viewerToday: TODAY,
+    }).kind,
+    "unknown",
+    "an empty list without a viewer day is unknown, not an empty day",
+  );
+
+  // A truncated list cannot support a total or an ended day.
+  assert.equal(
+    school.selectSchoolDayState(
+      snapshot([lesson("Ukrainian", -180, -135)], {
+        daySelectionsComplete: false,
+      }),
+      { nowMs: NOW, viewerToday: TODAY },
+    ).kind,
+    "unknown",
+    "a truncated day must not be described",
+  );
+}
+
+// Audit F1: the shared day-state check the Today popup consults, so emptiness
+// is never decided by list length alone.
+{
+  const dayState = (snap, nowMs = NOW, viewerToday = TODAY) =>
+    school.calendarDayState(snap, { nowMs, viewerToday });
+
+  assert.equal(dayState(snapshot([])), "verified");
+  assert.equal(dayState(null), "loading");
+  assert.equal(dayState(snapshot([], { status: "busy" })), "loading");
+  assert.equal(dayState(snapshot([], { status: "unavailable" })), "unavailable");
+  assert.equal(dayState(snapshot([], { status: "error" })), "unavailable");
+  assert.equal(
+    dayState(snapshot([], { viewerDay: undefined })),
+    "unavailable",
+    "no viewer day means the feed was not read",
+  );
+  assert.equal(
+    dayState(snapshot([], { viewerDay: "2026-09-06" })),
+    "unavailable",
+    "a list describing another day cannot establish today",
+  );
+  assert.equal(
+    dayState(snapshot([], { daySelectionsComplete: false })),
+    "incomplete",
+  );
+  assert.equal(
+    dayState(
+      snapshot([], {
+        capturedAtUnixMs: NOW - school.SCHOOL_DAY_STALE_AFTER_MS - 1,
+      }),
+    ),
+    "unavailable",
+  );
+
+  // Only "verified" may be presented as an empty day. Every other state has
+  // its own wording in calendar-vocabulary.ts.
+  for (const state of ["loading", "unavailable", "incomplete"]) {
+    assert.notEqual(state, "verified");
+  }
+}
+
 // The status pill is the only thing School mode changes in the widget, so its
 // label must be short and must never override real data-health wording.
 {
   const label = (daySelections, extra) =>
     school.schoolDayStatusLabel(
-      school.selectSchoolDayState(snapshot(daySelections, extra), NOW),
+      school.selectSchoolDayState(snapshot(daySelections, extra), { nowMs: NOW, viewerToday: TODAY }),
     );
 
   assert.equal(
@@ -258,7 +393,10 @@ assert.equal(school.minutesUntil(NOW - 60_000, NOW), 0);
 {
   const summarize = (daySelections, extra) =>
     school.summarizeSchoolDay(
-      school.selectSchoolDayState(snapshot(daySelections, extra), NOW),
+      school.selectSchoolDayState(snapshot(daySelections, extra), {
+        nowMs: NOW,
+        viewerToday: TODAY,
+      }),
       NOW,
     );
 

@@ -18,6 +18,46 @@ import {
  */
 export const SCHOOL_DAY_STALE_AFTER_MS = 3 * WORK_CALENDAR_POLL_INTERVAL_MS;
 
+/**
+ * How far in the future a capture timestamp may sit before it is disbelieved.
+ *
+ * A little skew is ordinary and should not blank a child's display. A capture
+ * far ahead of now means the clock moved backwards, and the data behind it may
+ * be arbitrarily old — so it is treated as unusable rather than as fresh.
+ */
+export const SCHOOL_DAY_MAX_CLOCK_SKEW_MS = WORK_CALENDAR_POLL_INTERVAL_MS;
+
+/**
+ * The viewer's local calendar date as `YYYY-MM-DD`, for comparison against a
+ * snapshot's `viewerDay`.
+ *
+ * `timeZone` must be the **host system** zone, the same one Rust derives from
+ * `iana_time_zone::get_timezone()`. It is deliberately *not* the
+ * `primaryTimeZone` display preference: that only changes which clock the
+ * widget shows, and using it here would make the two sides disagree about which
+ * day it is and report the timetable as unknown all day.
+ */
+export function viewerLocalDate(now: Date, timeZone: string): string {
+  const format = (zone?: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(now);
+
+  let parts;
+  try {
+    parts = format(timeZone);
+  } catch {
+    // An unrecognised zone must not break the display; fall back to the host's.
+    parts = format(undefined);
+  }
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
 /** A lesson in today's schedule, with its position in the day. */
 export interface SchoolLesson {
   subject: string;
@@ -86,30 +126,96 @@ export function schoolLessons(
  * that the child is in it, and the end of the schedule is not a claim that
  * anything was learned.
  */
+/**
+ * Whether a snapshot's day list can be trusted to describe today.
+ *
+ * - `loading` — nothing has been read yet.
+ * - `unavailable` — the read failed, or the list describes a different day.
+ * - `incomplete` — read, but truncated, so totals and emptiness are unsafe.
+ * - `verified` — a successful, complete read of today.
+ *
+ * Every surface that reports an empty or finished day must consult this rather
+ * than testing emptiness itself. The bug this replaces existed because the
+ * widget and the Today popup each decided independently, and the popup's
+ * version was simply `selections.length === 0`.
+ */
+export type CalendarDayState =
+  | "verified"
+  | "unavailable"
+  | "loading"
+  | "incomplete";
+
+export function calendarDayState(
+  snapshot: WorkCalendarSnapshot | null,
+  { nowMs, viewerToday }: { nowMs: number; viewerToday: string },
+): CalendarDayState {
+  if (!snapshot) return "loading";
+  if (snapshot.status === "busy") return "loading";
+  if (snapshot.status !== "observed") return "unavailable";
+  // No viewer day means the feed was not read, so emptiness proves nothing.
+  if (!snapshot.viewerDay) return "unavailable";
+  // The check age cannot make: a snapshot taken at 23:59 is seconds old at
+  // 00:00 the next day and describes the wrong day.
+  if (snapshot.viewerDay !== viewerToday) return "unavailable";
+
+  const age = nowMs - snapshot.capturedAtUnixMs;
+  if (
+    !Number.isFinite(age) ||
+    age > SCHOOL_DAY_STALE_AFTER_MS ||
+    age < -SCHOOL_DAY_MAX_CLOCK_SKEW_MS
+  ) {
+    return "unavailable";
+  }
+
+  return snapshot.daySelectionsComplete === false ? "incomplete" : "verified";
+}
+
+export interface SchoolDayInputs {
+  nowMs: number;
+  /** The viewer's current local date, `YYYY-MM-DD`. */
+  viewerToday: string;
+  /**
+   * ISO start of the lesson the surface is displaying, when it has one.
+   *
+   * The ordinal must name the **same** lesson as the title. The two cannot be
+   * derived independently: the backend resolves competing active events by
+   * latest start, this model sorts ascending, and the widget may display an
+   * acknowledged companion instead of either. Passing the displayed occurrence
+   * in is the only way to guarantee "Maths" is never labelled with English's
+   * position.
+   */
+  displayedStart?: string | null;
+}
+
 export function selectSchoolDayState(
   snapshot: WorkCalendarSnapshot | null,
-  nowMs = Date.now(),
+  { nowMs, viewerToday, displayedStart = null }: SchoolDayInputs,
 ): SchoolDayState {
-  if (snapshot?.status !== "observed") {
+  // Anything short of a complete, current-day read cannot support a claim
+  // about the day. `incomplete` is included deliberately: a truncated list
+  // could still show a lesson running now, but its total and its emptiness
+  // would both be guesses, and describing part of a day as if it were the whole
+  // one is the failure this contract exists to prevent.
+  if (calendarDayState(snapshot, { nowMs, viewerToday }) !== "verified") {
     return { kind: "unknown" };
   }
 
-  // A snapshot captured in the future means the clock moved, not that the data
-  // is fresh; treat only genuine age as age.
-  const age = Math.max(0, nowMs - snapshot.capturedAtUnixMs);
-  if (!Number.isFinite(age) || age > SCHOOL_DAY_STALE_AFTER_MS) {
-    return { kind: "unknown" };
-  }
-
-  const lessons = schoolLessons(snapshot.daySelections);
+  const lessons = schoolLessons(snapshot!.daySelections);
   if (lessons.length === 0) {
     return { kind: "noLessons" };
   }
   const total = lessons.length;
 
-  const current = lessons.find(
+  const active = lessons.filter(
     (lesson) => lesson.startMs <= nowMs && nowMs < lesson.endMs,
   );
+  // Prefer the occurrence the surface is actually showing. Falling back to the
+  // latest start matches the backend's own tie-break for competing active
+  // events (`semantics.rs`, which sorts active candidates by descending start),
+  // so the two agree even when no displayed start is supplied.
+  const current =
+    active.find((lesson) => lesson.start === displayedStart) ??
+    active[active.length - 1];
   if (current) {
     // "Next" is the next lesson that has not already started, so an overlapping
     // entry that began earlier is not offered as what comes next.

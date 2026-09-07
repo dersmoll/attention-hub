@@ -367,9 +367,13 @@ assert.match(cssSource, /widget-calendar-day-panel li \+ li \{\s*margin-top: 0/)
 assert.match(todayPopupSource, /data-finished=\{finished \|\| undefined\}/);
 assert.match(todayPopupSource, /data-live=\{live \|\| undefined\}/);
 assert.match(todayPopupSource, /data-cancelled=\{selection\.cancelled \|\| undefined\}/);
-// The empty-day wording is mode-dependent and lives in calendar-vocabulary.ts;
-// scripts/test-school-day-model.mjs asserts both strings.
-assert.match(todayPopupSource, /\{vocabulary\.emptyDay\}/);
+// The empty-day wording is mode-dependent and lives in calendar-vocabulary.ts.
+// It is also state-dependent: an empty list only means an empty day when the
+// day was actually read. scripts/test-school-day-model.mjs asserts the strings
+// and the state rules.
+assert.match(todayPopupSource, /payload\.dayState === "verified"/);
+assert.match(todayPopupSource, /vocabulary\.emptyDay/);
+assert.match(todayPopupSource, /vocabulary\.unknownDay/);
 assert.match(cssSource, /widget-calendar-day-panel__empty/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-finished\]/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-cancelled\]/);

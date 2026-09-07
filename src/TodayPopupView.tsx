@@ -334,7 +334,15 @@ export function TodayPopupView() {
       <ol className="today-popup-events">
         {payload.selections.length === 0 ? (
           <li className="widget-calendar-day-panel__empty">
-            {vocabulary.emptyDay}
+            {/* An empty list only means an empty day when the day was actually
+                read. See TodayPopupPayload.dayState. */}
+            {payload.dayState === "verified"
+              ? vocabulary.emptyDay
+              : payload.dayState === "loading"
+                ? vocabulary.loadingDay
+                : payload.dayState === "incomplete"
+                  ? vocabulary.incompleteDay
+                  : vocabulary.unknownDay}
           </li>
         ) : payload.selections.map((selection, index) => {
           const startMs = Date.parse(selection.start);
