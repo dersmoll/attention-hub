@@ -37,6 +37,42 @@ export interface WorkCalendarEventWorkspaceSummary {
   linkUrl: string | null;
 }
 
+/**
+ * Present while a calendar source change is unresolved.
+ *
+ * Workspace keys derive from the saved publication URL, so a different URL
+ * disconnects every existing calendar association. The records are preserved,
+ * not deleted — only their association with displayed events breaks — and
+ * carrying them over requires an explicit decision, because a different URL may
+ * legitimately be a different calendar.
+ */
+export interface WorkCalendarSourceChange {
+  previousAssociationCount: number;
+  /**
+   * True when the pasted source verified but was **not saved**, because it
+   * replaces a different one and needs an explicit decision first.
+   */
+  confirmationRequired: boolean;
+}
+
+export type WorkCalendarSaveResult =
+  | {
+      status: "carryOverApplied";
+      carriedAssociationCount: number;
+    }
+  | {
+      status:
+        | "carryOverFailed"
+        | "credentialReadFailed"
+        | "credentialWriteFailed";
+      carriedAssociationCount?: never;
+    };
+
+export interface WorkCalendarSaveResultMessage {
+  tone: "success" | "error";
+  message: string;
+}
+
 export interface WorkCalendarSnapshot {
   status: WorkCalendarStatus;
   configured: boolean;
@@ -51,6 +87,75 @@ export interface WorkCalendarSnapshot {
   requestMs: number;
   parseMs: number;
   diagnostics: string[];
+  /**
+   * Viewer-local date the day list describes, `YYYY-MM-DD`, absent when the
+   * feed was not read.
+   *
+   * An empty `daySelections` **with** a `viewerDay` is a verified empty day;
+   * an empty list **without** one means the calendar could not be read. Age
+   * cannot substitute: a snapshot taken at 23:59 is seconds old at 00:00 and
+   * describes the wrong day.
+   */
+  viewerDay?: string;
+  /**
+   * False when the day list was truncated for payload bounds, so it cannot
+   * support a lesson total, an empty day, or an end-of-day claim.
+   */
+  daySelectionsComplete: boolean;
+  sourceChange?: WorkCalendarSourceChange;
+  saveResult?: WorkCalendarSaveResult;
+  /**
+   * Saved associations matching no series in the current feed.
+   *
+   * A Google "this and following" edit splits a series and gives the remainder
+   * a new UID, silently detaching that subject's materials, notes and homework.
+   * Absent when the feed has not been read, so it never asserts zero on an
+   * unavailable calendar.
+   */
+  unmatchedAssociationCount?: number;
+}
+
+/** Safe, actionable Calendar-page copy for structured native save outcomes. */
+export function workCalendarSaveResultMessage(
+  snapshot: WorkCalendarSnapshot,
+): WorkCalendarSaveResultMessage | null {
+  const result = snapshot.saveResult;
+  if (!result) return null;
+
+  switch (result.status) {
+    case "carryOverApplied": {
+      const count = result.carriedAssociationCount;
+      if (count === 0) {
+        return {
+          tone: "success",
+          message:
+            "0 calendar associations were carried over. The new source is saved, and previous associations were preserved.",
+        };
+      }
+      return {
+        tone: "success",
+        message: `Carried ${count} calendar ${count === 1 ? "association" : "associations"} onto the new source. Previous associations were preserved.`,
+      };
+    }
+    case "carryOverFailed":
+      return {
+        tone: "error",
+        message:
+          "The new calendar source was saved, but its associations could not be carried over. Previous associations were preserved.",
+      };
+    case "credentialReadFailed":
+      return {
+        tone: "error",
+        message:
+          "Windows Credential Manager could not read the existing calendar source. The pasted link was not saved, the existing source is unchanged, and the pasted link is still available to retry.",
+      };
+    case "credentialWriteFailed":
+      return {
+        tone: "error",
+        message:
+          "The calendar verified, but Windows Credential Manager could not save it. The pasted link is still available to retry.",
+      };
+  }
 }
 
 export interface WorkCalendarDisplay {

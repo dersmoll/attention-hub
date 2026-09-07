@@ -14,5 +14,19 @@ export interface TodayPopupPayload {
   maxHeight: number;
   occupiedMinutes: number;
   systemTimeZone: string;
+  /**
+   * Whether the sender is reading this calendar as a school timetable. The
+   * popup is a separate window with no access to preferences, so the widget
+   * tells it which vocabulary to use.
+   */
+  schoolMode: boolean;
+  /**
+   * Whether an empty `selections` may be reported as a genuinely empty day.
+   *
+   * A failed or unavailable snapshot clears its day list, so emptiness alone
+   * proves nothing. Only a successful read of the currently displayed day
+   * establishes an empty day; anything else is "we could not read it".
+   */
+  dayState: "verified" | "unavailable" | "loading" | "incomplete";
   selections: WorkCalendarDaySelection[];
 }

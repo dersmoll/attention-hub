@@ -336,6 +336,42 @@
   }
 }
 
+/* Shown when a saved calendar source is replaced by a different one, so the
+   user can decide whether existing associations should follow. */
+.calendar-source-change {
+  margin-block: 1rem;
+
+  @include surface-card(0.85rem 1rem);
+
+  border-color: var(--color-notice-border);
+  background: var(--color-notice-surface);
+  color: var(--color-notice-text);
+
+  p,
+  .actions {
+    margin-block: 0;
+  }
+
+  p + p {
+    margin-top: 0.5rem;
+  }
+
+  .actions {
+    margin-top: 0.7rem;
+  }
+
+  small {
+    display: block;
+    margin-top: 0.65rem;
+    color: var(--color-notice-text);
+  }
+}
+
+.calendar-source-change__result {
+  margin-block: 1rem;
+  color: var(--color-text-faint);
+}
+
 .calendar-attention-settings {
   display: grid;
   gap: 0.65rem;

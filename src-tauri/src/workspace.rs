@@ -1674,6 +1674,27 @@ pub fn enrich_calendar_snapshot(
 ) -> Result<(), String> {
     let _guard = lock(state)?;
     let (_, store, _) = load(app)?;
+    // The calendar layer knows a source changed but not how much is affected;
+    // the store does. Every existing binding was made under the previous source.
+    if let Some(source_change) = snapshot.source_change.as_mut() {
+        source_change.previous_association_count = store.bindings.len();
+    }
+    // Associations pointing at no series in the feed's whole expansion window.
+    // Only meaningful once the feed has actually been read: an unavailable feed
+    // reports no keys, which would otherwise orphan everything at once.
+    if !snapshot.feed_workspace_keys.is_empty() {
+        let feed_keys = snapshot
+            .feed_workspace_keys
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        snapshot.unmatched_association_count = Some(
+            store
+                .bindings
+                .iter()
+                .filter(|binding| !feed_keys.contains(&binding.event_key))
+                .count(),
+        );
+    }
     let mut tokens = state
         .event_tokens
         .lock()
@@ -1710,6 +1731,55 @@ pub fn enrich_calendar_snapshot(
         event.event_workspace = binding_summary(&store, &key);
     }
     Ok(())
+}
+
+/// Copy calendar associations from a previous source scope onto the keys the
+/// same series have under the current one.
+///
+/// Deliberately additive. The previous bindings are left in place, so a user who
+/// decides the new URL was a mistake has lost nothing, and an existing binding
+/// under a current key is never overwritten — a key already in use belongs to
+/// whatever the user most recently chose for it.
+pub fn carry_over_calendar_associations(
+    app: &AppHandle,
+    state: &WorkspaceState,
+    remap: &[(String, String)],
+) -> Result<(WorkspaceSnapshot, usize), String> {
+    let mut carried = 0usize;
+    let snapshot = mutate(app, state, false, |store| {
+        let timestamp = now();
+        for (previous_key, current_key) in remap {
+            if previous_key == current_key {
+                continue;
+            }
+            if store
+                .bindings
+                .iter()
+                .any(|binding| binding.event_key == *current_key)
+            {
+                continue;
+            }
+            let Some(source) = store
+                .bindings
+                .iter()
+                .find(|binding| binding.event_key == *previous_key)
+                .cloned()
+            else {
+                continue;
+            };
+            store.bindings.push(Binding {
+                event_key: current_key.clone(),
+                project_id: source.project_id,
+                project_link_id: source.project_link_id,
+                link_url: source.link_url,
+                created_at: timestamp.clone(),
+                updated_at: timestamp.clone(),
+            });
+            carried += 1;
+        }
+        Ok(())
+    })?;
+    Ok((snapshot, carried))
 }
 
 fn binding_summary(store: &Store, event_key: &str) -> Option<EventWorkspaceSummary> {

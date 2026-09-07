@@ -844,6 +844,14 @@ fn get_work_calendar_configuration() -> WorkCalendarConfiguration {
     work_calendar::get_configuration()
 }
 
+/// Save a verified calendar source.
+///
+/// `replacement` carries the user's decision. With `askFirst`, a URL that
+/// verifies but replaces a *different* saved source is reported back for
+/// confirmation and **not written** — the warning arrives before anything
+/// applies, so declining leaves no half-applied state. The caller re-submits
+/// with an explicit choice; nothing about the pending URL is held here between
+/// calls.
 #[tauri::command]
 async fn save_work_calendar_source(
     app: tauri::AppHandle,
@@ -851,9 +859,33 @@ async fn save_work_calendar_source(
     workspace_state: tauri::State<'_, WorkspaceState>,
     published_url: String,
     title_capability_confirmed: bool,
+    replacement: Option<String>,
 ) -> Result<WorkCalendarSnapshot, ()> {
-    let mut snapshot =
-        work_calendar::save_source(state.inner(), published_url, title_capability_confirmed).await;
+    let decision = match replacement.as_deref() {
+        Some("replaceAndCarryOver") => work_calendar::SourceReplacement::ReplaceAndCarryOver,
+        Some("replaceAndKeepSeparate") => work_calendar::SourceReplacement::ReplaceAndKeepSeparate,
+        // Anything unrecognised asks rather than assumes. A typo must not
+        // silently replace a saved calendar.
+        _ => work_calendar::SourceReplacement::AskFirst,
+    };
+
+    let carry_app = app.clone();
+    let carry_workspace_state = workspace_state.inner();
+    let mut snapshot = work_calendar::save_source(
+        state.inner(),
+        published_url,
+        title_capability_confirmed,
+        decision,
+        move |pairs| {
+            workspace::carry_over_calendar_associations(&carry_app, carry_workspace_state, pairs)
+                .map(|(_, carried)| {
+                    let _ = carry_app.emit("workspace-changed", ());
+                    carried
+                })
+        },
+    )
+    .await;
+
     let _ = workspace::enrich_calendar_snapshot(&app, workspace_state.inner(), &mut snapshot);
     work_calendar::log_snapshot("save", &snapshot);
     let _ = app.emit("work-calendar-changed", ());

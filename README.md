@@ -11,7 +11,8 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.12` is the current public beta.
+Version `0.6.0-beta.12` is the current public beta. Version
+`0.6.0-beta.13` is the current local beta candidate.
 
 [Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.12)
 
@@ -119,7 +120,7 @@ updates.
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
 The current artifact and validation record is in
-[the 0.6.0-beta.12 release notes](docs/releases/attention-hub-0.6.0-beta.12.md).
+[the 0.6.0-beta.13 release notes](docs/releases/attention-hub-0.6.0-beta.13.md).
 
 ## Development
 

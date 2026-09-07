@@ -1,0 +1,122 @@
+[
+  {
+    "name": "empty",
+    "snapshot": {
+      "status": "observed",
+      "configured": true,
+      "storageAvailable": true,
+      "sourceIdentityState": "userSavedSinglePublishedCalendarTitleCapable",
+      "capturedAtUnixMs": 1788772800000,
+      "selection": null,
+      "overlappingSelections": [],
+      "nextSelection": null,
+      "daySelections": [],
+      "stopReason": null,
+      "requestMs": 1,
+      "parseMs": 1,
+      "diagnostics": [],
+      "viewerDay": "2026-09-07",
+      "daySelectionsComplete": true
+    },
+    "expectedDayState": "verified",
+    "expectedSchoolState": "noLessons"
+  },
+  {
+    "name": "finished",
+    "snapshot": {
+      "status": "observed",
+      "configured": true,
+      "storageAvailable": true,
+      "sourceIdentityState": "userSavedSinglePublishedCalendarTitleCapable",
+      "capturedAtUnixMs": 1788772800000,
+      "selection": null,
+      "overlappingSelections": [],
+      "nextSelection": null,
+      "daySelections": [
+        {
+          "subject": "History",
+          "start": "2026-09-07T07:00:00Z",
+          "end": "2026-09-07T08:00:00Z",
+          "allDay": false,
+          "cancelled": false,
+          "recurring": true,
+          "eventToken": null,
+          "eventWorkspace": null
+        }
+      ],
+      "stopReason": null,
+      "requestMs": 1,
+      "parseMs": 1,
+      "diagnostics": [],
+      "viewerDay": "2026-09-07",
+      "daySelectionsComplete": true
+    },
+    "expectedDayState": "verified",
+    "expectedSchoolState": "dayEnded"
+  },
+  {
+    "name": "selected",
+    "snapshot": {
+      "status": "observed",
+      "configured": true,
+      "storageAvailable": true,
+      "sourceIdentityState": "userSavedSinglePublishedCalendarTitleCapable",
+      "capturedAtUnixMs": 1788772800000,
+      "selection": {
+        "subject": "Mathematics",
+        "start": "2026-09-07T09:00:00Z",
+        "end": "2026-09-07T10:00:00Z",
+        "allDay": false,
+        "classification": "active",
+        "meetingLinkPresent": false,
+        "meetingProvider": null,
+        "joinToken": null,
+        "eventToken": null,
+        "eventWorkspace": null
+      },
+      "overlappingSelections": [],
+      "nextSelection": null,
+      "daySelections": [
+        {
+          "subject": "Mathematics",
+          "start": "2026-09-07T09:00:00Z",
+          "end": "2026-09-07T10:00:00Z",
+          "allDay": false,
+          "cancelled": false,
+          "recurring": true,
+          "eventToken": null,
+          "eventWorkspace": null
+        }
+      ],
+      "stopReason": null,
+      "requestMs": 1,
+      "parseMs": 1,
+      "diagnostics": [],
+      "viewerDay": "2026-09-07",
+      "daySelectionsComplete": true
+    },
+    "expectedDayState": "verified",
+    "expectedSchoolState": "lesson"
+  },
+  {
+    "name": "failed",
+    "snapshot": {
+      "status": "error",
+      "configured": true,
+      "storageAvailable": true,
+      "sourceIdentityState": "userSavedSinglePublishedCalendarTitleCapable",
+      "capturedAtUnixMs": 1788772800000,
+      "selection": null,
+      "overlappingSelections": [],
+      "nextSelection": null,
+      "daySelections": [],
+      "stopReason": "commandFailed",
+      "requestMs": 0,
+      "parseMs": 0,
+      "diagnostics": ["sanitized failure"],
+      "daySelectionsComplete": false
+    },
+    "expectedDayState": "unavailable",
+    "expectedSchoolState": "unknown"
+  }
+]

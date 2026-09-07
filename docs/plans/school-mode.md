@@ -1,9 +1,9 @@
-# School mode — draft feature plan
+# School mode — feature plan
 
-> **Status: saved brainstorming proposal; not approved for implementation.**
-> Intended order: **finish M19 → polishing pass → School mode**.
-> Milestone number is intentionally unassigned. Revisit and validate this draft
-> against the finished M19/polish code before approving a bounded first slice.
+> **Status: Step 0 complete and passed. Step 1 approved and assigned M21.**
+> Steps 2–3 remain unapproved. See
+> [M21 school calendar source](m21-school-calendar-source.md) for current
+> implementation status; this document holds the design and its rationale.
 
 - **Discussion date:** 2026-09-05
 - **Revised:** 2026-09-06, after a cross-review of this draft against the
@@ -11,20 +11,25 @@
   occurrence-identity risk wording with a named design, adds two hazards the
   first draft missed (published-URL source identity, `RANGE=THISANDFUTURE`),
   and narrows the privacy contract. No code was changed.
-- **Planning checkout:** `codex/m19-medicine-tracker`, HEAD `906013d`, with
-  substantial uncommitted M19 work. This is not the implementation baseline.
-- **Preceding work:** [M19 medicine tracker](m19-medicine-tracker.md) and
+- **Revised:** 2026-09-07, after completing Step 0. The feasibility gate
+  **changed the calendar provider**: the children's Outlook feeds are
+  unavailable, and the source is now a parent-owned Google calendar per child.
+  See [§8 Step 0 results](#step-0-results-2026-09-07). This revision also
+  corrects the `RANGE=THISANDFUTURE` blast radius, which §5 previously
+  understated.
+- **Implementation baseline:** `main` at `cc3e58b`, after M20 merged.
+- **Preceding work:** [M19 medicine tracker](m19-medicine-tracker.md),
+  [M20 daily polish](m20-daily-polish.md), and
   [post-M19 polish audit](../council/2026-09-05-post-m19-polish-audit-devin.md).
 
-Saving this document records the idea and proposed direction. It does not
-approve application changes, a new calendar provider, builds, commits, or releases.
+Step 1 is approved as M21 and is being implemented. Steps 2–4 record direction
+only, and approve no application changes, builds, or releases.
 
 ## 1. Context confirmed by the product partner
 
 - Two children study remotely, with roughly seven to eight consecutive lessons.
 - Long school days make maintaining attention and tracking transitions difficult.
 - Each child has their **own laptop**, so each can have an independent Hub setup.
-- The lesson calendar comes from **Microsoft Outlook**.
 - Zoom links are **mixed**: some reusable, some lesson-specific.
 - When joining links change, updates arrive **in messages**, rather than being
   reflected in the calendar event.
@@ -32,12 +37,28 @@ approve application changes, a new calendar provider, builds, commits, or releas
   experience. Simultaneous Work/School datasets for one person are not an
   established requirement.
 
-The exact Outlook publication format still needs verification, and that
-verification is a **go/no-go gate, not a checklist item** — every step below is
-worthless if the real feeds are not usable. See [§8 Step 0](#step-0--feasibility-gate).
-A calendar feed must match the currently supported published ICS format; a
-shared Outlook web page alone is not sufficient. Do not request or record
-private publication URLs in planning documents, public issues, or diagnostics.
+### Calendar source — superseded by Step 0
+
+The draft assumed the lesson calendar would come from **the children's Microsoft
+Outlook accounts**. Step 0 established that it cannot:
+
+- The children sign in with **personal** Microsoft accounts, which offer no
+  calendar publishing at all on their accounts.
+- A personal Microsoft account publishes **only its default calendar**, so one
+  parent account cannot publish a separate calendar per child either.
+
+The confirmed source is a **parent-owned Google calendar per child**, read via
+each calendar's *secret* iCal address. The children need no Google account and
+the calendars are not shared with them.
+
+**The school publishes no feed of its own.** Every schedule and joining-link
+change arrives by messenger and is transcribed into Google Calendar by the
+parent, manually. This makes the parent a single point of failure for all
+changes, which is why [§8](#proposed-delivery-steps) reorders the remaining
+steps.
+
+Do not request or record private publication URLs in planning documents, public
+issues, or diagnostics.
 
 ## 2. Product goal
 
@@ -219,25 +240,38 @@ Implementation notes established by source inspection:
   preserves recurrence identity" is not a guarantee for every way a school
   edits its calendar.
 
-### `RANGE=THISANDFUTURE` rejects the whole series
+### `RANGE=THISANDFUTURE` rejects the whole feed
 
-`RANGE=THISANDFUTURE` overrides are currently outside the bounded semantic
-contract, and the failure discards **the entire series**, not just the edited
-occurrence ([semantics.rs](../../src-tauri/src/published_ics/semantics.rs)).
+Corrected 2026-09-07. An earlier revision said this discards "the entire
+series". It does not — it discards **the entire feed**, every subject at once.
 
-That is precisely the edit a school makes: change a subject's time, teacher or
-permanent joining link *from a given date onward*. In a work calendar this is
-occasional. In a timetable that runs a whole term it is close to inevitable, and
-when it happens the child loses that subject's lessons entirely rather than
-degrading gracefully.
+The rejection at `semantics.rs:696-704` returns `Err` from `expand_series`,
+which the caller propagates with `?` at `semantics.rs:252`, out of
+`extract_current_or_next` entirely. `published_ics/mod.rs:406-424` then marks
+the whole probe `Unavailable`. One `THISANDFUTURE` override anywhere in the
+document therefore blanks the calendar, not one subject.
 
-Consequences for this plan:
+**Step 0 finding — this does not apply to the confirmed source.** Google
+Calendar implements a "this and following" change by *splitting the series*:
+the original master is truncated with `UNTIL` and the future occurrences become
+a new event with a **new UID**. No `RANGE=THISANDFUTURE` is emitted. The
+observed `UNTIL` truncation on a series-level delete is the signature of that
+model; a `THISANDFUTURE` implementation has no reason to truncate anything.
 
-- Step 0 must check that the feed still parses **after** the school makes a
-  series-level edit mid-term, not only that it parses today.
-- Whether the semantic contract needs `THISANDFUTURE` support is a scope
-  question to answer **before** Step 1. If it does, that work sits underneath
-  occurrence identity, not beside it.
+This is recorded as a **strong inference, not a verified fact** — confirm with a
+fixture during M21. It remains fully live for the parent's *work* Outlook
+calendar, which is a Microsoft 365 source.
+
+The hazard that replaces it is quieter and worse-behaved:
+
+- A split yields a **new UID**, and the workspace key derives from `series_uid`
+  (`work_calendar/mod.rs:665-679`). A subject's materials, notes and homework
+  silently detach, with no error and no explanation.
+- Because the parent is the only editor, this is largely avoidable by workflow:
+  preferring **"All events"** over **"This and following"** keeps the UID
+  stable. Past occurrences shift, which does not matter for a today/next view.
+- M21 therefore ships UID-change **detection** — turning a silent break into a
+  visible one — rather than `THISANDFUTURE` support.
 
 ### Source identity is derived from the publication URL
 
@@ -351,15 +385,18 @@ Verified planning references from the current checkout; recheck after polish:
 | [workspace-model.ts](../../src/workspace-model.ts) | Projects, notes, links, action items and event bindings support subject-level reuse |
 | [work_calendar/mod.rs](../../src-tauri/src/work_calendar/mod.rs) | Source-scoped recurring-series bindings can associate several lesson series with one subject |
 | [EventSettingsView.tsx](../../src/EventSettingsView.tsx) | Current recurring settings apply to future occurrences; lesson-only overrides are not already supplied |
-| [published_ics/mod.rs](../../src-tauri/src/published_ics/mod.rs) | Source validation is restricted to the supported Microsoft Published ICS host/path shape; `outlook.live.com` is rejected |
-| [published_ics/semantics.rs](../../src-tauri/src/published_ics/semantics.rs) | Recurrence expansion, `RECURRENCE-ID` exceptions and cancellation are supported; `RANGE=THISANDFUTURE` fails the whole series; private events yield no workspace key |
+| [published_ics/mod.rs](../../src-tauri/src/published_ics/mod.rs) | Source validation accepts two Microsoft 365 hosts only; `outlook.live.com` and `calendar.google.com` are both rejected. M21 widens this to a bounded provider table. Redirects are blocked outright and any 3xx fails the fetch |
+| [published_ics/semantics.rs](../../src-tauri/src/published_ics/semantics.rs) | Recurrence expansion, `RECURRENCE-ID` exceptions, `EXDATE` and cancellation are supported; `RANGE=THISANDFUTURE` fails **the whole feed**; private events yield no workspace key; every property is scanned for joining links |
 | [work-calendar-model.ts](../../src/work-calendar-model.ts) | Current/next/day selection contracts are reusable, but school presentation and occurrence overrides need deliberate extensions |
 | [zoom-meeting-model.ts](../../src/zoom-meeting-model.ts) and [WidgetView.tsx](../../src/WidgetView.tsx) | Existing Zoom presence/activation and native token-based joining are different operations |
 | [widget-preferences.ts](../../src/widget-preferences.ts) | Existing optional panels provide a starting point for School presentation |
 
-Do not add a local timetable editor or new provider when the existing Outlook
-source can supply the timetable. Feed incompatibility, if found, is a separate
-scope decision, not a reason to quietly relax source validation.
+Do not add a local timetable editor. Feed incompatibility **was** found in Step
+0, and adding Google was taken as an explicit scope decision rather than a
+quiet relaxation: the allowlist bounds what the app will fetch, and widening it
+from two Microsoft hosts to three named provider hosts leaves the scheme,
+credential, query, fragment, redirect, path-shape and size guards untouched.
+Record any further provider the same way.
 
 The polish audit's window sizing, token lifetime, truthful error states, and
 reliability findings are relevant prerequisites. Do not carry known defects into
@@ -372,47 +409,85 @@ surface area and the smallest user value** — a child reading a panel of their
 own lessons does not need it relabelled to understand it. Reliable joining is
 the product goal and now comes first.
 
-Step 0 may be performed before committing to implementation. Steps 1–3 begin
-only after M19 and the approved polishing work reach their acceptance gates and
-the product partner approves a bounded School proposal.
+Reordered 2026-09-07 by the Step 0 results. The original Step 1 bundled the
+calendar source with the occurrence-override machinery. Step 0 split them: the
+source change is now *blocking* (without it the app cannot read the real
+calendars at all), while the override became a fallback rather than the
+foundation.
 
-| Step | Scope |
+| Step | Scope | State |
+| --- | --- | --- |
+| 0. Feasibility | Verify the real feeds and how changed links reach each laptop | **Complete, passed** |
+| 1. Calendar source | Google source validation, safe source-change handling, UID-change detection | **Approved — M21** |
+| 2. Reliable joining | Per-occurrence joining-link override and recurrence anchor | Not approved |
+| 3. School-day experience | Current/next lesson, schedule-based breaks/progress, stale-data states | Not approved |
+| 4. School presentation | Setup preference, Subjects/Materials/Homework terminology, quiet layout | Not approved |
+
+**Why Step 2 now precedes the school-day experience.** The school publishes no
+feed, so every change is transcribed by the parent by hand. That makes the
+parent a single point of failure: if they are unavailable when a link changes
+shortly before a lesson, nothing reaches the children. The override is the only
+cover for that gap, and polish work should not queue ahead of it.
+
+### Step 0 results (2026-09-07)
+
+**Verdict: feasible, with a different provider than the draft assumed.**
+
+The children's Outlook path is dead (see [§1](#calendar-source--superseded-by-step-0)).
+Everything below was measured against a throwaway Google test calendar using a
+local diagnostic that reported counts, timezone names and a body hash only —
+never the URL, titles, descriptions or links. No repository changes were made
+during Step 0.
+
+| Check | Result |
 | --- | --- |
-| 0. Feasibility | Verify the real feeds, and how changed links reach the child's laptop |
-| 1. Reliable joining | Occurrence identity, one-lesson override, safe source-change handling, explicit privacy contract |
-| 2. School-day experience | Current/next lesson, schedule-based breaks/progress, clear stale-data states |
-| 3. School presentation | Setup preference, Subjects/Materials/Homework terminology, quiet layout preset |
+| Transport | `200`, **no redirect**, `text/calendar`, ~250 ms, ~1.2 KB |
+| Timezone | `Europe/Kiev` (deprecated IANA alias) parses — chrono-tz 0.10.4 |
+| Lesson-level data | `SUMMARY` always present, never `Busy` — not free/busy |
+| Privacy flags | No `CLASS:PRIVATE`, so a workspace key is issued |
+| Recurrence | `RRULE` present and expandable |
+| Cancellation | Single-occurrence delete arrives as `EXDATE`, parsed natively |
+| Joining links | Extracted from `DESCRIPTION`; every property is scanned, so `LOCATION` also works. Zoom `?pwd=` survives |
+| **Propagation lag** | **Under 30 seconds**, four consecutive measurements |
 
-### Step 0 — feasibility gate
+Two findings drove the revised delivery order:
 
-Establish, on the children's actual laptops:
+1. **Redirects were the real transport risk.** `published_ics/mod.rs:259-267`
+   fails outright on any 3xx with `Policy::none()`. Google does not redirect, so
+   the feed is reachable — but this is the check to repeat for any future
+   provider, ahead of content questions.
+2. **Sub-30s lag closes §5's "unclosable" workflow gap.** With the 120 s app
+   poll, a parent's edit reaches both laptops in ~2.5 minutes. The parent
+   updates one calendar and both children follow; no per-laptop pasting and no
+   synchronization are required. This demotes the per-occurrence joining-link
+   override from foundation to fallback.
 
-- Each child has an accepted, usable published feed. `outlook.live.com` is
-  rejected by the current source contract, and Microsoft documents that
-  publishing can be unavailable because of organizational sharing policy — a
-  school tenant may simply not permit it. We have evidence that publishing
-  *can* be disabled, not that this school disables it. Check, do not assume.
-- The feed carries lesson information, not just free/busy.
-- Lesson times, recurrence, cancellations and joining links are interpreted
-  correctly.
-- Lessons are not all private or redacted, which would leave them without a
-  workspace key and make subject association impossible.
-- The feed still parses after the school performs a series-level edit
-  ("this and all following lessons"), given the `RANGE=THISANDFUTURE`
-  limitation described in §5.
-- Who receives a changed joining link, and on which device.
+Carried as **inference, not verified**: that Google never emits
+`RANGE=THISANDFUTURE`. See [§5](#rangethisandfuture-rejects-the-whole-feed).
 
-Failure means "not feasible under the current V1 source contract" — a scope
-discussion, not a reason to quietly weaken validation, and not proof that
-School mode is impossible.
+Not established, and deliberately so: none of this was checked on the
+children's actual laptops, because the source is the parent's account and the
+same feed serves both. Per-laptop verification belongs to M21 acceptance.
 
-### Step 1 — reliable lesson joining
+### Step 1 — calendar source (M21, approved)
+
+See [m21-school-calendar-source.md](m21-school-calendar-source.md) for status.
+
+- Add Google published-calendar support to source validation, as a bounded
+  `(host, path-shape)` table rather than a second hardcoded pair. Every other
+  guard — HTTPS-only, credential-free, no query or fragment, blocked redirects,
+  size and time caps — stays unchanged.
+- Correct the user-facing strings that name Microsoft 365 as the only provider.
+- Warn-and-preserve handling for a changed publication URL.
+- UID-change detection, so a series split reports rather than silently
+  detaching a subject's materials, notes and homework.
+
+### Step 2 — reliable lesson joining (not approved)
 
 - Thread the recurrence anchor through candidate generation and both selection
   contracts; finalize override persistence and versioning.
 - Add one-lesson joining-link overrides with explicit scope, on their own
   native contract rather than as ordinary workspace binding links.
-- Warn-and-preserve handling for a changed publication URL.
 - Deterministic link resolution and override removal.
 - Join from the current/next lesson and the daily lesson list.
 - Cover refresh, recurrence, rescheduling, cancellation and missing links.
@@ -420,7 +495,7 @@ School mode is impossible.
 This step contains the largest correctness risk and benefits from an
 independent cross-layer review before implementation.
 
-### Step 2 — school-day experience
+### Step 3 — school-day experience (not approved)
 
 - Current/next lesson, scheduled breaks and end-of-day state.
 - Schedule progress excluding cancelled and unrelated all-day entries.
@@ -429,7 +504,7 @@ independent cross-layer review before implementation.
   reminder subsystem.
 - Readability, keyboard, DPI and real daily-use testing on both laptops.
 
-### Step 3 — school presentation
+### Step 4 — school presentation (not approved)
 
 - Setup-time Work/School preference, editable later in Settings.
 - Subject presentation using the existing workspace.
@@ -438,10 +513,9 @@ independent cross-layer review before implementation.
   vocabulary source.
 - Preserve data, calendar configuration and user preferences when switching.
 
-These are checkpoints, not a promise of four releases or an assigned milestone
-number. Reassess their boundaries after the prerequisite work lands. Whether
-Step 3 earns its cross-window churn is a decision to take *after* Steps 1–2 are
-in daily use, not now.
+These are checkpoints, not a promise of five releases. Reassess their boundaries
+after each lands. Whether Step 4 earns its cross-window churn is a decision to
+take *after* Steps 1–3 are in daily use, not now.
 
 ## 9. Verification and acceptance outline
 
@@ -476,13 +550,15 @@ or committed evidence.
   implementation and manual-review scope are approved. It must call the generic
   launcher from the same checkout and describe plain-language acceptance checks.
 
-No School code, builds, tests or live-app checks were performed during this
-brainstorming. Source inspection establishes reuse opportunities, not readiness
-of the proposed feature.
+Step 0 performed no repository changes: its evidence came from a local
+diagnostic run against a throwaway Google test calendar, reporting counts and
+hashes only. M21 implementation and its verification are recorded in
+[m21-school-calendar-source.md](m21-school-calendar-source.md).
 
 ## 10. Out of scope for the first version
 
-- Local weekly timetable editor or a replacement calendar provider.
+- Local weekly timetable editor. (Adding Google as a second *published ICS*
+  provider is in scope for M21; a non-ICS provider integration is not.)
 - Multiple child accounts, shared-account profiles or separate Work/School stores.
 - Cloud synchronization or school-platform integration.
 - Grades, attendance tracking, attention scores or a parent monitoring dashboard.
@@ -490,36 +566,42 @@ of the proposed feature.
 - A full assignment-management system.
 - AI guidance or medical/behavioral assessments.
 
-## 11. Questions to settle when returning
+## 11. Questions — answered by Step 0
 
-- Does each intended Outlook feed match the supported published ICS format and
-  contain lesson-level times, recurrence and cancellation information?
-- Is the feed lessons-only? If not, how will school lessons be identified for
-  progress, breaks and end-of-day wording?
+- **Does the feed match the supported published ICS format, with lesson-level
+  times, recurrence and cancellation?** Yes, for the Google source. Not for the
+  children's Outlook, which cannot publish at all.
+- **Is the feed lessons-only?** Yes. The parent creates a dedicated calendar per
+  child containing nothing else, which removes the "identify school lessons
+  among other events" problem the draft anticipated.
+- **Who receives a changed joining link, and on which device?** The parent, by
+  messenger. They transcribe it into Google Calendar, and both laptops follow in
+  ~2.5 minutes. No per-laptop pasting is needed while the parent is available.
+- **Does the semantic contract need `RANGE=THISANDFUTURE` support?** Not for
+  Google, which splits the series instead. Still open for Outlook work
+  calendars. See [§5](#rangethisandfuture-rejects-the-whole-feed).
+
+### Still open
+
 - Do reusable links belong to a subject, a particular lesson series, or both?
-- Does the recurrence anchor in §5 survive the school's real rescheduling
-  behavior, including series-level edits?
-- Does the semantic contract need `RANGE=THISANDFUTURE` support? Answer before
-  Step 1, because that work sits underneath occurrence identity.
-- **Who receives a changed joining link, and on which device?** If it arrives
-  in a parent's chat but must be pasted on each child's laptop, what is the
-  intended daily workflow?
+- Does the recurrence anchor in §5 survive real rescheduling, including the
+  UID change produced by a Google series split?
 - How should overrides be retained, cleaned up and included in data controls?
 - What reminder timing and presentation do the children find useful in practice?
 - Which panels belong in the optional School preset, and what copy is clearest?
+- What should happen when the parent is unavailable and a link changes minutes
+  before a lesson? Step 2 is the proposed cover; the daily workflow is not
+  settled.
 
-## 12. Resume checklist
+## 12. Checklist
 
-- [ ] Confirm M19 and the polishing pass against the **current acceptance
-      record**, not only the resolved-findings table. The audit's later
-      qualification closes M19 implementation scope while stating that
-      installed and human acceptance remain release gates; resolved findings
-      alone do not satisfy the prerequisite.
-- [ ] Establish the new baseline commit and preserve any current dirty work.
-- [ ] Revalidate the architecture references and remaining polish findings.
-- [ ] Complete Step 0 and settle the open questions above.
-- [ ] Assign a milestone number and approve one bounded first step.
-- [ ] Obtain implementation approval separately from this saved draft.
+- [x] Confirm M19 and the polishing pass against the current acceptance record.
+- [x] Establish the baseline commit — `main` at `cc3e58b`, after M20 merged.
+- [x] Revalidate the architecture references and remaining polish findings.
+- [x] Complete Step 0 and settle the blocking questions.
+- [x] Assign a milestone number and approve one bounded first step — M21.
+- [ ] Confirm the Google series-split inference with a fixture during M21.
+- [ ] Verify on both children's laptops with the real calendars.
 
 **Guiding priority:** make “which lesson, when, and the correct link” excellent.
 Subjects, homework and appearance should support that daily experience.

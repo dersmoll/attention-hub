@@ -1,12 +1,12 @@
 {
   "name": "attention-hub",
   "private": true,
-  "version": "0.6.0-beta.12",
+  "version": "0.6.0-beta.13",
   "license": "MIT",
   "packageManager": "pnpm@10.17.1",
   "type": "module",
   "scripts": {
-    "test": "pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:medicine && pnpm run test:meeting-workspace && pnpm run test:preferences && pnpm run test:time-zone && pnpm run test:update && pnpm run test:widget-layout && pnpm run test:work-calendar && pnpm run test:workspace && pnpm run test:zoom-meeting",
+    "test": "pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:medicine && pnpm run test:meeting-workspace && pnpm run test:preferences && pnpm run test:time-zone && pnpm run test:update && pnpm run test:widget-layout && pnpm run test:work-calendar && pnpm run test:school-day && pnpm run test:workspace && pnpm run test:zoom-meeting",
     "test:advanced-focus": "node scripts/test-advanced-focus.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
@@ -17,6 +17,7 @@
     "test:time-zone": "node scripts/test-time-zone-converter.mjs",
     "test:update": "node scripts/test-app-update.mjs",
     "test:work-calendar": "node scripts/test-work-calendar-model.mjs",
+    "test:school-day": "node scripts/test-school-day-model.mjs",
     "test:workspace": "node scripts/test-workspace-model.mjs",
     "test:zoom-meeting": "node scripts/test-zoom-meeting-model.mjs",
     "test:widget-layout": "node scripts/test-widget-layout.mjs",
