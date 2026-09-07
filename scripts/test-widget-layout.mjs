@@ -367,7 +367,9 @@ assert.match(cssSource, /widget-calendar-day-panel li \+ li \{\s*margin-top: 0/)
 assert.match(todayPopupSource, /data-finished=\{finished \|\| undefined\}/);
 assert.match(todayPopupSource, /data-live=\{live \|\| undefined\}/);
 assert.match(todayPopupSource, /data-cancelled=\{selection\.cancelled \|\| undefined\}/);
-assert.match(todayPopupSource, /No calls today\./);
+// The empty-day wording is mode-dependent and lives in calendar-vocabulary.ts;
+// scripts/test-school-day-model.mjs asserts both strings.
+assert.match(todayPopupSource, /\{vocabulary\.emptyDay\}/);
 assert.match(cssSource, /widget-calendar-day-panel__empty/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-finished\]/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-cancelled\]/);

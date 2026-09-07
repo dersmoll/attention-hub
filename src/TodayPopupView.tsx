@@ -22,6 +22,7 @@ import { todayPopupPosition } from "./today-popup-window";
 import { useMedicineGraceMinutes } from "./use-medicine-grace-minutes";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { HubCloseIcon } from "./HubCloseIcon";
+import { calendarVocabulary } from "./calendar-vocabulary";
 import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerAt, openMedicineManagerWindow } from "./medicine-manager-window";
@@ -309,6 +310,9 @@ export function TodayPopupView() {
   };
 
   if (!payload) return null;
+  // The sender tells us which vocabulary to use; this window has no
+  // preferences of its own. See TodayPopupPayload.schoolMode.
+  const vocabulary = calendarVocabulary(payload.schoolMode);
 
   return (
     <main className="today-popup-shell widget-calendar-day-panel" style={panelStyle}>
@@ -320,17 +324,17 @@ export function TodayPopupView() {
             {payload.selections.length === 1 ? "" : "s"} · {Math.floor(
               payload.occupiedMinutes / 60,
             )}
-            h {payload.occupiedMinutes % 60}m in calls
+            h {payload.occupiedMinutes % 60}m {vocabulary.occupiedSuffix}
           </span>
         </div>
-        <button aria-label="Close today's meeting summary" className="hub-close-button" onClick={() => void close()} type="button">
+        <button aria-label={vocabulary.closeDayPanel} className="hub-close-button" onClick={() => void close()} type="button">
           <HubCloseIcon />
         </button>
       </header>
       <ol className="today-popup-events">
         {payload.selections.length === 0 ? (
           <li className="widget-calendar-day-panel__empty">
-            No calls today.
+            {vocabulary.emptyDay}
           </li>
         ) : payload.selections.map((selection, index) => {
           const startMs = Date.parse(selection.start);

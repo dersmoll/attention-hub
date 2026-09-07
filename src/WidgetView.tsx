@@ -44,6 +44,10 @@ import {
   schoolDayStatusLabel,
   selectSchoolDayState,
 } from "./school-day-model";
+import {
+  calendarVocabulary,
+  type CalendarVocabulary,
+} from "./calendar-vocabulary";
 import { createCalendarPollController } from "./calendar-poll-controller";
 import {
   convertZonedTimeToInstant,
@@ -294,11 +298,15 @@ function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
     : `In ${duration}`;
 }
 
-function formatCalendarDetail(selection: WorkCalendarSelection, now: Date) {
+function formatCalendarDetail(
+  selection: WorkCalendarSelection,
+  now: Date,
+  vocabulary: CalendarVocabulary,
+) {
   return [
     formatCalendarCountdown(selection, now),
     formatCalendarRange(selection, now),
-    selection.meetingLinkPresent === true ? "Online meeting" : null,
+    selection.meetingLinkPresent === true ? vocabulary.onlineEvent : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -340,14 +348,16 @@ function MeetingProviderGlyph({
 function CalendarEventDetail({
   selection,
   now,
+  vocabulary,
 }: {
+  vocabulary: CalendarVocabulary;
   selection: WorkCalendarSelection;
   now: Date;
 }) {
   const countdown = formatCalendarCountdown(selection, now);
   const metadata = [
     formatCalendarRange(selection, now),
-    selection.meetingLinkPresent === true ? "Online meeting" : null,
+    selection.meetingLinkPresent === true ? vocabulary.onlineEvent : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -2189,6 +2199,7 @@ export function WidgetView() {
           dayEnd,
         ),
         systemTimeZone,
+        schoolMode: preferences.schoolModeEnabled,
         selections: workCalendar?.daySelections ?? [],
       };
       todayPopupPayloadRef.current = payload;
@@ -2304,7 +2315,7 @@ export function WidgetView() {
       chooseCalendarEvent(eventKey);
       clearWidgetNotice("calendar");
     } catch {
-      showWidgetNotice("calendar", "The meeting link could not be opened.");
+      showWidgetNotice("calendar", vocabulary.linkOpenFailed);
     }
   };
 
@@ -2509,6 +2520,9 @@ export function WidgetView() {
     : `${sourceAvailability(outlook, attentionStale, attentionRefreshFailed)}${typeof outlookInbox?.count === "number" && outlookInbox.count > 0 ? `; aggregate Inbox unread ${outlookInbox.count}` : outlookInbox?.needsAttention === true ? "; Inbox needs attention" : ""}`;
   const calendarSelection = calendarDisplay.selection;
   const calendarNextSelection = calendarDisplay.companion;
+  // One lookup for every school/work wording difference. See
+  // calendar-vocabulary.ts; components never test the mode themselves.
+  const vocabulary = calendarVocabulary(preferences.schoolModeEnabled);
   // Only in School mode: a work diary has no breaks, no end of day, and no
   // meaningful progress through one. See widget-preferences.schoolModeEnabled.
   //
@@ -2605,29 +2619,29 @@ export function WidgetView() {
     ? calendarRetryNotice
       ? calendarRetryNotice.state
       : workCalendarCheckSlow
-        ? "Calendar checking"
+        ? vocabulary.checking
       : calendarStartedNeedsAttention
-      ? "Meeting started"
+      ? vocabulary.startedNeedsAttention
       : calendarStartingSoon
-        ? "Starting soon"
+        ? vocabulary.startingSoon
         : (schoolDayLabel ??
           (calendarSelection.classification === "active"
-            ? "In progress"
-            : "Up next"))
+            ? vocabulary.inProgress
+            : vocabulary.upNext))
     : calendarNotConfigured
-      ? "Calendar"
+      ? vocabulary.idle
       : workCalendarRefreshing
-        ? "Calendar checking"
-        : (schoolDayLabel ?? "Calendar unavailable");
+        ? vocabulary.checking
+        : (schoolDayLabel ?? vocabulary.unavailable);
   const calendarTitle = calendarSelection
     ? calendarSelection.subject
     : calendarNotConfigured
-      ? "Connect work calendar"
+      ? vocabulary.connectPrompt
       : workCalendar?.status === "busy"
         ? "Another calendar check is finishing"
-        : "No fresh work-calendar event";
+        : vocabulary.noFreshEvent;
   const calendarDetail = calendarSelection
-    ? `${formatCalendarDetail(calendarSelection, now)}${
+    ? `${formatCalendarDetail(calendarSelection, now, vocabulary)}${
         calendarRetryNotice
           ? ` · ${calendarRetryNotice.detail}`
           : workCalendarCheckSlow
@@ -2659,11 +2673,11 @@ export function WidgetView() {
   const calendarNextState =
     calendarNextSelection?.classification === "active"
       ? calendarNextAcknowledged
-        ? "In progress"
-        : "Meeting started"
-      : "Up next";
+        ? vocabulary.inProgress
+        : vocabulary.startedNeedsAttention
+      : vocabulary.upNext;
   const calendarNextDetail = calendarNextSelection
-    ? formatCalendarDetail(calendarNextSelection, now)
+    ? formatCalendarDetail(calendarNextSelection, now, vocabulary)
     : "";
   const calendarNextProgress = calendarEventProgress(
     calendarNextSelection,
@@ -2778,6 +2792,7 @@ export function WidgetView() {
       occupiedMinutes: calendarOccupiedMinutes,
       selections: calendarDaySelections,
       systemTimeZone,
+      schoolMode: preferences.schoolModeEnabled,
     };
     publishTodayPopup();
   }, [
@@ -3123,7 +3138,7 @@ export function WidgetView() {
         data-calendar-attention={calendarAttentionState}
         data-calendar-setup={calendarNotConfigured || undefined}
         data-day-summary={workCalendar?.configured || undefined}
-        aria-label="Work calendar"
+        aria-label={vocabulary.zoneLabel}
         ref={calendarDayPanelRef}
         onPointerDownCapture={(event) => {
           if (
@@ -3159,7 +3174,7 @@ export function WidgetView() {
         tabIndex={workCalendar?.configured ? 0 : undefined}
         title={
           workCalendar?.configured
-            ? "Open today's meeting summary"
+            ? vocabulary.openDayPanel
             : undefined
         }
       >
@@ -3215,7 +3230,7 @@ export function WidgetView() {
                           calendarDisplay.selectionKey,
                         )
                       }
-                      title="Open meeting link"
+                      title={vocabulary.openLink}
                       type="button"
                     >
                       {workCalendarJoinLabel(calendarJoinOpened)}
@@ -3256,7 +3271,7 @@ export function WidgetView() {
                 </button>
               </div>
             ) : calendarSelection ? (
-              <CalendarEventDetail selection={calendarSelection} now={now} />
+              <CalendarEventDetail selection={calendarSelection} now={now} vocabulary={vocabulary} />
             ) : (
               <small>{calendarDetail}</small>
             )}
@@ -3341,7 +3356,7 @@ export function WidgetView() {
                           calendarDisplay.companionKey,
                         )
                       }
-                      title="Open meeting link"
+                      title={vocabulary.openLink}
                       type="button"
                     >
                       {workCalendarJoinLabel(calendarNextJoinOpened)}
@@ -3372,6 +3387,7 @@ export function WidgetView() {
               <CalendarEventDetail
                 selection={calendarNextSelection}
                 now={now}
+                vocabulary={vocabulary}
               />
               {calendarNextProgress !== null && (
                 <div

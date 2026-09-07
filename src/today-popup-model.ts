@@ -14,5 +14,11 @@ export interface TodayPopupPayload {
   maxHeight: number;
   occupiedMinutes: number;
   systemTimeZone: string;
+  /**
+   * Whether the sender is reading this calendar as a school timetable. The
+   * popup is a separate window with no access to preferences, so the widget
+   * tells it which vocabulary to use.
+   */
+  schoolMode: boolean;
   selections: WorkCalendarDaySelection[];
 }

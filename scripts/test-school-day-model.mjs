@@ -309,4 +309,50 @@ assert.equal(school.minutesUntil(NOW - 60_000, NOW), 0);
   assert.equal(oneMinute.headline, "Break · next lesson in 1 min");
 }
 
+// Vocabulary: every field must differ between the two modes unless the word is
+// genuinely mode-neutral, and no school string may reuse work vocabulary.
+{
+  const vocab = await loadModule("../src/calendar-vocabulary.ts");
+  const work = vocab.calendarVocabulary(false);
+  const school = vocab.calendarVocabulary(true);
+
+  assert.deepEqual(
+    Object.keys(work).sort(),
+    Object.keys(school).sort(),
+    "both modes must define the same fields",
+  );
+
+  for (const [key, value] of Object.entries(school)) {
+    assert.ok(
+      value.length > 0,
+      `school vocabulary ${key} must not be empty`,
+    );
+    assert.ok(
+      !/\b(meeting|meetings|call|calls|work)\b/i.test(value),
+      `school vocabulary ${key} still uses work wording: "${value}"`,
+    );
+  }
+
+  for (const [key, value] of Object.entries(work)) {
+    assert.ok(
+      !/\b(lesson|lessons|timetable|school)\b/i.test(value),
+      `work vocabulary ${key} leaked school wording: "${value}"`,
+    );
+  }
+
+  // "Starting soon" is genuinely mode-neutral; everything else should read
+  // differently, or the mode switch is not doing anything.
+  const shared = Object.keys(work).filter((key) => work[key] === school[key]);
+  assert.deepEqual(
+    shared,
+    ["startingSoon"],
+    `unexpected shared wording: ${shared.join(", ")}`,
+  );
+
+  // An unreadable timetable and an empty day must never read alike — the same
+  // distinction the day model enforces.
+  assert.notEqual(school.unavailable, school.emptyDay);
+  assert.match(school.unavailable, /unavailable/i);
+}
+
 console.log("school day model tests passed");
