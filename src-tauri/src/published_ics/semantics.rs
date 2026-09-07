@@ -281,6 +281,7 @@ pub fn extract_current_or_next(
             window_end,
             &mut candidates,
             &mut expanded_occurrence_count,
+            default_timezone.is_some(),
         )?;
     }
 
@@ -733,6 +734,7 @@ fn expand_series(
     window_end: DateTime<Utc>,
     candidates: &mut Vec<Candidate>,
     expanded_count: &mut usize,
+    calendar_timezone_declared: bool,
 ) -> Result<(), SemanticFailure> {
     let mut masters = series.iter().filter(|event| event.recurrence_id.is_none());
     let master = masters.next().cloned();
@@ -805,7 +807,7 @@ fn expand_series(
             );
         } else {
             if let Some(rule) = &master.rrule {
-                let mut set = recurrence_set(&master, rule)?;
+                let mut set = recurrence_set(&master, rule, calendar_timezone_declared)?;
                 let recurrence_timezone = RRuleTz::from(master.start.timezone());
                 for override_event in &overrides {
                     if let Some(recurrence_id) = override_event.recurrence_id {
@@ -863,8 +865,18 @@ fn expand_series(
     Ok(())
 }
 
-fn recurrence_set(event: &NormalizedEvent, rule: &str) -> Result<RRuleSet, SemanticFailure> {
-    if event.all_day && event.start.timezone() == Tz::UTC {
+fn recurrence_set(
+    event: &NormalizedEvent,
+    rule: &str,
+    calendar_timezone_declared: bool,
+) -> Result<RRuleSet, SemanticFailure> {
+    // A recurring all-day event needs a zone to anchor its occurrences. UTC was
+    // previously read as proof that none was declared — but `X-WR-TIMEZONE:UTC`
+    // declares one, and it resolves to exactly this value. A feed that supplied
+    // it was therefore rejected with a diagnostic saying the timezone was
+    // missing, and because the failure propagates out of the whole scan it took
+    // every ordinary timed lesson down with it.
+    if event.all_day && event.start.timezone() == Tz::UTC && !calendar_timezone_declared {
         return Err(failure(
             SemanticFailureReason::AmbiguousTime,
             "A recurring all-day event lacked an explicit calendar timezone.",
@@ -1574,16 +1586,51 @@ mod tests {
             "a date-only UNTIL must not discard the feed"
         );
 
-        // The last day must still be included. Reading the bare date as
-        // midnight would drop 24 December's lesson — the last of term.
+        // The claim that matters is not the rewritten string but that the final
+        // occurrence *survives expansion*. Reading a bare date as midnight
+        // parses cleanly and silently drops the last lesson of term, so assert
+        // the last occurrence exists and the following week's does not.
+        //
+        // The test clock is Tuesday 2026-08-11. This series runs Tuesdays with a
+        // date-only UNTIL on Tuesday 2026-09-08, so 08 September is the final
+        // lesson and 15 September must be absent.
+        let series_until = |until: &str| {
+            extract(&format!("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:Europe/Kiev\r\nBEGIN:VEVENT\r\nUID:series\r\nDTSTART;TZID=Europe/Kiev:20260811T090000\r\nDTEND;TZID=Europe/Kiev:20260811T094500\r\nRRULE:FREQ=WEEKLY;WKST=MO;UNTIL={until};BYDAY=TU\r\nSUMMARY:Lesson\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"))
+                .expect("a date-only UNTIL must expand")
+                .eligible_candidate_count
+        };
+
+        // Tuesdays from 11 August, ending on Tuesday 08 September. Occurrences
+        // still ahead of the 11 August 12:00 test clock: 18 and 25 August,
+        // 01 and 08 September — four. Reading the bare date as midnight would
+        // exclude 08 September's 09:00 lesson and leave three, which is exactly
+        // the silent loss of the last lesson of term.
+        assert_eq!(series_until("20260908"), 4, "the final occurrence survives");
+
+        // Moving UNTIL a week earlier drops one, proving the boundary is doing
+        // work rather than the count passing by coincidence.
+        assert_eq!(series_until("20260901"), 3);
+
+        // End of day in the series zone, not midnight: 23:59:59 +03:00 is
+        // 20:59:59Z in Kyiv summer time.
         let normalized = normalize_rrule_until(
-            "FREQ=WEEKLY;WKST=MO;UNTIL=20261224;BYDAY=MO",
+            "FREQ=WEEKLY;WKST=MO;UNTIL=20260908;BYDAY=TU",
             chrono_tz::Europe::Kiev,
         )
         .expect("a date-only UNTIL is rewritten");
         assert!(
-            normalized.contains("UNTIL=20261224T215959Z"),
-            "expected end of 24 December in Europe/Kiev, got {normalized}"
+            normalized.contains("UNTIL=20260908T205959Z"),
+            "expected end of 08 September in Europe/Kiev, got {normalized}"
+        );
+
+        // A DST boundary must not shift the reading. Kyiv leaves summer time on
+        // 25 October 2026, so an UNTIL that day converts at +02:00.
+        let across_dst =
+            normalize_rrule_until("FREQ=WEEKLY;UNTIL=20261101", chrono_tz::Europe::Kiev)
+                .expect("a date-only UNTIL is rewritten");
+        assert!(
+            across_dst.contains("UNTIL=20261101T215959Z"),
+            "expected end of 01 November in Europe/Kiev, got {across_dst}"
         );
 
         // A local date-time UNTIL is rewritten the same way.
@@ -1675,6 +1722,31 @@ mod tests {
         // today" and "we could not read the timetable".
         assert_eq!(result.viewer_day, "2026-08-11");
         assert!(result.day_selections_complete);
+    }
+
+    /// Audit F7, reproduced before it was fixed. `X-WR-TIMEZONE:UTC` declares a
+    /// timezone that resolves to UTC, which the all-day guard read as proof
+    /// that none was declared. The feed was rejected with a diagnostic claiming
+    /// the timezone was missing, and it took the ordinary timed lesson with it —
+    /// the whole-feed blast radius on a second, independent shape.
+    #[test]
+    fn an_explicit_utc_timezone_supports_a_recurring_all_day_event() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:timed\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Lesson\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:allday\r\nDTSTART;VALUE=DATE:20260811\r\nDTEND;VALUE=DATE:20260812\r\nRRULE:FREQ=WEEKLY;COUNT=5\r\nSUMMARY:Marker\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+            .expect("an explicitly declared UTC calendar is not ambiguous");
+
+        // The timed lesson is what matters: one unreadable series must never
+        // take the rest of the timetable with it.
+        assert_eq!(selection(&result).subject, "Lesson");
+        assert!(result.day_selections.len() >= 2);
+    }
+
+    /// Without any declared calendar timezone, a recurring all-day event still
+    /// has nothing to anchor its occurrences to, and is still refused.
+    #[test]
+    fn an_undeclared_timezone_still_refuses_a_recurring_all_day_event() {
+        let failure = extract("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:allday\r\nDTSTART;VALUE=DATE:20260811\r\nDTEND;VALUE=DATE:20260812\r\nRRULE:FREQ=WEEKLY;COUNT=5\r\nSUMMARY:Marker\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+            .unwrap_err();
+        assert_eq!(failure.reason, SemanticFailureReason::AmbiguousTime);
     }
 
     /// A truncated day cannot support a total or an end-of-day claim, because
