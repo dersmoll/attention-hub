@@ -52,6 +52,18 @@ pub struct WorkCalendarSnapshot {
     pub request_ms: u64,
     pub parse_ms: u64,
     pub diagnostics: Vec<String>,
+    /// Viewer-local date the day list describes, `YYYY-MM-DD`, or `None` when
+    /// the feed was not read.
+    ///
+    /// The distinction downstream depends on: an empty `day_selections` with a
+    /// `viewer_day` is a **verified empty day**, while an empty list with no
+    /// `viewer_day` means we do not know. Age cannot substitute — a snapshot
+    /// taken at 23:59 is seconds old at 00:00 and describes the wrong day.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewer_day: Option<String>,
+    /// False when the day list was truncated, so it cannot support a lesson
+    /// total, an empty day, or an end-of-day claim.
+    pub day_selections_complete: bool,
     /// Present while a source change is unresolved. See `PendingSourceChange`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_change: Option<WorkCalendarSourceChange>,
@@ -500,9 +512,13 @@ pub async fn save_source(
     )
     .await;
 
+    // A calendar that reads cleanly but holds nothing upcoming is accepted. It
+    // is what a school calendar looks like during a holiday, or before the
+    // timetable has been entered, and refusing it made those states unusable
+    // rather than safe. Verification still requires a successful, permitted
+    // read — only the demand for a current-or-next event is dropped.
     if !matches!(probe.status, PublishedIcsProbeStatus::Observed)
         || !probe.semantic_extraction_allowed
-        || probe.selection.is_none()
     {
         zero_string(&mut published_url);
         return snapshot_from_probe(
@@ -545,6 +561,8 @@ pub async fn save_source(
                     "The verified calendar source could not be saved in Windows Credential Manager."
                         .to_owned(),
                 ],
+                viewer_day: None,
+                day_selections_complete: false,
                 source_change: None,
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
@@ -578,6 +596,8 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                 request_ms: 0,
                 parse_ms: 0,
                 diagnostics: vec!["No saved work-calendar source is configured.".to_owned()],
+                viewer_day: None,
+                day_selections_complete: false,
                 source_change: None,
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
@@ -603,6 +623,8 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
                     "Windows Credential Manager could not read the work-calendar source."
                         .to_owned(),
                 ],
+                viewer_day: None,
+                day_selections_complete: false,
                 source_change: None,
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
@@ -635,6 +657,8 @@ fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapsh
         ],
         // A busy reply reports nothing about the source; the next real snapshot
         // still carries an unresolved change.
+        viewer_day: None,
+        day_selections_complete: false,
         source_change: None,
         unmatched_association_count: None,
         feed_workspace_keys: Vec::new(),
@@ -727,11 +751,17 @@ fn snapshot_from_probe(
         PublishedIcsProbeStatus::Error => WorkCalendarStatus::Error,
         _ => WorkCalendarStatus::Unavailable,
     };
+    // Only a successful read may carry a day list. Clearing it on failure is
+    // right — the danger is downstream mistaking the cleared list for a
+    // verified empty day, which is why `viewer_day` below is `None` unless the
+    // feed was actually read.
     if !matches!(status, WorkCalendarStatus::Observed) {
         probe.selection = None;
         probe.overlapping_selections.clear();
         probe.next_selection = None;
         probe.day_selections.clear();
+        probe.viewer_day = None;
+        probe.day_selections_complete = false;
     }
     let (selection, overlapping_selections, next_selection) =
         if matches!(status, WorkCalendarStatus::Observed) {
@@ -763,6 +793,8 @@ fn snapshot_from_probe(
         request_ms: probe.request_ms,
         parse_ms: probe.parse_ms,
         diagnostics: probe.diagnostics,
+        viewer_day: probe.viewer_day,
+        day_selections_complete: probe.day_selections_complete,
         source_change: state.pending_source_change().map(|_| {
             WorkCalendarSourceChange {
                 // The workspace layer owns the store and fills this in.
@@ -1019,6 +1051,8 @@ mod tests {
             http_status: Some(200),
             content_type_state: PublishedIcsContentTypeState::Calendar,
             series_identities: Vec::new(),
+            viewer_day: Some("2026-08-17".to_owned()),
+            day_selections_complete: true,
             response_bytes: 1,
             request_ms: 1,
             parse_ms: 1,

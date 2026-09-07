@@ -66,7 +66,6 @@ pub enum PublishedIcsStopReason {
     AmbiguousTime,
     UnsupportedRecurrence,
     RecurrenceLimit,
-    NoEligibleEvent,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -92,6 +91,12 @@ pub struct PublishedIcsSemanticProbe {
     /// a UID is raw calendar content and does not cross IPC.
     #[serde(skip_serializing)]
     pub series_identities: Vec<semantics::SeriesIdentity>,
+    /// Viewer-local date the day list describes, `YYYY-MM-DD`. `None` until the
+    /// feed has been read; age alone cannot establish that a list is current.
+    pub viewer_day: Option<String>,
+    /// False when the day list was truncated for payload bounds, so it cannot
+    /// support a total, an empty day, or an end-of-day claim.
+    pub day_selections_complete: bool,
     pub selection: Option<EventSelection>,
     pub overlapping_selections: Vec<EventSelection>,
     pub next_selection: Option<EventSelection>,
@@ -112,6 +117,9 @@ impl PublishedIcsSemanticProbe {
             title_capability_confirmed,
             http_status: None,
             series_identities: Vec::new(),
+            viewer_day: None,
+            // A probe that has read nothing cannot claim a complete day.
+            day_selections_complete: false,
             content_type_state: PublishedIcsContentTypeState::Missing,
             response_bytes: 0,
             request_ms: 0,
@@ -422,10 +430,6 @@ pub async fn get_semantic_probe(
                     PublishedIcsProbeStatus::Timeout,
                     PublishedIcsStopReason::ParseTime,
                 ),
-                SemanticFailureReason::NoEligibleEvent => (
-                    PublishedIcsProbeStatus::Unavailable,
-                    PublishedIcsStopReason::NoEligibleEvent,
-                ),
             };
             probe.fail(status, reason, failure.diagnostic);
             return probe;
@@ -438,13 +442,15 @@ pub async fn get_semantic_probe(
     probe.active_candidate_count = semantic.active_candidate_count;
     probe.expanded_occurrence_count = semantic.expanded_occurrence_count;
     probe.private_title_redacted = semantic.private_title_redacted;
-    probe.selection = Some(semantic.selection);
+    probe.selection = semantic.selection;
     probe.overlapping_selections = semantic.overlapping_selections;
     probe.next_selection = semantic.next_selection;
     probe.day_selections = semantic.day_selections;
     probe.series_identities = semantic.series_identities;
+    probe.viewer_day = Some(semantic.viewer_day);
+    probe.day_selections_complete = semantic.day_selections_complete;
     probe.diagnostics.push(
-        "A fresh active-or-next selection, at most one simultaneous or overlapping event, at most one later upcoming companion, and a bounded same-day summary were produced from one user-confirmed title-capable published calendar.".to_owned(),
+        "A bounded same-day summary was produced from one user-confirmed title-capable published calendar, with at most one active-or-next selection, one simultaneous or overlapping event and one later upcoming companion. A feed with nothing active or upcoming is reported as read, not as unavailable.".to_owned(),
     );
     probe.diagnostics.push(
         "Location, account, attendees, organizer, body, UID, raw calendar data, and meeting URLs were discarded and did not cross IPC.".to_owned(),

@@ -16,6 +16,9 @@ const RECURRENCE_LOOKBACK: TimeDelta = TimeDelta::days(31);
 const RECURRENCE_LOOKAHEAD: TimeDelta = TimeDelta::days(366);
 const MAX_OCCURRENCES_PER_SERIES: u16 = 4_096;
 const MAX_EXPANDED_OCCURRENCES: usize = 20_000;
+/// Bound on the same-day list carried across IPC. Completeness is reported
+/// alongside it so a truncated day is never mistaken for a whole one.
+const MAX_DAY_SELECTIONS: usize = 24;
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -86,7 +89,6 @@ pub enum SemanticFailureReason {
     UnsupportedRecurrence,
     RecurrenceLimit,
     ParseTime,
-    NoEligibleEvent,
 }
 
 #[derive(Debug)]
@@ -97,7 +99,22 @@ pub struct SemanticFailure {
 
 #[derive(Debug)]
 pub struct SemanticScan {
-    pub selection: EventSelection,
+    /// `None` when the feed was read successfully but holds nothing active or
+    /// upcoming — a finished timetable or an out-of-term calendar. That is a
+    /// successful read, not a failure.
+    pub selection: Option<EventSelection>,
+    /// The viewer-local calendar date `day_selections` describes, `YYYY-MM-DD`.
+    ///
+    /// Age alone cannot establish that a day list is current: a snapshot taken
+    /// at 23:59 is seconds old at 00:00 the next day and describes the wrong
+    /// day. Consumers must compare this against the viewer's current date.
+    pub viewer_day: String,
+    /// False when the day list was truncated for payload bounds.
+    ///
+    /// An incomplete list cannot support a lesson total, an empty day, or an
+    /// end-of-day claim, because the entries that would contradict it may be
+    /// the ones dropped.
+    pub day_selections_complete: bool,
     pub overlapping_selections: Vec<EventSelection>,
     pub next_selection: Option<EventSelection>,
     pub day_selections: Vec<DayEventSelection>,
@@ -300,7 +317,10 @@ pub fn extract_current_or_next(
             .then_with(|| left.uid.cmp(&right.uid))
             .then_with(|| left.source_order.cmp(&right.source_order))
     });
-    day_selections.truncate(24);
+    // Record completeness before bounding, so a truncated day can never be
+    // presented as a definitive total or an ended day.
+    let day_selections_complete = day_selections.len() <= MAX_DAY_SELECTIONS;
+    day_selections.truncate(MAX_DAY_SELECTIONS);
 
     candidates.retain(|candidate| {
         !candidate.cancelled && candidate.end > now && candidate.start < window_end
@@ -334,15 +354,19 @@ pub fn extract_current_or_next(
         })
     });
 
-    let selected = candidates.first().cloned().ok_or_else(|| {
-        failure(
-            SemanticFailureReason::NoEligibleEvent,
-            "No active or upcoming event was present inside the bounded 366-day selection window.",
-        )
-    })?;
-    let selected_is_active = selected.start <= now && selected.end > now;
-    let overlapping_selected = if !selected.all_day {
-        candidates
+    // A feed with nothing active or upcoming is a **successfully read** feed,
+    // not an unreadable one. It is what a finished timetable looks like on the
+    // evening of the last teaching day, and what an empty calendar looks like
+    // during a holiday. Failing here used to discard the day list and the
+    // series identities that were already derived above, which left the app
+    // unable to say "today's lessons have ended" at exactly the moment that is
+    // the truth.
+    let selected = candidates.first().cloned();
+    let selected_is_active = selected
+        .as_ref()
+        .is_some_and(|candidate| candidate.start <= now && candidate.end > now);
+    let overlapping_selected = match selected.as_ref() {
+        Some(selected) if !selected.all_day => candidates
             .iter()
             .skip(1)
             .filter(|candidate| {
@@ -355,9 +379,8 @@ pub fn extract_current_or_next(
             })
             .take(1)
             .cloned()
-            .collect()
-    } else {
-        Vec::new()
+            .collect(),
+        _ => Vec::new(),
     };
     let next_selected = selected_is_active
         .then(|| {
@@ -368,13 +391,15 @@ pub fn extract_current_or_next(
                 .cloned()
         })
         .flatten();
-    let private_title_redacted = selected.private
+    let private_title_redacted = selected.as_ref().is_some_and(|candidate| candidate.private)
         || overlapping_selected.iter().any(|event| event.private)
         || next_selected.as_ref().is_some_and(|event| event.private)
         || day_selections.iter().any(|event| event.private);
 
     Ok(SemanticScan {
-        selection: selection_from_candidate(selected, now),
+        selection: selected.map(|candidate| selection_from_candidate(candidate, now)),
+        viewer_day: viewer_day.format("%Y-%m-%d").to_string(),
+        day_selections_complete,
         overlapping_selections: overlapping_selected
             .into_iter()
             .map(|candidate| selection_from_candidate(candidate, now))
@@ -1355,6 +1380,14 @@ mod tests {
             .with_timezone(&Utc)
     }
 
+    /// A feed with nothing active or upcoming is now a successful read with no
+    /// selection, so tests that assert on the selection say so explicitly.
+    fn selection(scan: &SemanticScan) -> &EventSelection {
+        scan.selection
+            .as_ref()
+            .expect("this fixture is expected to yield a selection")
+    }
+
     fn extract(input: &str) -> Result<SemanticScan, SemanticFailure> {
         extract_current_or_next(input.as_bytes(), now(), Tz::UTC, Instant::now())
     }
@@ -1362,9 +1395,12 @@ mod tests {
     #[test]
     fn selects_active_before_upcoming_and_redacts_private_fields() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:next\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Next meeting\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:active\r\nDTSTART:20260811T113000Z\r\nDTEND:20260811T123000Z\r\nSUMMARY:Secret title\r\nCLASS:PRIVATE\r\nX-MICROSOFT-ONLINEMEETINGEXTERNALLINK:https://teams.microsoft.com/l/meetup-join/secret\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(result.selection.classification, EventClassification::Active);
-        assert_eq!(result.selection.subject, "Private event");
-        assert_eq!(result.selection.meeting_link_present, None);
+        assert_eq!(
+            selection(&result).classification,
+            EventClassification::Active
+        );
+        assert_eq!(selection(&result).subject, "Private event");
+        assert_eq!(selection(&result).meeting_link_present, None);
         assert_eq!(result.day_selections.len(), 2);
         assert_eq!(result.day_selections[0].subject, "Private event");
         assert_eq!(result.day_selections[1].subject, "Next meeting");
@@ -1383,10 +1419,10 @@ mod tests {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:all-day-context\r\nDTSTART;VALUE=DATE:20260810\r\nDTEND;VALUE=DATE:20260815\r\nSUMMARY:All-day context\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:next-timed\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:Next timed event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
 
         assert_eq!(
-            result.selection.classification,
+            selection(&result).classification,
             EventClassification::Upcoming
         );
-        assert_eq!(result.selection.subject, "Next timed event");
+        assert_eq!(selection(&result).subject, "Next timed event");
         assert!(result.next_selection.is_none());
         assert_eq!(result.active_candidate_count, 1);
     }
@@ -1403,8 +1439,11 @@ mod tests {
     fn active_timed_event_still_precedes_upcoming_timed_and_all_day_events() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:all-day-context\r\nDTSTART;VALUE=DATE:20260810\r\nDTEND;VALUE=DATE:20260815\r\nSUMMARY:All-day context\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:active-timed\r\nDTSTART:20260811T113000Z\r\nDTEND:20260811T123000Z\r\nSUMMARY:Active timed event\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:next-timed\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:Next timed event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
 
-        assert_eq!(result.selection.classification, EventClassification::Active);
-        assert_eq!(result.selection.subject, "Active timed event");
+        assert_eq!(
+            selection(&result).classification,
+            EventClassification::Active
+        );
+        assert_eq!(selection(&result).subject, "Active timed event");
         assert_eq!(
             result
                 .next_selection
@@ -1429,9 +1468,9 @@ mod tests {
     fn exposes_two_upcoming_events_with_the_same_start_time() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:first-upcoming\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T133000Z\r\nSUMMARY:First simultaneous meeting\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:second-upcoming\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Second simultaneous meeting\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:later\r\nDTSTART:20260811T150000Z\r\nDTEND:20260811T153000Z\r\nSUMMARY:Later meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
 
-        assert_eq!(result.selection.subject, "First simultaneous meeting");
+        assert_eq!(selection(&result).subject, "First simultaneous meeting");
         assert_eq!(
-            result.selection.classification,
+            selection(&result).classification,
             EventClassification::Upcoming
         );
         assert_eq!(result.overlapping_selections.len(), 1);
@@ -1450,7 +1489,7 @@ mod tests {
     fn redacts_a_private_overlapping_active_event() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:private-overlap\r\nDTSTART:20260811T110000Z\r\nDTEND:20260811T130000Z\r\nSUMMARY:Sensitive overlap\r\nCLASS:PRIVATE\r\nX-MICROSOFT-ONLINEMEETINGEXTERNALLINK:https://teams.microsoft.com/l/meetup-join/private-overlap\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:primary\r\nDTSTART:20260811T113000Z\r\nDTEND:20260811T123000Z\r\nSUMMARY:Primary meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
 
-        assert_eq!(result.selection.subject, "Primary meeting");
+        assert_eq!(selection(&result).subject, "Primary meeting");
         assert_eq!(result.overlapping_selections.len(), 1);
         let overlapping = &result.overlapping_selections[0];
         assert_eq!(overlapping.subject, "Private event");
@@ -1462,8 +1501,8 @@ mod tests {
     #[test]
     fn expands_recurring_events_and_applies_cancelled_override() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:series\r\nDTSTART:20260804T130000Z\r\nDTEND:20260804T140000Z\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:Weekly sync\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:series\r\nRECURRENCE-ID:20260811T130000Z\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(result.selection.start, "2026-08-18T13:00:00+00:00");
-        assert_eq!(result.selection.subject, "Weekly sync");
+        assert_eq!(selection(&result).start, "2026-08-18T13:00:00+00:00");
+        assert_eq!(selection(&result).subject, "Weekly sync");
         assert_eq!(result.day_selections.len(), 1);
         assert!(result.day_selections[0].cancelled);
         assert_eq!(result.day_selections[0].subject, "Weekly sync");
@@ -1479,7 +1518,7 @@ mod tests {
     #[test]
     fn ignores_only_stale_orphan_overrides() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:orphan\r\nRECURRENCE-ID:20260801T130000Z\r\nDTSTART:20260801T130000Z\r\nDTEND:20260801T140000Z\r\nSUMMARY:Stale exception\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:next\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Next meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(result.selection.subject, "Next meeting");
+        assert_eq!(selection(&result).subject, "Next meeting");
 
         let future_orphan = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:orphan\r\nRECURRENCE-ID:20260812T130000Z\r\nDTSTART:20260812T130000Z\r\nDTEND:20260812T140000Z\r\nSUMMARY:Future exception\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap_err();
         assert_eq!(
@@ -1492,7 +1531,7 @@ mod tests {
     fn maps_windows_timezone_ids_and_uses_deterministic_overlap_order() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:FLE Standard Time\r\nBEGIN:VEVENT\r\nUID:first\r\nDTSTART;TZID=FLE Standard Time:20260811T140000\r\nDTEND;TZID=FLE Standard Time:20260811T153000\r\nSUMMARY:Earlier active\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:second\r\nDTSTART;TZID=FLE Standard Time:20260811T143000\r\nDTEND;TZID=FLE Standard Time:20260811T160000\r\nSUMMARY:Most recently started\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(result.active_candidate_count, 2);
-        assert_eq!(result.selection.subject, "Most recently started");
+        assert_eq!(selection(&result).subject, "Most recently started");
         assert_eq!(result.overlapping_selections.len(), 1);
         assert_eq!(result.overlapping_selections[0].subject, "Earlier active");
         assert_eq!(
@@ -1504,9 +1543,9 @@ mod tests {
     #[test]
     fn handles_all_day_event_with_calendar_timezone() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:Europe/Kyiv\r\nBEGIN:VEVENT\r\nUID:all-day\r\nDTSTART;VALUE=DATE:20260812\r\nDTEND;VALUE=DATE:20260813\r\nSUMMARY:All day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(result.selection.start, "2026-08-11T21:00:00+00:00");
-        assert_eq!(result.selection.end, "2026-08-12T21:00:00+00:00");
-        assert!(result.selection.all_day);
+        assert_eq!(selection(&result).start, "2026-08-11T21:00:00+00:00");
+        assert_eq!(selection(&result).end, "2026-08-12T21:00:00+00:00");
+        assert!(selection(&result).all_day);
     }
 
     #[test]
@@ -1518,9 +1557,9 @@ mod tests {
             Instant::now(),
         )
         .unwrap();
-        assert_eq!(result.selection.start, "2026-08-11T21:00:00+00:00");
-        assert_eq!(result.selection.end, "2026-08-12T21:00:00+00:00");
-        assert!(result.selection.all_day);
+        assert_eq!(selection(&result).start, "2026-08-11T21:00:00+00:00");
+        assert_eq!(selection(&result).end, "2026-08-12T21:00:00+00:00");
+        assert!(selection(&result).all_day);
     }
 
     #[test]
@@ -1577,13 +1616,13 @@ mod tests {
     #[test]
     fn retains_allowlisted_meeting_url_only_outside_serialized_selection() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:meeting\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Meeting\r\nDESCRIPTION:Join at https://teams.microsoft.com/l/meetup-join/opaque\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(result.selection.meeting_link_present, Some(true));
+        assert_eq!(selection(&result).meeting_link_present, Some(true));
         assert_eq!(
-            result.selection.meeting_provider,
+            selection(&result).meeting_provider,
             Some(MeetingProvider::Teams)
         );
         assert_eq!(
-            result.selection.meeting_url.as_deref(),
+            selection(&result).meeting_url.as_deref(),
             Some("https://teams.microsoft.com/l/meetup-join/opaque")
         );
         let json = serde_json::to_string(&result.selection).unwrap();
@@ -1594,26 +1633,85 @@ mod tests {
     #[test]
     fn retains_teams_provider_from_a_teams_specific_property_without_a_url() {
         let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:teams-signal\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Teams meeting\r\nX-MICROSOFT-SKYPETEAMSMEETINGURL:opaque-provider-signal\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(result.selection.meeting_link_present, Some(true));
+        assert_eq!(selection(&result).meeting_link_present, Some(true));
         assert_eq!(
-            result.selection.meeting_provider,
+            selection(&result).meeting_provider,
             Some(MeetingProvider::Teams)
         );
-        assert!(result.selection.meeting_url.is_none());
+        assert!(selection(&result).meeting_url.is_none());
+    }
+
+    /// A finished timetable is a *successfully read* feed, not an unavailable
+    /// one. Before this, no active-or-upcoming candidate failed the whole scan
+    /// and discarded the day list, so the app could not say "today's lessons
+    /// have ended" at the one moment that is the truth.
+    #[test]
+    fn a_feed_with_nothing_upcoming_is_read_successfully_without_a_selection() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:finished\r\nDTSTART:20260811T090000Z\r\nDTEND:20260811T094500Z\r\nSUMMARY:Last lesson\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+            .expect("a finished day is not a failure");
+
+        assert!(result.selection.is_none());
+        assert!(result.next_selection.is_none());
+        // The day list survives, which is what lets the school-day reading
+        // report an ended day rather than an unreadable one.
+        assert_eq!(result.day_selections.len(), 1);
+        assert_eq!(result.viewer_day, "2026-08-11");
+        assert!(result.day_selections_complete);
+        // And the series is still reported, so a source change can carry its
+        // association over even though the lessons have finished.
+        assert_eq!(result.series_identities.len(), 1);
+    }
+
+    /// An entirely empty calendar is also a successful read — that is what a
+    /// school calendar looks like during a holiday.
+    #[test]
+    fn an_empty_calendar_is_read_successfully_as_a_verified_empty_day() {
+        let result = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nEND:VCALENDAR\r\n")
+            .expect("an empty calendar is not a failure");
+
+        assert!(result.selection.is_none());
+        assert!(result.day_selections.is_empty());
+        // Empty *with* a viewer day is the difference between "no lessons
+        // today" and "we could not read the timetable".
+        assert_eq!(result.viewer_day, "2026-08-11");
+        assert!(result.day_selections_complete);
+    }
+
+    /// A truncated day cannot support a total or an end-of-day claim, because
+    /// the entries that would contradict it may be the ones dropped.
+    #[test]
+    fn a_truncated_day_reports_itself_incomplete() {
+        let mut feed = String::from("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\n");
+        for index in 0..(MAX_DAY_SELECTIONS + 3) {
+            // Every entry starts before "now" and ends after it, so all of them
+            // land in the same day list.
+            feed.push_str(&format!(
+                "BEGIN:VEVENT\r\nUID:e{index}\r\nDTSTART:20260811T1100{:02}Z\r\nDTEND:20260811T1300{:02}Z\r\nSUMMARY:E{index}\r\nEND:VEVENT\r\n",
+                index, index
+            ));
+        }
+        feed.push_str("END:VCALENDAR\r\n");
+
+        let result = extract(&feed).expect("a busy day still parses");
+        assert_eq!(result.day_selections.len(), MAX_DAY_SELECTIONS);
+        assert!(
+            !result.day_selections_complete,
+            "a truncated day must report itself incomplete"
+        );
     }
 
     #[test]
     fn recognizes_branded_teams_location_but_not_an_event_title() {
         let location = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:teams-location\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Daily meeting\r\nLOCATION:Microsoft Teams Meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
         assert_eq!(
-            location.selection.meeting_provider,
+            selection(&location).meeting_provider,
             Some(MeetingProvider::Teams)
         );
-        assert_eq!(location.selection.meeting_link_present, Some(true));
+        assert_eq!(selection(&location).meeting_link_present, Some(true));
 
         let title_only = extract("BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:teams-title\r\nDTSTART:20260811T130000Z\r\nDTEND:20260811T140000Z\r\nSUMMARY:Microsoft Teams Meeting Review\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n").unwrap();
-        assert_eq!(title_only.selection.meeting_provider, None);
-        assert_eq!(title_only.selection.meeting_link_present, Some(false));
+        assert_eq!(selection(&title_only).meeting_provider, None);
+        assert_eq!(selection(&title_only).meeting_link_present, Some(false));
     }
 
     #[test]
