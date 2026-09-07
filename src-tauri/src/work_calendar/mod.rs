@@ -224,16 +224,6 @@ pub struct WorkCalendarSourceChange {
 pub struct WorkCalendarState {
     request_gate: Mutex<()>,
     join_targets: StdMutex<JoinTargetCache>,
-    /// Key pairs produced by a replacement that has **already been applied**,
-    /// waiting to be handed to the workspace layer.
-    ///
-    /// This deliberately holds no scopes and survives no decision. An earlier
-    /// design remembered the previous and current scopes across user
-    /// interaction, which went stale whenever the source was removed or
-    /// replaced again — the remap then wrote associations under a scope that was
-    /// no longer the saved source, and reported success. Computing the pairs
-    /// inside the same gate as the write removes the window entirely.
-    completed_remap: StdMutex<Option<Vec<WorkspaceKeyRemap>>>,
 }
 
 impl WorkCalendarState {
@@ -241,23 +231,7 @@ impl WorkCalendarState {
         Self {
             request_gate: Mutex::new(()),
             join_targets: StdMutex::new(JoinTargetCache::default()),
-            completed_remap: StdMutex::new(None),
         }
-    }
-
-    fn set_completed_remap(&self, remap: Vec<WorkspaceKeyRemap>) {
-        if let Ok(mut slot) = self.completed_remap.lock() {
-            *slot = Some(remap);
-        }
-    }
-
-    /// Takes the pending remap, leaving nothing behind, so it can only ever be
-    /// applied once.
-    pub fn take_completed_remap(&self) -> Option<Vec<WorkspaceKeyRemap>> {
-        self.completed_remap
-            .lock()
-            .ok()
-            .and_then(|mut slot| slot.take())
     }
 
     fn clear_join_targets(&self) {
@@ -481,12 +455,79 @@ pub enum SourceReplacement {
     ReplaceAndKeepSeparate,
 }
 
+/// A save's result, plus any carry-over it authorised.
+///
+/// The remap travels **with the result to its own caller**. An earlier design
+/// left it in a slot on the shared state, which the caller drained after the
+/// request gate had been released — so two overlapping saves could cross, and a
+/// keep-separate decision could apply the carry-over pairs belonging to a
+/// different replacement. Ownership is the fix; a single-drain slot was not.
+pub struct SaveOutcome {
+    pub snapshot: WorkCalendarSnapshot,
+    pub remap: Option<Vec<WorkspaceKeyRemap>>,
+}
+
+/// What a save may do, decided **before** anything is verified or written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SaveAction {
+    /// The outgoing source could not be read. Do nothing: no verification, no
+    /// write, no remap. A read failure is not evidence that no source exists,
+    /// and no replacement decision can be related to a source we cannot
+    /// identify.
+    AbortUnreadableCredential,
+    /// Nothing is being replaced — either no source is saved, or this is the
+    /// same one re-pasted.
+    Proceed,
+    /// Replaces a different source, and the caller has not decided yet.
+    ConfirmReplacement,
+    ReplaceCarryingOver,
+    ReplaceKeepingSeparate,
+}
+
+/// The write barrier, as a pure decision.
+///
+/// This exists because the barrier was first written inline and collapsed
+/// `Ok(None)` with `Err(_)` into a single `_ => None` arm. That made a
+/// transient credential-read failure look like "no source saved", so an
+/// `AskFirst` save skipped confirmation and overwrote the saved source. Pulling
+/// the decision out makes all nine combinations testable without touching
+/// Windows Credential Manager, and makes that collapse impossible to
+/// reintroduce silently.
+fn save_action(
+    previous_scope: Result<Option<&str>, ()>,
+    source_scope: &str,
+    replacement: SourceReplacement,
+) -> SaveAction {
+    let previous = match previous_scope {
+        Err(()) => return SaveAction::AbortUnreadableCredential,
+        Ok(previous) => previous,
+    };
+    let replaces_a_different_source = previous.is_some_and(|previous| previous != source_scope);
+    if !replaces_a_different_source {
+        return SaveAction::Proceed;
+    }
+    match replacement {
+        SourceReplacement::AskFirst => SaveAction::ConfirmReplacement,
+        SourceReplacement::ReplaceAndCarryOver => SaveAction::ReplaceCarryingOver,
+        SourceReplacement::ReplaceAndKeepSeparate => SaveAction::ReplaceKeepingSeparate,
+    }
+}
+
+impl From<WorkCalendarSnapshot> for SaveOutcome {
+    fn from(snapshot: WorkCalendarSnapshot) -> Self {
+        Self {
+            snapshot,
+            remap: None,
+        }
+    }
+}
+
 pub async fn save_source(
     state: &WorkCalendarState,
     mut published_url: String,
     title_capability_confirmed: bool,
     replacement: SourceReplacement,
-) -> WorkCalendarSnapshot {
+) -> SaveOutcome {
     let _guard = state.request_gate.lock().await;
     let source_scope = calendar_source_scope(&published_url);
 
@@ -498,14 +539,46 @@ pub async fn save_source(
         Ok(Some(mut previous)) => {
             let scope = calendar_source_scope(&previous);
             zero_string(&mut previous);
-            Some(scope)
+            Ok(Some(scope))
         }
-        _ => None,
+        Ok(None) => Ok(None),
+        Err(()) => Err(()),
     };
-    // Re-pasting the identical URL changes nothing and needs no confirmation.
-    let replaces_a_different_source = previous_scope
-        .as_deref()
-        .is_some_and(|previous| previous != source_scope);
+    let action = save_action(
+        previous_scope
+            .as_ref()
+            .map(|scope| scope.as_deref())
+            .map_err(|_| ()),
+        &source_scope,
+        replacement,
+    );
+
+    if action == SaveAction::AbortUnreadableCredential {
+        zero_string(&mut published_url);
+        return WorkCalendarSnapshot {
+            status: WorkCalendarStatus::Error,
+            configured: get_configuration().configured,
+            storage_available: false,
+            source_identity_state: SOURCE_IDENTITY_STATE,
+            captured_at_unix_ms: now_unix_ms(),
+            selection: None,
+            overlapping_selections: Vec::new(),
+            next_selection: None,
+            day_selections: Vec::new(),
+            stop_reason: None,
+            request_ms: 0,
+            parse_ms: 0,
+            diagnostics: vec![
+                "The saved calendar source could not be read, so the pasted link was not verified and nothing was saved. The existing source is unchanged.".to_owned(),
+            ],
+            viewer_day: None,
+            day_selections_complete: false,
+            source_change: None,
+            unmatched_association_count: None,
+            feed_workspace_keys: Vec::new(),
+        }
+        .into();
+    }
 
     let probe = published_ics::get_semantic_probe_with_deadline(
         published_url.clone(),
@@ -527,7 +600,8 @@ pub async fn save_source(
             probe,
             get_configuration().configured,
             Some(&source_scope),
-        );
+        )
+        .into();
     }
 
     // Warn *before* applying, as school-mode.md section 9 requires. The saved
@@ -535,7 +609,7 @@ pub async fn save_source(
     // no half-applied state to recover from. The candidate URL is discarded
     // rather than held in memory awaiting a decision — the caller still has
     // what the user typed and re-submits it with an explicit choice.
-    if replaces_a_different_source && replacement == SourceReplacement::AskFirst {
+    if action == SaveAction::ConfirmReplacement {
         zero_string(&mut published_url);
         let mut snapshot = snapshot_from_probe(state, probe, get_configuration().configured, None);
         snapshot.source_change = Some(WorkCalendarSourceChange {
@@ -545,26 +619,26 @@ pub async fn save_source(
         snapshot.diagnostics.push(
             "The pasted calendar verified successfully and was not saved: it replaces a different source, which needs an explicit decision first.".to_owned(),
         );
-        return snapshot;
+        return snapshot.into();
     }
 
     let write_result = credential_store::write(&published_url);
     zero_string(&mut published_url);
     match write_result {
         Ok(()) => {
-            if replacement == SourceReplacement::ReplaceAndCarryOver {
-                if let Some(previous_scope) = previous_scope {
-                    // The remap runs here, inside the same gate that read the
-                    // outgoing credential and performed the write, so the scope
-                    // pair cannot be overtaken by another save or a removal.
-                    state.set_completed_remap(remap_from_probe(
-                        &probe,
-                        &previous_scope,
-                        &source_scope,
-                    ));
+            // Computed inside the gate that read the outgoing credential and
+            // performed the write, and returned to this request's own caller —
+            // never left where an overlapping save could pick it up.
+            let remap = match (action, previous_scope) {
+                (SaveAction::ReplaceCarryingOver, Ok(Some(previous_scope))) => {
+                    Some(remap_from_probe(&probe, &previous_scope, &source_scope))
                 }
+                _ => None,
+            };
+            SaveOutcome {
+                snapshot: snapshot_from_probe(state, probe, true, Some(&source_scope)),
+                remap,
             }
-            snapshot_from_probe(state, probe, true, Some(&source_scope))
         }
         Err(_) => {
             state.clear_join_targets();
@@ -591,6 +665,7 @@ pub async fn save_source(
                 unmatched_association_count: None,
                 feed_workspace_keys: Vec::new(),
             }
+            .into()
         }
     }
 }
@@ -766,10 +841,14 @@ fn snapshot_from_probe(
     configured: bool,
     source_scope: Option<&str>,
 ) -> WorkCalendarSnapshot {
+    // A permitted, observed read is Observed **whether or not it produced a
+    // selection**. Requiring one here silently undid the parser's repair: an
+    // empty or finished calendar parsed successfully, the probe reported
+    // Observed, and this adapter then converted it to Unavailable and discarded
+    // the verified day — so the app still could not say "today's lessons have
+    // ended" or "no lessons today", which was the whole point of that work.
     let status = match probe.status {
-        PublishedIcsProbeStatus::Observed
-            if probe.semantic_extraction_allowed && probe.selection.is_some() =>
-        {
+        PublishedIcsProbeStatus::Observed if probe.semantic_extraction_allowed => {
             WorkCalendarStatus::Observed
         }
         PublishedIcsProbeStatus::Error => WorkCalendarStatus::Error,
@@ -1006,9 +1085,12 @@ mod tests {
         let probe = PublishedIcsSemanticProbe::command_deadline(true);
         let snapshot = snapshot_from_probe(&state, probe, true, None);
 
+        // A timed-out probe is a genuine failure: no status, no day, nothing.
         assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
         assert!(snapshot.selection.is_none());
         assert!(snapshot.next_selection.is_none());
+        assert!(snapshot.viewer_day.is_none());
+        assert!(!snapshot.day_selections_complete);
         assert!(snapshot.configured);
         assert_eq!(
             join_url(&state, "join-1").unwrap(),
@@ -1046,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn observed_status_requires_a_selection() {
+    fn an_observed_read_without_a_selection_keeps_its_verified_day() {
         let state = WorkCalendarState::new();
         let probe = PublishedIcsSemanticProbe {
             status: PublishedIcsProbeStatus::Observed,
@@ -1077,8 +1159,15 @@ mod tests {
         };
         let snapshot = snapshot_from_probe(&state, probe, true, None);
 
-        assert!(matches!(snapshot.status, WorkCalendarStatus::Unavailable));
+        // The inverse of what this test asserted before RF1. An empty or
+        // finished calendar read successfully, so it stays Observed and keeps
+        // the day it verified — otherwise "today's lessons have ended" and
+        // "no lessons today" are unreachable, which was the whole point of
+        // making the selection optional.
+        assert!(matches!(snapshot.status, WorkCalendarStatus::Observed));
         assert!(snapshot.selection.is_none());
+        assert_eq!(snapshot.viewer_day.as_deref(), Some("2026-08-17"));
+        assert!(snapshot.day_selections_complete);
     }
 
     fn joinable_event(url: &str, uid: &str, start: &str) -> EventSelection {
@@ -1256,17 +1345,83 @@ mod tests {
         );
     }
 
-    /// Audit F5. A remap used to be built from remembered scopes that outlived
-    /// the decision, so removing the source and saving a third one still
-    /// applied the *old* pair — writing associations under a scope that was no
-    /// longer saved, and reporting success. There is now nothing to go stale:
-    /// pairs are computed from a probe plus the two scopes at hand, and the
-    /// slot they land in can only be drained once.
+    /// Audit RF2, exhaustively. The barrier first collapsed `Ok(None)` and
+    /// `Err(_)` into one arm, so a transient credential-read failure looked
+    /// like "no source saved" and let an `AskFirst` save overwrite the existing
+    /// source without the decision the design promises.
+    ///
+    /// All nine combinations of read outcome and replacement choice, because
+    /// the defect was a missing case rather than a wrong rule.
     #[test]
-    fn a_completed_remap_is_applied_exactly_once_and_holds_no_scopes() {
-        let state = WorkCalendarState::new();
-        assert!(state.take_completed_remap().is_none());
+    fn a_credential_read_failure_never_reaches_a_write() {
+        use SourceReplacement::*;
+        const SCOPE: &str = "current-scope";
 
+        // A read failure aborts regardless of what the caller decided. An
+        // explicit carry or keep decision cannot be related to an outgoing
+        // source we could not identify.
+        for replacement in [AskFirst, ReplaceAndCarryOver, ReplaceAndKeepSeparate] {
+            assert_eq!(
+                save_action(Err(()), SCOPE, replacement),
+                SaveAction::AbortUnreadableCredential,
+                "a read error must abort under {replacement:?}"
+            );
+        }
+
+        // No source saved: nothing is being replaced, so no confirmation.
+        for replacement in [AskFirst, ReplaceAndCarryOver, ReplaceAndKeepSeparate] {
+            assert_eq!(
+                save_action(Ok(None), SCOPE, replacement),
+                SaveAction::Proceed,
+                "a first source needs no confirmation under {replacement:?}"
+            );
+        }
+
+        // The same source re-pasted changes nothing and must not prompt.
+        for replacement in [AskFirst, ReplaceAndCarryOver, ReplaceAndKeepSeparate] {
+            assert_eq!(
+                save_action(Ok(Some(SCOPE)), SCOPE, replacement),
+                SaveAction::Proceed,
+                "re-pasting the identical link must not prompt under {replacement:?}"
+            );
+        }
+
+        // A genuinely different source honours the decision, and asks when
+        // there is none.
+        assert_eq!(
+            save_action(Ok(Some("other-scope")), SCOPE, AskFirst),
+            SaveAction::ConfirmReplacement
+        );
+        assert_eq!(
+            save_action(Ok(Some("other-scope")), SCOPE, ReplaceAndCarryOver),
+            SaveAction::ReplaceCarryingOver
+        );
+        assert_eq!(
+            save_action(Ok(Some("other-scope")), SCOPE, ReplaceAndKeepSeparate),
+            SaveAction::ReplaceKeepingSeparate
+        );
+
+        // Only one action authorises a carry-over, so a keep-separate decision
+        // can never produce remap pairs.
+        assert_ne!(
+            save_action(Ok(Some("other-scope")), SCOPE, ReplaceAndKeepSeparate),
+            SaveAction::ReplaceCarryingOver
+        );
+    }
+
+    /// Audit F5, then RF3. The remap was first built from scopes remembered
+    /// across a user decision, which went stale behind a removal or a second
+    /// replacement. Moving it into a single-drain slot on the shared state fixed
+    /// staleness but not *ownership*: the caller drained the slot after the
+    /// request gate had been released, so two overlapping saves could cross and
+    /// a keep-separate decision could apply another replacement's pairs.
+    ///
+    /// It is now returned with the result to its own caller. There is no shared
+    /// slot to interleave on, which is why this test asserts the pairs travel
+    /// with the outcome rather than asserting single-drain mechanics — the
+    /// audit's point being that single-drain proved the wrong property.
+    #[test]
+    fn a_remap_travels_with_its_own_save_outcome() {
         let previous = calendar_source_scope("https://calendar.google.com/a/basic.ics");
         let current = calendar_source_scope("https://calendar.google.com/b/basic.ics");
         assert_ne!(previous, current);
@@ -1289,14 +1444,29 @@ mod tests {
             recurring_series_key(&current, "maths-weekly")
         );
 
-        state.set_completed_remap(remap);
-        assert_eq!(
-            state.take_completed_remap().map(|entries| entries.len()),
-            Some(1)
-        );
-        // Draining it leaves nothing, so a later save cannot re-apply a
-        // replacement the user already resolved.
-        assert!(state.take_completed_remap().is_none());
+        // A keep-separate outcome carries no pairs at all, so there is nothing
+        // an unrelated request could pick up.
+        let keep_separate = SaveOutcome::from(WorkCalendarSnapshot {
+            status: WorkCalendarStatus::Observed,
+            configured: true,
+            storage_available: true,
+            source_identity_state: SOURCE_IDENTITY_STATE,
+            captured_at_unix_ms: 1,
+            selection: None,
+            overlapping_selections: Vec::new(),
+            next_selection: None,
+            day_selections: Vec::new(),
+            stop_reason: None,
+            request_ms: 0,
+            parse_ms: 0,
+            diagnostics: Vec::new(),
+            viewer_day: None,
+            day_selections_complete: false,
+            source_change: None,
+            unmatched_association_count: None,
+            feed_workspace_keys: Vec::new(),
+        });
+        assert!(keep_separate.remap.is_none());
     }
 
     /// A feed the probe never read yields no pairs, so a carry-over requested

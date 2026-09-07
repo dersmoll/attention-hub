@@ -869,7 +869,10 @@ async fn save_work_calendar_source(
         _ => work_calendar::SourceReplacement::AskFirst,
     };
 
-    let mut snapshot = work_calendar::save_source(
+    let work_calendar::SaveOutcome {
+        mut snapshot,
+        remap,
+    } = work_calendar::save_source(
         state.inner(),
         published_url,
         title_capability_confirmed,
@@ -877,9 +880,10 @@ async fn save_work_calendar_source(
     )
     .await;
 
-    // A replacement that asked to carry associations over left its key pairs
-    // behind, computed inside the same gate as the write. Apply them once.
-    if let Some(remap) = state.inner().take_completed_remap() {
+    // The remap belongs to *this* request. It is never read from shared state,
+    // so an overlapping save cannot apply another request's carry-over — the
+    // interleaving that let a keep-separate decision carry associations across.
+    if let Some(remap) = remap {
         let pairs = remap
             .into_iter()
             .map(|entry| (entry.previous_key, entry.current_key))

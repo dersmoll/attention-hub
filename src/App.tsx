@@ -1429,7 +1429,15 @@ function AdvancedView() {
               id="published-ics-url"
               ref={publishedIcsInputRef}
               maxLength={4096}
-              onChange={(event) => setPublishedIcsUrl(event.target.value)}
+              onChange={(event) => {
+                setPublishedIcsUrl(event.target.value);
+                // A confirmation describes one specific candidate. Once the
+                // field changes it no longer describes what is in it, so it
+                // must be raised again rather than applied to a different link.
+                setWorkCalendarSnapshot((current) =>
+                  current?.sourceChange?.confirmationRequired ? null : current,
+                );
+              }}
               placeholder="Outlook …/calendar.ics or Google …/basic.ics"
               spellCheck={false}
               type="password"
@@ -1449,7 +1457,9 @@ function AdvancedView() {
             </button>
           </div>
           <small id="published-ics-url-help">
-            The field is cleared as soon as an action starts. The link is never
+            The field is cleared once the link is saved. It is kept if
+            verification fails, or while a replacement is waiting for your
+            decision, so you do not have to paste it again. The link is never
             logged, returned, or added to evidence; it is persisted only after
             successful verification and only in Windows Credential Manager.
           </small>
@@ -1500,9 +1510,18 @@ function AdvancedView() {
             </div>
             <small>
               Carrying across only covers series the new calendar contains right
-              now. A subject with no remaining lessons cannot be matched. To
-              cancel, clear the link field — nothing has changed.
+              now. A subject with no remaining lessons cannot be matched.
             </small>
+            <button
+              disabled={workCalendarPending !== null}
+              onClick={() => {
+                setPublishedIcsUrl("");
+                setWorkCalendarSnapshot(null);
+              }}
+              type="button"
+            >
+              Cancel — keep the current calendar
+            </button>
           </div>
         ) : null}
 
