@@ -33,8 +33,8 @@ that still define the public beta.
    project, note, and to-do views reuse the same records. Arbitrary rich HTML,
    attachments, synchronization, and closed-app reminders are outside the beta.
 9. **User-controlled lifecycle.** Position, pinning, appearance, enabled
-   sources, and app order persist. Autostart, a Hub tray process, updater, and
-   signing require separate future decisions.
+   sources, and app order persist. A user-confirmed signed updater is supported.
+   Autostart, a Hub tray process, and Authenticode signing require separate future decisions.
 10. **Evidence without private content.** Public documentation records behavior,
     limits, hashes, and sanitized results—not user paths, calendar URLs, account
     identifiers, messages, or personal notes.

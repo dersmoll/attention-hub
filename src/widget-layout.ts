@@ -1,25 +1,26 @@
-export const WIDGET_COMPACT_CLOCK_WIDTH = 144;
-export const WIDGET_COMPACT_HEIGHT = 55;
+export const WIDGET_COMPACT_CLOCK_WIDTH = 126;
+export const WIDGET_COMPACT_HEIGHT = 48;
 export const WIDGET_SLIM_HEIGHT = 38  ;
-export const WIDGET_CALENDAR_COMPACT_WIDTH = 260;
-export const WIDGET_CALENDAR_COMPACT_DUAL_WIDTH = 392;
-export const WIDGET_COMPACT_DESTINATIONS_WIDTH = 88;
+export const WIDGET_CALENDAR_COMPACT_WIDTH = 220;
+export const WIDGET_CALENDAR_COMPACT_DUAL_WIDTH = 340;
+export const WIDGET_COMPACT_DESTINATIONS_WIDTH = 48;
 export const WIDGET_SLIM_DESTINATIONS_WIDTH = 66;
 export const WIDGET_COMPACT_UTILITY_WIDTH = 20;
-export const WIDGET_SLIM_UTILITY_WIDTH = 64;
+export const WIDGET_SLIM_UTILITY_WIDTH = 50;
 export const WIDGET_DRAG_HANDLE_WIDTH = 18;
-export const WIDGET_COMPACT_ICON_SIZE = 32;
-export const WIDGET_COMPACT_ICON_GAP = 4;
+export const WIDGET_COMPACT_ICON_SIZE = 30;
+export const WIDGET_COMPACT_ICON_GAP = 2;
 export const WIDGET_COMPACT_LEFT_PADDING = 16;
 export const WIDGET_SLIM_ICON_SIZE = 32;
 export const WIDGET_SLIM_ICON_GAP = 2;
 export const WIDGET_SLIM_LEFT_PADDING = 4;
-export const WIDGET_SLIM_CLOCK_ITEM_WIDTH = 84;
-export const WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH = 10;
+export const WIDGET_SLIM_CLOCK_ITEM_WIDTH = 80;
+export const WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH = 9;
+export const WIDGET_SLIM_PRIMARY_CLOCK_SECONDS_WIDTH = 4;
 export const WIDGET_TIME_FOCUS_CLOCK_WIDTH = 240;
 export const WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH = 192;
-export const WIDGET_SLIM_CALENDAR_WIDTH = 320;
-export const WIDGET_SLIM_CALENDAR_DUAL_WIDTH = 520;
+export const WIDGET_SLIM_CALENDAR_WIDTH = 260;
+export const WIDGET_SLIM_CALENDAR_DUAL_WIDTH = 440;
 export const WIDGET_SLIM_CALENDAR_MAX_WIDTH = 600;
 export const WIDGET_SLIM_CALENDAR_DUAL_MAX_WIDTH = 800;
 export const CALENDAR_DAY_PANEL_ROW_HEIGHT = 216;
@@ -33,6 +34,7 @@ export const TODAY_TODO_MAX_ITEMS = 8;
 export const TODAY_DOSE_SECTION_BASE_HEIGHT = 30;
 export const TODAY_DOSE_ROW_HEIGHT = 30;
 export const TODAY_DOSE_MAX_ITEMS = 8;
+export const TODAY_POPUP_MIN_WIDTH = 300;
 
 export type WidgetWidthMode = "recommended" | "slim";
 
@@ -113,19 +115,19 @@ export function widgetClockPanelWidth(
       ? WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH
       : WIDGET_TIME_FOCUS_CLOCK_WIDTH;
   }
-  const boundedCount = Math.min(5, Math.max(2, Math.trunc(clockCount)));
+  const boundedCount = Math.min(5, Math.max(1, Math.trunc(clockCount)));
   if (widthMode === "slim") {
-    return boundedCount * WIDGET_SLIM_CLOCK_ITEM_WIDTH + WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH;
+    return boundedCount * WIDGET_SLIM_CLOCK_ITEM_WIDTH + WIDGET_SLIM_PRIMARY_CLOCK_SECONDS_WIDTH;
   }
-  const base = widgetClockWidth(widthMode);
+  const compactClockItemWidth = WIDGET_COMPACT_CLOCK_WIDTH / 2;
   if (clockLayout === "vertical") {
-    return base + WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH;
+    return (
+      (boundedCount === 1
+        ? compactClockItemWidth
+        : WIDGET_COMPACT_CLOCK_WIDTH) + WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH
+    );
   }
-  return (
-    base +
-    (boundedCount - 2) * (WIDGET_COMPACT_CLOCK_WIDTH / 2) +
-    WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH
-  );
+  return boundedCount * compactClockItemWidth + WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH;
 }
 
 export function widgetZoneGap(widthMode: WidgetWidthMode = "recommended") {
@@ -183,11 +185,14 @@ export function widgetCalendarWidth(
     : WIDGET_CALENDAR_COMPACT_WIDTH;
 }
 
-export function todayPopupHeight(eventCount: number, doseCount = 0, todoCount = 0, showsMedicineRecovery = false) {
+export function todayPopupHeight(eventCount: number, doseCount = 0, todoCount = 0, showsMedicineRecovery = false, showsMedicineContinuation = false) {
   const boundedDoses = Math.min(TODAY_DOSE_MAX_ITEMS, Math.max(0, Math.trunc(doseCount)));
   const doseRows = boundedDoses + Number(doseCount > TODAY_DOSE_MAX_ITEMS);
   const boundedTodos = Math.min(TODAY_TODO_MAX_ITEMS, Math.max(0, Math.trunc(todoCount)));
-  return calendarDayPanelHeight(eventCount) + (showsMedicineRecovery ? 24 : 0) + (doseRows > 0 ? TODAY_DOSE_SECTION_BASE_HEIGHT + doseRows * TODAY_DOSE_ROW_HEIGHT : 0) + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
+  const medicineHeight = doseRows > 0 || showsMedicineContinuation
+    ? TODAY_DOSE_SECTION_BASE_HEIGHT + (doseRows + Number(showsMedicineContinuation)) * TODAY_DOSE_ROW_HEIGHT
+    : 0;
+  return calendarDayPanelHeight(eventCount) + (showsMedicineRecovery ? 24 : 0) + medicineHeight + (boundedTodos > 0 ? TODAY_TODO_SECTION_BASE_HEIGHT + boundedTodos * TODAY_TODO_ROW_HEIGHT : 0);
 }
 
 export function widgetFixedWidth(
@@ -232,7 +237,12 @@ export function widgetDestinationsWidth(
   if (widthMode === "slim") {
     return 33 * (Number(showTodayPanel) + Number(showProjectsPanel) + Number(showMedicinePanel));
   }
-  return (showTodayPanel ? 60 : 0) + (showProjectsPanel ? 28 : 0) + (showMedicinePanel ? 44 : 0);
+  return 24 * (Number(showTodayPanel) + Number(showProjectsPanel) + Number(showMedicinePanel));
+}
+
+export function todayPopupWidth(anchorWidth: number) {
+  const safeWidth = Number.isFinite(anchorWidth) ? anchorWidth : 0;
+  return Math.max(TODAY_POPUP_MIN_WIDTH, Math.round(safeWidth));
 }
 
 export function widgetUtilityWidth(

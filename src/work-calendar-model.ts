@@ -6,6 +6,7 @@ export type WorkCalendarStatus =
   | "error";
 
 export interface WorkCalendarSelection {
+  occurrenceId: string;
   subject: string;
   start: string;
   end: string;
@@ -19,6 +20,7 @@ export interface WorkCalendarSelection {
 }
 
 export interface WorkCalendarDaySelection {
+  occurrenceId: string;
   subject: string;
   start: string;
   end: string;
@@ -32,6 +34,8 @@ export interface WorkCalendarDaySelection {
 export interface WorkCalendarEventWorkspaceSummary {
   projectId: string | null;
   projectName: string | null;
+  listId: string | null;
+  listName: string | null;
   notesPresent: boolean;
   linkUrlPresent: boolean;
   linkUrl: string | null;
@@ -171,11 +175,15 @@ export type WorkCalendarRetryNotice = {
   detail: string;
 };
 
+export const WORK_CALENDAR_RETRY_NOTICE_FAILURES = 3;
+export const WORK_CALENDAR_RETRY_NOTICE_STALE_MS = 10 * 60 * 1_000;
+
 function workCalendarFailureLabel(stopReason: string | null) {
   switch (stopReason) {
     case "requestTimeout":
+      return "The calendar source took too long to download";
     case "commandDeadline":
-      return "The calendar source took too long to respond";
+      return "The calendar refresh exceeded its safety deadline";
     case "requestFailed":
     case "bodyRead":
       return "The calendar source could not be reached";
@@ -210,8 +218,10 @@ function workCalendarRefreshAge(lastSuccessfulAtUnixMs: number | null, nowMs: nu
 }
 
 /**
- * A single bounded miss is retried quietly. Repeated real failures get a
- * safe, actionable status without exposing the private published URL.
+ * Transient misses are retried quietly. When a previous success exists, its
+ * event remains useful and the warning waits until that result is genuinely
+ * stale. A startup with no successful result may warn after the same bounded
+ * failure count because there is no usable calendar state to protect.
  */
 export function workCalendarRetryNotice({
   consecutiveFailures,
@@ -224,7 +234,14 @@ export function workCalendarRetryNotice({
   stopReason: string | null;
   nowMs?: number;
 }): WorkCalendarRetryNotice | null {
-  if (consecutiveFailures < 2) return null;
+  if (consecutiveFailures < WORK_CALENDAR_RETRY_NOTICE_FAILURES) return null;
+  if (
+    lastSuccessfulAtUnixMs !== null &&
+    (nowMs < lastSuccessfulAtUnixMs ||
+      nowMs - lastSuccessfulAtUnixMs < WORK_CALENDAR_RETRY_NOTICE_STALE_MS)
+  ) {
+    return null;
+  }
   return {
     state: "Calendar sync delayed",
     detail: `${workCalendarFailureLabel(stopReason)}. ${workCalendarRefreshAge(lastSuccessfulAtUnixMs, nowMs)}. Retrying automatically.`,
@@ -242,13 +259,19 @@ export function retainWorkCalendarSnapshot(
   ) {
     return refreshed;
   }
-  if (current?.status !== "observed" || !current.selection) {
+  if (current?.status !== "observed") {
     return refreshed;
   }
-  const currentEnd = Date.parse(current.selection.end);
-  return Number.isFinite(currentEnd) && currentEnd > nowMs
-    ? current
-    : refreshed;
+  const hasUsableCachedSelection = [
+    current.selection,
+    ...current.overlappingSelections,
+    current.nextSelection,
+  ].some((selection) => {
+    if (!selection) return false;
+    const endMs = Date.parse(selection.end);
+    return Number.isFinite(endMs) && endMs > nowMs;
+  });
+  return hasUsableCachedSelection ? current : refreshed;
 }
 
 export function workCalendarSelectionKey(
@@ -256,6 +279,23 @@ export function workCalendarSelectionKey(
   slot: string,
 ) {
   return `${slot}|${selection.start}|${selection.end}|${selection.subject}`;
+}
+
+function selectionForCurrentTime(
+  selection: WorkCalendarSelection,
+  nowMs: number | undefined,
+): WorkCalendarSelection | null {
+  if (nowMs === undefined) return selection;
+  const startMs = Date.parse(selection.start);
+  const endMs = Date.parse(selection.end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= nowMs) {
+    return null;
+  }
+  const classification: WorkCalendarSelection["classification"] =
+    startMs <= nowMs ? "active" : "upcoming";
+  return classification === selection.classification
+    ? selection
+    : { ...selection, classification };
 }
 
 export function workCalendarOccupiedMinutes(
@@ -313,6 +353,7 @@ export interface WorkCalendarMeetingAlert {
 export function nextWorkCalendarMeetingAlert(
   snapshot: WorkCalendarSnapshot | null,
   nowMs = Date.now(),
+  skippedOccurrenceIds: ReadonlySet<string> = new Set(),
 ): WorkCalendarMeetingAlert | null {
   if (snapshot?.status !== "observed") {
     return null;
@@ -327,19 +368,21 @@ export function nextWorkCalendarMeetingAlert(
       (selection): selection is WorkCalendarSelection =>
         selection !== null &&
         selection.classification === "upcoming" &&
-        !selection.allDay,
+        !selection.allDay &&
+        !skippedOccurrenceIds.has(selection.occurrenceId),
     )
-    .map((selection) => Date.parse(selection.start))
-    .filter((startMs) => Number.isFinite(startMs) && startMs >= nowMs)
-    .sort((left, right) => left - right);
+    .map((selection) => ({ occurrenceId: selection.occurrenceId, startMs: Date.parse(selection.start) }))
+    .filter((entry) => Number.isFinite(entry.startMs) && entry.startMs >= nowMs)
+    .sort((left, right) => left.startMs - right.startMs);
 
-  const startMs = upcoming[0];
-  if (startMs === undefined) {
+  const upcomingEvent = upcoming[0];
+  if (!upcomingEvent) {
     return null;
   }
+  const { occurrenceId, startMs } = upcomingEvent;
 
   return {
-    key: new Date(startMs).toISOString(),
+    key: occurrenceId || new Date(startMs).toISOString(),
     startMs,
     delayMs: Math.max(
       0,
@@ -352,8 +395,10 @@ export function selectWorkCalendarDisplay(
   snapshot: WorkCalendarSnapshot | null,
   finishedEventKeys: ReadonlySet<string>,
   acknowledgedActiveEvent: string | null,
+  skippedOccurrenceIds: ReadonlySet<string> = new Set(),
+  nowMs?: number,
 ): WorkCalendarDisplay {
-  if (snapshot?.status !== "observed" || !snapshot.selection) {
+  if (snapshot?.status !== "observed") {
     return {
       selection: null,
       selectionKey: null,
@@ -363,29 +408,46 @@ export function selectWorkCalendarDisplay(
     };
   }
 
-  const primaryEntry = {
-    selection: snapshot.selection,
-    key: workCalendarSelectionKey(snapshot.selection, "primary"),
-  };
-  const overlappingEntries = snapshot.overlappingSelections.map(
-    (selection, index) => ({
-      selection,
-      key: workCalendarSelectionKey(selection, `overlap-${index}`),
-    }),
+  const currentPrimary = snapshot.selection
+    ? selectionForCurrentTime(snapshot.selection, nowMs)
+    : null;
+  const primaryEntry = currentPrimary
+    ? {
+        selection: currentPrimary,
+        key: workCalendarSelectionKey(currentPrimary, "primary"),
+      }
+    : null;
+  const overlappingEntries = snapshot.overlappingSelections
+    .map((selection, index) => {
+      const currentSelection = selectionForCurrentTime(selection, nowMs);
+      return currentSelection
+        ? {
+            selection: currentSelection,
+            key: workCalendarSelectionKey(currentSelection, `overlap-${index}`),
+          }
+        : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const currentNextSelection = snapshot.nextSelection
+    ? selectionForCurrentTime(snapshot.nextSelection, nowMs)
+    : null;
+  const parallelEntries = [primaryEntry, ...overlappingEntries].filter(
+    (entry): entry is NonNullable<typeof entry> => entry !== null,
   );
-  const parallelEntries = [primaryEntry, ...overlappingEntries];
   const activeSelections = parallelEntries.filter(
     ({ selection, key }) =>
       selection.classification === "active" && !finishedEventKeys.has(key),
+  ).filter(
+    ({ selection }) => !skippedOccurrenceIds.has(selection.occurrenceId),
   );
 
   if (activeSelections.length > 0) {
     const primary = activeSelections[0];
     const overlapping = activeSelections[1] ?? null;
-    const upcoming = snapshot.nextSelection
+    const upcoming = currentNextSelection && !skippedOccurrenceIds.has(currentNextSelection.occurrenceId)
       ? {
-          selection: snapshot.nextSelection,
-          key: workCalendarSelectionKey(snapshot.nextSelection, "next"),
+          selection: currentNextSelection,
+          key: workCalendarSelectionKey(currentNextSelection, "next"),
         }
       : null;
     const companionEntry =
@@ -400,11 +462,15 @@ export function selectWorkCalendarDisplay(
     };
   }
 
-  if (snapshot.selection.classification === "active") {
+  if (primaryEntry?.selection.classification === "active") {
+    const nextSelection = currentNextSelection
+      && !skippedOccurrenceIds.has(currentNextSelection.occurrenceId)
+      ? currentNextSelection
+      : null;
     return {
-      selection: snapshot.nextSelection,
-      selectionKey: snapshot.nextSelection
-        ? workCalendarSelectionKey(snapshot.nextSelection, "next")
+      selection: nextSelection,
+      selectionKey: nextSelection
+        ? workCalendarSelectionKey(nextSelection, "next")
         : null,
       companion: null,
       companionKey: null,
@@ -414,7 +480,7 @@ export function selectWorkCalendarDisplay(
 
   const upcomingSelections = parallelEntries.filter(
     ({ selection, key }) =>
-      selection.classification === "upcoming" && !finishedEventKeys.has(key),
+      selection.classification === "upcoming" && !finishedEventKeys.has(key) && !skippedOccurrenceIds.has(selection.occurrenceId),
   );
   if (upcomingSelections.length > 0) {
     const primary = upcomingSelections[0];
@@ -428,6 +494,16 @@ export function selectWorkCalendarDisplay(
     };
   }
 
+  if (currentNextSelection && !skippedOccurrenceIds.has(currentNextSelection.occurrenceId)) {
+    return {
+      selection: currentNextSelection,
+      selectionKey: workCalendarSelectionKey(currentNextSelection, "next"),
+      companion: null,
+      companionKey: null,
+      hasOverlap: false,
+    };
+  }
+
   return {
     selection: null,
     selectionKey: null,
@@ -435,6 +511,15 @@ export function selectWorkCalendarDisplay(
     companionKey: null,
     hasOverlap: false,
   };
+}
+
+export function firstSkippedWorkCalendarSelection(
+  snapshot: WorkCalendarSnapshot | null,
+  skippedOccurrenceIds: ReadonlySet<string>,
+) : WorkCalendarSelection | null {
+  if (snapshot?.status !== "observed") return null;
+  return [snapshot.selection, ...snapshot.overlappingSelections, snapshot.nextSelection]
+    .find((selection) => selection !== null && skippedOccurrenceIds.has(selection.occurrenceId)) ?? null;
 }
 
 export interface WorkCalendarConfiguration {

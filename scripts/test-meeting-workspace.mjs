@@ -53,9 +53,11 @@ assert.match(today, /deferActionItemToTomorrow/);
 assert.match(today, /view: "todo"/);
 assert.match(today, /className="today-popup-todos__defer"/);
 assert.match(today, /isVisibleInToday/);
-assert.match(today, /pendingTodoCount=\{pendingProjectTodos/);
+assert.match(today, /pendingTodoCount=\{pendingDestinationTodos/);
 assert.match(today, /openProjectPanel\(selection, "notes"\)/);
 assert.match(today, /openProjectPanel\(selection, "todos"\)/);
+assert.match(today, /onClick=\{\(\) => void openEventSettings\(selection\)\}/);
+assert.doesNotMatch(today, /onOpenProject=\{\(\) => void openEventProject/);
 assert.match(eventActions, /event-workspace-actions__settings/);
 assert.match(eventActions, /event-workspace-actions__stash/);
 assert.match(eventActions, /event-workspace-actions__notes/);
@@ -65,10 +67,14 @@ assert.match(today, /data-live=\{live \|\| undefined\}/);
 assert.match(today, /style=\{panelStyle\}/);
 assert.match(settings, /Today link <em>optional<\/em>/);
 assert.match(settings, /projectLinkId/);
-assert.match(settings, /No project/);
+assert.match(settings, /No destination/);
+assert.match(settings, /Personal lists/);
+assert.match(settings, /listId/);
 assert.match(settings, /get_event_workspace/);
 assert.match(settings, /save_event_workspace/);
 assert.match(settings, /WORKSPACE_CHANGED_EVENT/);
+assert.match(settings, /Open \$\{savedDestinationName \?\? "destination"\}/);
+assert.match(settings, /openManagerWindow\(/);
 assert.match(settings, /startDragging\(\)/);
 assert.match(settings, /onResized/);
 assert.match(settings, /style=\{panelStyle\}/);
@@ -142,6 +148,14 @@ assert.match(css, /\.project-quick-view/);
 assert.match(css, /\.project-quick-view \{[\s\S]*?--manager-surface: var\(--widget-panel-solid\)/);
 assert.match(css, /\.project-quick-view \{[\s\S]*?--manager-text: var\(--widget-panel-foreground\)/);
 assert.match(css, /\.manager-todo-editor--inline/);
+assert.match(
+  css,
+  /\.event-settings-actions button:hover:not\(:disabled\),\s*\.event-settings-actions button:focus-visible \{[\s\S]*?background: transparent;/,
+);
+assert.match(
+  css,
+  /\.event-settings-actions button:disabled \{[\s\S]*?background: transparent;/,
+);
 
 // A window restored onto a monitor that is no longer connected is running,
 // focusable from the taskbar, and completely invisible. Falling back to the

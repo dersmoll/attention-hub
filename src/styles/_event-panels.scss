@@ -50,7 +50,7 @@
   color: var(--widget-panel-foreground);
   background: var(--widget-panel-solid);
   box-shadow: var(--shadow-floating);
-  overflow: hidden;
+  overflow: auto;
 
   header {
     display: flex;
@@ -159,7 +159,23 @@
 
   button {
     font-size: 11px;
-    background-color: transparent;
+    background: transparent;
+  }
+}
+
+.event-settings-actions button {
+  color: var(--widget-panel-foreground);
+
+  &:hover:not(:disabled),
+  &:focus-visible {
+    border-color: var(--widget-panel-foreground);
+    color: var(--widget-panel-foreground);
+    background: transparent;
+  }
+
+  &:disabled {
+    color: var(--widget-panel-muted);
+    background: transparent;
   }
 }
 
@@ -167,6 +183,18 @@
   border-color: var(--event-accent);
   color: var(--widget-panel-accent-foreground);
   background: var(--event-accent);
+
+  &:hover:not(:disabled),
+  &:focus-visible {
+    border-color: var(--event-accent);
+    color: var(--widget-panel-accent-foreground);
+    background: var(--event-accent);
+  }
+
+  &:disabled {
+    color: var(--widget-panel-accent-foreground);
+    background: var(--event-accent);
+  }
 }
 
 .event-settings-delete {

@@ -35,8 +35,8 @@ export interface CalendarVocabulary {
   checking: string;
   /** The source could not be read. */
   unavailable: string;
-  /** Metadata tag when the event carries a joining link. */
-  onlineEvent: string;
+  /** Every otherwise-displayable event has been hidden by a local Skip. */
+  skippedLocally: string;
   /** Tooltip for the joining-link button. */
   openLink: string;
   /** Failure notice when a joining link will not open. */
@@ -62,13 +62,13 @@ const WORK_VOCABULARY: CalendarVocabulary = {
   connectPrompt: "Connect work calendar",
   noFreshEvent: "No fresh work-calendar event",
   startedNeedsAttention: "Meeting started",
-  startingSoon: "Starting soon",
+  startingSoon: "Soon",
   inProgress: "In progress",
   upNext: "Up next",
   idle: "Calendar",
   checking: "Calendar checking",
   unavailable: "Calendar unavailable",
-  onlineEvent: "Online meeting",
+  skippedLocally: "Meeting skipped",
   openLink: "Open meeting link",
   linkOpenFailed: "The meeting link could not be opened.",
   emptyDay: "No calls today.",
@@ -86,7 +86,7 @@ const SCHOOL_VOCABULARY: CalendarVocabulary = {
   connectPrompt: "Connect school calendar",
   noFreshEvent: "No lesson to show",
   startedNeedsAttention: "Lesson started",
-  startingSoon: "Starting soon",
+  startingSoon: "Soon",
   // "In progress" and "Up next" are replaced by the school-day status label in
   // School mode, so these are fallbacks for the paths that label declines to
   // describe — chiefly a stale feed, where claiming a lesson state would lie.
@@ -97,7 +97,7 @@ const SCHOOL_VOCABULARY: CalendarVocabulary = {
   // Deliberately not "No lessons": an unreadable timetable is not an empty day,
   // and the two must never read alike.
   unavailable: "Timetable unavailable",
-  onlineEvent: "Online lesson",
+  skippedLocally: "Lesson skipped",
   openLink: "Open lesson link",
   linkOpenFailed: "The lesson link could not be opened.",
   emptyDay: "No lessons today.",

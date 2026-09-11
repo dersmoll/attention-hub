@@ -7,7 +7,7 @@ import { openMedicineManagerAt, openMedicineManagerWindow } from "./medicine-man
 import { medicineDoseKey } from "./medicine-manager-navigation";
 import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
 import { medicinePanelPosition } from "./medicine-panel-window";
-import { boundedMedicinePanelGroups, medicineDailyTreatments, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
+import { boundedMedicinePanelGroups, medicineDailyTreatments, medicineDoseStateLabel, medicineFoodRuleLabel, medicineTreatmentsWithoutDosesToday, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
 import { useMedicineGraceMinutes } from "./use-medicine-grace-minutes";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 
@@ -52,6 +52,7 @@ export function MedicinePanelView() {
   }, []);
 
   const live = useMemo(() => boundedMedicinePanelGroups(snapshot ? medicineDailyTreatments(snapshot, now, graceMinutes) : []), [snapshot, now, graceMinutes]);
+  const continuingTreatments = useMemo(() => snapshot ? medicineTreatmentsWithoutDosesToday(snapshot, now, graceMinutes) : [], [snapshot, now, graceMinutes]);
   /* The clock ticks every 30 seconds and can change which treatments and doses
    * are visible. Landing between pressing a button and releasing it, that moves
    * the row under the pointer — and the panel resizes itself around the new
@@ -125,6 +126,7 @@ export function MedicinePanelView() {
   const footerLabel = bounded.visibleRows ? "Today’s medicine record"
     : loadFailure !== null ? "Medicine data is unavailable."
     : snapshot === null ? "Loading today’s medicine record…"
+    : continuingTreatments.length > 0 ? "Active treatment · no doses scheduled today."
     : "No doses scheduled today.";
   useEffect(() => {
     if (!payload) return;
@@ -155,7 +157,7 @@ export function MedicinePanelView() {
     })();
 
     return () => { disposed = true; };
-  }, [bounded.groups.length, bounded.hiddenRows, bounded.visibleRows, payload]);
+  }, [bounded.groups.length, bounded.hiddenRows, bounded.visibleRows, continuingTreatments.length, payload]);
 
   const close = useCallback(async () => {
     await emitTo("main", MEDICINE_PANEL_CLOSED_EVENT).catch(() => undefined);
@@ -230,6 +232,10 @@ export function MedicinePanelView() {
       </li>; })}</ol>
       <footer>{group.takenToday} of {group.totalToday} taken today</footer>
     </section>)}
+    {continuingTreatments.length > 0 && <div className="medicine-panel__continues" role="status">
+      <strong>{continuingTreatments.length === 1 ? continuingTreatments[0].name : `${continuingTreatments.length} treatments`} {continuingTreatments.length === 1 ? "continues" : "continue"}</strong>
+      <span>No doses scheduled today.</span>
+    </div>}
     {bounded.hiddenRows > 0 && <button className="medicine-panel__more" onClick={() => void openOverflow()} ref={moreButton} type="button">+{bounded.hiddenRows} more</button>}
     <footer className="medicine-panel__footer"><span>{footerLabel}</span></footer>
     {/* Loading and recovery are announced politely; a failure the user can act

@@ -1075,8 +1075,34 @@ fn open_main_panel_devtools(window: tauri::WebviewWindow) -> Result<(), String> 
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum MeetingStartSound {
+    MeetingChime,
+    GameBonus,
+    Laugh,
+    SchoolBell,
+    Thriller,
+    Surprise,
+    Whistle,
+}
+
+impl MeetingStartSound {
+    fn resource_path(self) -> &'static str {
+        match self {
+            Self::MeetingChime => "sounds/meeting-start.wav",
+            Self::GameBonus => "sounds/reminders/game-bonus.wav",
+            Self::Laugh => "sounds/reminders/laugh.wav",
+            Self::SchoolBell => "sounds/reminders/school-bell.wav",
+            Self::Thriller => "sounds/reminders/thriller.wav",
+            Self::Surprise => "sounds/reminders/surprise.wav",
+            Self::Whistle => "sounds/reminders/whistle.wav",
+        }
+    }
+}
+
 #[tauri::command]
-fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
+fn play_meeting_start_sound(app: tauri::AppHandle, sound: MeetingStartSound) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
@@ -1088,10 +1114,10 @@ fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
 
         let sound_path = app
             .path()
-            .resolve("sounds/meeting-start.wav", BaseDirectory::Resource)
+            .resolve(sound.resource_path(), BaseDirectory::Resource)
             .map_err(|_| "Attention Hub could not resolve its bundled meeting sound.".to_owned())?;
         if !sound_path.is_file() {
-            return Err("The bundled meeting-start sound is unavailable.".to_owned());
+            return Err("The selected bundled meeting sound is unavailable.".to_owned());
         }
         let sound_path = sound_path
             .as_os_str()
@@ -1111,6 +1137,7 @@ fn play_meeting_start_sound(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
+        let _ = sound;
         Err("Meeting-start sound is available only on Windows.".to_owned())
     }
 }
@@ -1239,4 +1266,41 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod meeting_start_sound_tests {
+    use super::MeetingStartSound;
+
+    #[test]
+    fn every_sound_id_maps_to_an_allowlisted_resource() {
+        let expected = [
+            (MeetingStartSound::MeetingChime, "sounds/meeting-start.wav"),
+            (
+                MeetingStartSound::GameBonus,
+                "sounds/reminders/game-bonus.wav",
+            ),
+            (MeetingStartSound::Laugh, "sounds/reminders/laugh.wav"),
+            (
+                MeetingStartSound::SchoolBell,
+                "sounds/reminders/school-bell.wav",
+            ),
+            (MeetingStartSound::Thriller, "sounds/reminders/thriller.wav"),
+            (MeetingStartSound::Surprise, "sounds/reminders/surprise.wav"),
+            (MeetingStartSound::Whistle, "sounds/reminders/whistle.wav"),
+        ];
+
+        for (sound, path) in expected {
+            assert_eq!(sound.resource_path(), path);
+        }
+    }
+
+    #[test]
+    fn sound_ids_deserialize_only_from_known_values() {
+        assert_eq!(
+            serde_json::from_str::<MeetingStartSound>("\"school-bell\"").unwrap(),
+            MeetingStartSound::SchoolBell,
+        );
+        assert!(serde_json::from_str::<MeetingStartSound>("\"custom-path\"").is_err());
+    }
 }

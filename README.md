@@ -1,7 +1,7 @@
 # Attention Hub
 
 Attention Hub source code is available under the [MIT License](LICENSE).
-The bundled meeting sound has separate non-commercial terms documented in
+The bundled reminder sounds have separate terms documented in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Attention Hub is a local-first Windows desktop widget for communication
@@ -148,5 +148,5 @@ build output and must not be committed.
 ## Scope
 
 Attention Hub is currently Windows-only. Autostart, a tray-resident Hub,
-updating, signing, arbitrary providers, attachments, closed-app reminders, and
+Authenticode signing, arbitrary providers, attachments, closed-app reminders, and
 cloud synchronization are intentionally outside this beta.

@@ -29,6 +29,7 @@ export function AppUpdatePanel({ variant }: AppUpdatePanelProps) {
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const updateRef = useRef<Update | null>(null);
   const installingRef = useRef(false);
+  const checkingRef = useRef(false);
 
   const releaseUpdate = useCallback(async () => {
     const update = updateRef.current;
@@ -39,6 +40,8 @@ export function AppUpdatePanel({ variant }: AppUpdatePanelProps) {
   }, []);
 
   const checkNow = useCallback(async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
     setState("checking");
     setDownloadedBytes(0);
     setTotalBytes(null);
@@ -62,6 +65,8 @@ export function AppUpdatePanel({ variant }: AppUpdatePanelProps) {
       setState("available");
     } catch {
       setState("error");
+    } finally {
+      checkingRef.current = false;
     }
   }, [releaseUpdate]);
 

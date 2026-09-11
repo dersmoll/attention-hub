@@ -6,7 +6,7 @@ use chrono::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     sync::{Mutex, MutexGuard},
@@ -476,7 +476,11 @@ fn isolate_imported_note_revisions(imported: &mut Store, current: &Store) -> Res
 fn load(app: &AppHandle) -> Result<(PathBuf, Store, bool), String> {
     let p = path(app)?;
     match local_store::read(&p, SCHEMA_VERSION, valid) {
-        Ok(Some(v)) => Ok((p, v.store, v.recovered_from_backup)),
+        Ok(Some(v)) => {
+            let mut store = v.store;
+            reconcile_current_day_doses(&mut store, Local::now().date_naive(), &now());
+            Ok((p, store, v.recovered_from_backup))
+        }
         Ok(None) => Ok((p, empty(), false)),
         Err(local_store::ReadError::FutureVersion(v)) => Err(format!(
             "Medicine uses newer schema version {v}; this build will not overwrite it."
@@ -851,6 +855,94 @@ fn generate(m: &Medicine) -> Vec<Dose> {
     }
     out
 }
+
+/// Restore schedule rows missing for the current civil day.
+///
+/// Older schedule edits generated only instants strictly after the edit. When
+/// an ended medicine was extended after one of today's times, that left the
+/// active schedule without the row Today and Meds use to represent a missed
+/// dose. Reconciliation is deliberately bounded to today: it repairs the
+/// current record without inventing a backlog for earlier dates. `load` keeps
+/// it in memory until the next mutation, so merely opening a popup does not
+/// rewrite the user's store.
+fn reconcile_current_day_doses(store: &mut Store, day: NaiveDate, timestamp: &str) -> usize {
+    let live_treatments = store
+        .treatments
+        .iter()
+        .filter(|treatment| treatment.completed_at.is_none() && treatment.archived_at.is_none())
+        .map(|treatment| treatment.id.as_str())
+        .collect::<HashSet<_>>();
+    let medicine_treatments = store
+        .medicines
+        .iter()
+        .map(|medicine| (medicine.id.as_str(), medicine.treatment_id.as_str()))
+        .collect::<HashMap<_, _>>();
+    let mut medicine_counts = HashMap::<&str, usize>::new();
+    let mut treatment_counts = HashMap::<&str, usize>::new();
+    let mut existing = HashSet::new();
+    for dose in &store.doses {
+        *medicine_counts
+            .entry(dose.medicine_id.as_str())
+            .or_default() += 1;
+        if let Some(treatment_id) = medicine_treatments.get(dose.medicine_id.as_str()) {
+            *treatment_counts.entry(treatment_id).or_default() += 1;
+        }
+        existing.insert(format!(
+            "{}:{}:{}",
+            dose.medicine_id, dose.slot_day, dose.slot_time
+        ));
+    }
+
+    let slot_day = day.format("%Y-%m-%d").to_string();
+    let mut additions = Vec::new();
+    for medicine in &store.medicines {
+        if !live_treatments.contains(medicine.treatment_id.as_str()) || !covers(medicine, day) {
+            continue;
+        }
+        let missing_times = medicine
+            .times
+            .iter()
+            .filter(|slot_time| {
+                !existing.contains(&format!("{}:{slot_day}:{slot_time}", medicine.id))
+            })
+            .collect::<Vec<_>>();
+        if medicine_counts
+            .get(medicine.id.as_str())
+            .copied()
+            .unwrap_or_default()
+            + missing_times.len()
+            > MAX_OCCURRENCES_PER_MEDICINE
+            || treatment_counts
+                .get(medicine.treatment_id.as_str())
+                .copied()
+                .unwrap_or_default()
+                + missing_times.len()
+                > MAX_OCCURRENCES_PER_TREATMENT
+            || store.doses.len() + additions.len() + missing_times.len() > MAX_OCCURRENCES
+        {
+            continue;
+        }
+        *medicine_counts.entry(medicine.id.as_str()).or_default() += missing_times.len();
+        *treatment_counts
+            .entry(medicine.treatment_id.as_str())
+            .or_default() += missing_times.len();
+        for slot_time in missing_times {
+            additions.push(Dose {
+                medicine_id: medicine.id.clone(),
+                slot_day: slot_day.clone(),
+                slot_time: slot_time.clone(),
+                schedule_revision: medicine.schedule_revision,
+                taken_at: None,
+                skipped_at: None,
+                notified_at: None,
+                updated_at: timestamp.to_owned(),
+            });
+        }
+    }
+    let added = additions.len();
+    store.doses.extend(additions);
+    added
+}
 fn normalize_medicine_input(mut input: MedicineInput) -> Result<MedicineInput, String> {
     input.times.sort();
     if let DayPattern::Weekdays { days } = &mut input.day_pattern {
@@ -994,6 +1086,12 @@ fn apply_medicine_update(
         return Err("A treatment supports at most 30 medicines.".into());
     }
     let next_treatment_id = input.treatment_id.clone();
+    let previous_target_end = store
+        .treatments
+        .iter()
+        .find(|treatment| treatment.id == next_treatment_id)
+        .map(|treatment| treatment.end_on.clone())
+        .ok_or("The selected treatment no longer exists.")?;
     let schedule_changed = previous.treatment_id != input.treatment_id
         || previous.times != input.times
         || previous.day_pattern != input.day_pattern
@@ -1015,7 +1113,7 @@ fn apply_medicine_update(
         notes: input.notes,
         sort_index: previous.sort_index,
         created_at: previous.created_at,
-        updated_at: timestamp,
+        updated_at: timestamp.clone(),
     };
     if !schedule_changed {
         store.medicines[index] = next;
@@ -1078,6 +1176,22 @@ fn apply_medicine_update(
     sync_treatment_range(store, &previous.treatment_id);
     if previous.treatment_id != next_treatment_id {
         sync_treatment_range(store, &next_treatment_id);
+    }
+    let edit_day = edit_at
+        .with_timezone(&Local)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
+    if let Some(treatment) = store.treatments.iter_mut().find(|treatment| {
+        treatment.id == next_treatment_id
+            && treatment.archived_at.is_none()
+            && treatment.completed_at.is_some()
+            && treatment.end_on > previous_target_end
+            && treatment.start_on <= edit_day
+            && treatment.end_on >= edit_day
+    }) {
+        treatment.completed_at = None;
+        treatment.updated_at = timestamp;
     }
     Ok(())
 }
@@ -2359,6 +2473,71 @@ mod tests {
     }
 
     #[test]
+    fn current_day_reconciliation_restores_missing_rows_without_backfilling_history() {
+        let item = medicine(DayPattern::EveryDay, vec!["08:00", "20:00"]);
+        let mut store = Store {
+            schema_version: SCHEMA_VERSION,
+            revision: 1,
+            treatments: vec![treatment("treatment-1", 0)],
+            medicines: vec![item.clone()],
+            doses: generate(&item)
+                .into_iter()
+                .filter(|dose| dose.slot_day != "2026-03-29")
+                .collect(),
+        };
+
+        assert_eq!(
+            reconcile_current_day_doses(
+                &mut store,
+                NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(),
+                "2026-03-29T12:00:00Z",
+            ),
+            2
+        );
+        assert_eq!(
+            store
+                .doses
+                .iter()
+                .filter(|dose| dose.slot_day == "2026-03-29")
+                .count(),
+            2
+        );
+        assert_eq!(
+            reconcile_current_day_doses(
+                &mut store,
+                NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(),
+                "2026-03-29T12:01:00Z",
+            ),
+            0,
+            "reconciliation must be idempotent"
+        );
+    }
+
+    #[test]
+    fn current_day_reconciliation_ignores_completed_courses() {
+        let item = medicine(DayPattern::EveryDay, vec!["08:00"]);
+        let mut course = treatment("treatment-1", 0);
+        course.completed_at = Some("2026-03-28T18:00:00Z".into());
+        let mut store = Store {
+            schema_version: SCHEMA_VERSION,
+            revision: 1,
+            treatments: vec![course],
+            medicines: vec![item],
+            doses: vec![],
+        };
+
+        assert_eq!(
+            reconcile_current_day_doses(
+                &mut store,
+                NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(),
+                "2026-03-29T12:00:00Z",
+            ),
+            0
+        );
+        assert!(store.doses.is_empty());
+    }
+
+    #[test]
     fn validation_rejects_duplicate_civil_occurrence_identity() {
         let medicine = medicine(DayPattern::EveryDay, vec!["09:00"]);
         let treatment = Treatment {
@@ -2649,6 +2828,70 @@ mod tests {
         .unwrap();
         assert_eq!(store.medicines[0].schedule_revision, 4);
         assert_eq!(serde_json::to_value(&store.doses).unwrap(), before);
+    }
+
+    #[test]
+    fn extending_a_completed_course_across_today_reopens_it() {
+        let mut course = treatment("treatment-1", 0);
+        course.completed_at = Some("2026-03-31T08:00:00Z".into());
+        let item = medicine(DayPattern::EveryDay, vec!["09:00"]);
+        let mut store = Store {
+            schema_version: SCHEMA_VERSION,
+            revision: 1,
+            treatments: vec![course],
+            medicines: vec![item.clone()],
+            doses: generate(&item),
+        };
+        let mut input = input_from_medicine(&item);
+        input.end_on = "2026-04-02".into();
+        let edit_at = DateTime::parse_from_rfc3339("2026-03-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        apply_medicine_update(
+            &mut store,
+            &item.id,
+            input,
+            edit_at,
+            "2026-03-31T12:00:00Z".into(),
+        )
+        .unwrap();
+
+        assert_eq!(store.treatments[0].end_on, "2026-04-02");
+        assert_eq!(store.treatments[0].completed_at, None);
+        assert!(store.doses.iter().any(|dose| dose.slot_day == "2026-04-02"));
+    }
+
+    #[test]
+    fn extending_an_archived_completed_course_does_not_reopen_it() {
+        let mut course = treatment("treatment-1", 0);
+        course.completed_at = Some("2026-03-31T08:00:00Z".into());
+        course.archived_at = Some("2026-03-31T09:00:00Z".into());
+        let item = medicine(DayPattern::EveryDay, vec!["09:00"]);
+        let mut store = Store {
+            schema_version: SCHEMA_VERSION,
+            revision: 1,
+            treatments: vec![course],
+            medicines: vec![item.clone()],
+            doses: generate(&item),
+        };
+        let mut input = input_from_medicine(&item);
+        input.end_on = "2026-04-02".into();
+        let edit_at = DateTime::parse_from_rfc3339("2026-03-31T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        apply_medicine_update(
+            &mut store,
+            &item.id,
+            input,
+            edit_at,
+            "2026-03-31T12:00:00Z".into(),
+        )
+        .unwrap();
+
+        assert!(store.treatments[0].completed_at.is_some());
+        assert!(store.treatments[0].archived_at.is_some());
     }
 
     #[test]

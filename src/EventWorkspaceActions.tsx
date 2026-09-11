@@ -9,7 +9,7 @@ interface EventWorkspaceActionsProps {
   onOpenNotes?: () => void;
   onOpenProject?: () => void;
   onOpenTodos?: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   pendingTodoCount?: number;
 }
 
@@ -34,9 +34,9 @@ export function EventWorkspaceActions({
 
   return (
     <span className={`event-workspace-actions ${className}`}>
-      {workspace?.projectId && onOpenTodos && pendingTodoCount !== undefined && pendingTodoCount > 0 && (
+      {(workspace?.projectId || workspace?.listId) && onOpenTodos && pendingTodoCount !== undefined && pendingTodoCount > 0 && (
         <button
-          aria-label={`Open ${pendingTodoCount} pending to-do${pendingTodoCount === 1 ? "" : "s"} for ${workspace.projectName ?? "project"}`}
+          aria-label={`Open ${pendingTodoCount} pending to-do${pendingTodoCount === 1 ? "" : "s"} for ${workspace.projectName ?? workspace.listName ?? "destination"}`}
           className="event-workspace-actions__button event-workspace-actions__todos"
           onClick={(event) => run(event, onOpenTodos)}
           title={`${pendingTodoCount} pending to-do${pendingTodoCount === 1 ? "" : "s"}`}
@@ -71,12 +71,12 @@ export function EventWorkspaceActions({
           </svg>
         </button>
       )}
-      {workspace?.projectId && onOpenProject && (
+      {(workspace?.projectId || workspace?.listId) && onOpenProject && (
         <button
-          aria-label={`Open ${workspace.projectName ?? "project"}`}
+          aria-label={`Open ${workspace.projectName ?? workspace.listName ?? "destination"}`}
           className="event-workspace-actions__button event-workspace-actions__stash"
           onClick={(event) => run(event, onOpenProject)}
-          title={`Open ${workspace.projectName ?? "project"}`}
+          title={`Open ${workspace.projectName ?? workspace.listName ?? "destination"}`}
           type="button"
         >
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -84,7 +84,7 @@ export function EventWorkspaceActions({
           </svg>
         </button>
       )}
-      <button
+      {onOpenSettings && <button
         aria-label={`Open settings for ${subject}`}
         className="event-workspace-actions__button event-workspace-actions__settings"
         onClick={(event) => run(event, onOpenSettings)}
@@ -96,7 +96,7 @@ export function EventWorkspaceActions({
           <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
           <circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none" />
         </svg>
-      </button>
+      </button>}
     </span>
   );
 }

@@ -422,6 +422,20 @@ export function medicineDailyRows(snapshot: MedicineSnapshot, now = new Date(), 
       || left.medicine.id.localeCompare(right.medicine.id));
 }
 
+/** Active courses that have no materialized dose row on the viewer's current
+ * day. This remains per treatment: one unrelated treatment having a dose must
+ * not make another continuing course disappear from Today or Meds. */
+export function medicineTreatmentsWithoutDosesToday(
+  snapshot: MedicineSnapshot,
+  now = new Date(),
+  graceMinutes = DEFAULT_MEDICINE_GRACE_MINUTES,
+) {
+  const treatmentsWithRows = new Set(
+    medicineDailyTreatments(snapshot, now, graceMinutes).map((group) => group.treatment.id),
+  );
+  return activeMedicineTreatments(snapshot, now).filter((treatment) => !treatmentsWithRows.has(treatment.id));
+}
+
 /** A dose still awaiting a decision today. */
 export function isUnresolvedDose(state: MedicineDoseState) {
   return state !== "taken" && state !== "skipped";

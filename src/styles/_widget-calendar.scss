@@ -157,6 +157,57 @@
     }
   }
 
+  &__health {
+    display: block;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--widget-panel-muted);
+    font-size: 9px;
+    font-weight: 650;
+    line-height: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &[data-calendar-health-cached]::after {
+    position: absolute;
+    z-index: 7;
+    top: 1px;
+    right: 1px;
+    left: 1px;
+    height: 2px;
+    border-radius: var(--radius-pill);
+    background: var(--color-warning);
+    content: "";
+    opacity: 0.82;
+    pointer-events: none;
+  }
+
+  &[data-calendar-health="warning"] &__health {
+    color: var(--color-warning);
+  }
+
+  &[data-calendar-health="error"] &__health {
+    color: var(--color-danger-strong);
+  }
+
+  &__event[data-calendar-health-only] {
+    height: 100%;
+    align-content: center;
+
+    #{$block}__health {
+      grid-column: 1 / -1;
+      align-self: center;
+    }
+  }
+
+  @include forced-colors {
+    &[data-calendar-health-cached]::after {
+      background: Highlight;
+    }
+  }
+
   &__progress {
     width: 100%;
     height: 3px;
@@ -220,6 +271,13 @@
     padding-right: 18px;
   }
 
+  &__event[data-calendar-skipped] &__title {
+    color: var(--widget-panel-muted);
+    opacity: .68;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+
   &__workspace-actions {
     position: absolute;
     z-index: 5;
@@ -227,9 +285,9 @@
     right: 0;
     display: grid;
     width: 14px;
-    height: 44px;
+    height: 29px;
     grid-template-columns: 14px;
-    grid-template-rows: repeat(3, 14px);
+    grid-template-rows: repeat(2, 14px);
     gap: 1px;
     transform: translateY(-50%);
 
@@ -239,10 +297,6 @@
 
     .event-workspace-actions__stash {
       grid-row: 2;
-    }
-
-    .event-workspace-actions__settings {
-      grid-row: 3;
     }
 
     button {
@@ -279,6 +333,11 @@
       stroke-linejoin: round;
       stroke-width: 1.8;
     }
+
+    button:only-child {
+      grid-row: 1 / -1;
+      align-self: center;
+    }
   }
 
   &__ack {
@@ -304,6 +363,7 @@
   }
 
   &__join,
+  &__skip,
   &__finish {
     min-width: 34px;
     min-height: 22px;
@@ -317,7 +377,8 @@
     line-height: 1;
   }
 
-  &__join {
+  &__join,
+  &__skip {
     &:hover:not(:disabled),
     &:focus-visible {
       border-color: var(--widget-panel-foreground);
@@ -405,9 +466,7 @@
   &__event:hover > #{$block}__hover-actions,
   &__event:focus-within > #{$block}__hover-actions,
   &__next:hover > #{$block}__hover-actions,
-  &__next:focus-within > #{$block}__hover-actions,
-  &:hover #{$block}__hover-actions,
-  &:focus-within #{$block}__hover-actions {
+  &__next:focus-within > #{$block}__hover-actions {
     opacity: 1;
     pointer-events: auto;
   }
@@ -590,13 +649,9 @@
 
       &:hover:not(:disabled),
       &:focus-visible {
-        border-color: var(--widget-panel-foreground);
+        border-color: transparent;
         color: var(--widget-panel-accent);
-        background: color-mix(
-          in srgb,
-          var(--widget-panel-accent) 14%,
-          var(--widget-panel-solid)
-        );
+        background: none
       }
     }
   }
@@ -697,6 +752,24 @@
       }
     }
 
+    &[data-skipped] {
+      > time,
+      > #{$block}__subject {
+        color: var(--widget-panel-muted);
+        opacity: 0.68;
+        text-decoration: line-through;
+        text-decoration-thickness: 1px;
+      }
+
+      > #{$block}__subject::before {
+        color: var(--widget-panel-muted);
+        content: "Skipped · ";
+        font-size: 10px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    }
+
     &[data-live] {
       > time,
       > #{$block}__subject {
@@ -731,6 +804,13 @@
     gap: 2px;
     transition: opacity 120ms ease;
 
+    > .event-workspace-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      white-space: nowrap;
+    }
+
     button {
       @include icon-button(18px, 5px);
 
@@ -757,6 +837,15 @@
       font-weight: 800;
       font-variant-numeric: tabular-nums;
       line-height: 1;
+    }
+
+    .widget-calendar-day-panel__skip {
+      width: auto;
+      min-width: 32px;
+      padding-inline: 4px;
+      color: var(--widget-panel-muted);
+      font-size: 9px;
+      font-weight: 700;
     }
 
     svg {
@@ -787,6 +876,8 @@
 
 /* Detached "today" popup window reuses the day panel markup. */
 .today-popup-shell {
+  min-width: 300px;
+
   :where(button:hover:not(:disabled)) {
     border-color: var(--widget-panel-border);
     color: var(--widget-panel-accent);
@@ -804,6 +895,26 @@
     overflow-y: auto;
     grid-template-rows: auto auto auto;
     align-content: start;
+  }
+
+  .widget-calendar-day-panel__skip {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  li:hover .widget-calendar-day-panel__skip,
+  li:focus-within .widget-calendar-day-panel__skip,
+  li[data-skipped] .widget-calendar-day-panel__skip {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (hover: none) {
+    .widget-calendar-day-panel__skip {
+      opacity: 1;
+      pointer-events: auto;
+    }
   }
 
   > .medicine-recovery-notice { margin: 3px 0; padding: 3px 5px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-chrome); color: var(--widget-panel-muted); background: #{panel-tint(6%)}; font-size: 9px; }
@@ -910,6 +1021,21 @@
       @include forced-colors {
         li[data-state="due"], li[data-state="missed"] { border-style: double; border-color: Highlight; }
       }
+    }
+
+    .today-popup-medicine__continues {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin: 0;
+      padding: 5px 7px;
+      border: 1px solid var(--widget-panel-border);
+      border-radius: var(--radius-field);
+      color: var(--widget-panel-muted);
+      background: #{panel-tint(4%)};
+      font-size: 10px;
+
+      strong { color: var(--widget-panel-foreground); }
     }
 
     li.today-popup-todos__more {

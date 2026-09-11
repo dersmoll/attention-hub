@@ -34,9 +34,11 @@ assert.deepEqual(legacy, {
   pinned: false,
   primaryTimeZone: null,
   secondaryTimeZone: "Europe/Kyiv",
+  showSecondaryClock: true,
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  meetingStartSound: "meeting-chime",
   schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,
@@ -79,9 +81,11 @@ assert.deepEqual(malformed, {
   pinned: true,
   primaryTimeZone: null,
   secondaryTimeZone: preferences.DEFAULT_TIME_ZONE,
+  showSecondaryClock: true,
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  meetingStartSound: "meeting-chime",
   schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,
@@ -163,10 +167,12 @@ const fresh = preferences.normalizeWidgetPreferences(null);
 assert.deepEqual(fresh.monitoredSources, ["teams", "outlook"]);
 assert.deepEqual(fresh.liveVisualSources, ["teams"]);
 assert.equal(fresh.primaryTimeZone, null);
+assert.equal(fresh.showSecondaryClock, true);
 assert.equal(fresh.widthMode, "recommended");
 assert.deepEqual(fresh.extraTimeZones, []);
 assert.equal(fresh.clockLayout, "horizontal");
 assert.equal(fresh.meetingStartSoundEnabled, true);
+assert.equal(fresh.meetingStartSound, "meeting-chime");
 assert.equal(fresh.showAppsPanel, true);
 assert.equal(fresh.showClocksPanel, true);
 assert.equal(fresh.showTodayPanel, true);
@@ -222,8 +228,10 @@ assert.equal(
 const meetingSound = preferences.normalizeWidgetPreferences({
   sourceCatalogVersion: 2,
   meetingStartSoundEnabled: true,
+  meetingStartSound: "school-bell",
 });
 assert.equal(meetingSound.meetingStartSoundEnabled, true);
+assert.equal(meetingSound.meetingStartSound, "school-bell");
 assert.equal(
   preferences.normalizeWidgetPreferences({
     sourceCatalogVersion: 2,
@@ -237,6 +245,26 @@ assert.equal(
     meetingStartSoundEnabled: "yes",
   }).meetingStartSoundEnabled,
   true,
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({
+    sourceCatalogVersion: 2,
+    meetingStartSound: "custom-path",
+  }).meetingStartSound,
+  "meeting-chime",
+  "unknown sound IDs fall back to the bundled default",
+);
+assert.deepEqual(
+  preferences.MEETING_START_SOUND_OPTIONS.map((option) => option.value),
+  [
+    "meeting-chime",
+    "game-bonus",
+    "laugh",
+    "school-bell",
+    "thriller",
+    "surprise",
+    "whistle",
+  ],
 );
 
 const multipleClocks = preferences.normalizeWidgetPreferences({
@@ -258,6 +286,18 @@ assert.deepEqual(multipleClocks.extraTimeZones, [
   "Asia/Tokyo",
 ]);
 assert.equal(multipleClocks.clockLayout, "vertical");
+assert.equal(
+  preferences.normalizeWidgetPreferences({ showSecondaryClock: false })
+    .showSecondaryClock,
+  false,
+  "an explicit one-clock choice survives normalization",
+);
+assert.equal(
+  preferences.normalizeWidgetPreferences({ showSecondaryClock: "no" })
+    .showSecondaryClock,
+  true,
+  "a malformed clock visibility value falls back safely",
+);
 assert.equal(
   preferences.normalizeWidgetPreferences({ clockLayout: "timeFocus" })
     .clockLayout,
@@ -386,9 +426,11 @@ assert.deepEqual(preferences.readWidgetPreferences(), {
   pinned: false,
   primaryTimeZone: null,
   secondaryTimeZone: "UTC",
+  showSecondaryClock: true,
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  meetingStartSound: "meeting-chime",
   schoolModeEnabled: false,
   showAppsPanel: true,
   showClocksPanel: true,

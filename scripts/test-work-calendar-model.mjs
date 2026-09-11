@@ -13,6 +13,17 @@ assert.equal(compiled.diagnostics?.length ?? 0, 0);
 const calendar = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString("base64")}`
 );
+const cacheUrl = new URL("../src/work-calendar-display-cache.ts", import.meta.url);
+const cacheSource = await readFile(cacheUrl, "utf8");
+const compiledCache = ts.transpileModule(cacheSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  fileName: cacheUrl.pathname,
+  reportDiagnostics: true,
+});
+assert.equal(compiledCache.diagnostics?.length ?? 0, 0);
+const displayCache = await import(
+  `data:text/javascript;base64,${Buffer.from(compiledCache.outputText).toString("base64")}`
+);
 const pollControllerUrl = new URL("../src/calendar-poll-controller.ts", import.meta.url);
 const pollControllerSource = await readFile(pollControllerUrl, "utf8");
 const compiledPollController = ts.transpileModule(pollControllerSource, {
@@ -40,6 +51,15 @@ assert.deepEqual(
   "zero carry-over must be stated explicitly rather than presented as generic success",
 );
 const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+const publishedIcsSource = await readFile(
+  new URL("../src-tauri/src/published_ics/mod.rs", import.meta.url),
+  "utf8",
+);
+assert.match(appSource, /const PUBLISHED_ICS_UI_DEADLINE_MS = 40_000;/);
+assert.match(publishedIcsSource, /const CONNECT_TIMEOUT: Duration = Duration::from_secs\(5\);/);
+assert.match(publishedIcsSource, /const REQUEST_TIMEOUT: Duration = Duration::from_secs\(30\);/);
+assert.match(publishedIcsSource, /const COMMAND_DEADLINE: Duration = Duration::from_secs\(35\);/);
+assert.match(publishedIcsSource, /tokio::time::timeout\(COMMAND_DEADLINE, &mut task\)/);
 assert.match(appSource, /Paste an Outlook or Google published iCal\/ICS link/);
 assert.match(appSource, /Google\s+iCal links already include the event titles/);
 assert.match(appSource, /I understand this published calendar shares event titles/);
@@ -98,6 +118,7 @@ assert.equal(
 );
 
 const activeOne = {
+  occurrenceId: "occ-active-one",
   subject: "Primary active",
   start: "2026-08-21T10:00:00Z",
   end: "2026-08-21T11:00:00Z",
@@ -108,12 +129,14 @@ const activeOne = {
 };
 const activeTwo = {
   ...activeOne,
+  occurrenceId: "occ-active-two",
   subject: "Overlapping active",
   start: "2026-08-21T09:30:00Z",
   joinToken: "join-2",
 };
 const upcoming = {
   ...activeOne,
+  occurrenceId: "occ-upcoming",
   subject: "Upcoming",
   start: "2026-08-21T12:00:00Z",
   end: "2026-08-21T13:00:00Z",
@@ -134,6 +157,74 @@ const snapshot = {
   parseMs: 1,
   diagnostics: [],
 };
+
+const meetingJustStarted = {
+  ...snapshot,
+  selection: {
+    ...upcoming,
+    start: "2026-08-21T10:00:00Z",
+    end: "2026-08-21T10:30:00Z",
+    classification: "upcoming",
+  },
+  overlappingSelections: [],
+  nextSelection: null,
+};
+assert.equal(
+  calendar.selectWorkCalendarDisplay(
+    meetingJustStarted,
+    new Set(),
+    null,
+    new Set(),
+    Date.parse("2026-08-21T10:00:01Z"),
+  ).selection.classification,
+  "active",
+  "display state must cross the start boundary without waiting for a poll",
+);
+
+const localValues = new Map();
+globalThis.localStorage = {
+  getItem: (key) => localValues.get(key) ?? null,
+  setItem: (key, value) => localValues.set(key, String(value)),
+  removeItem: (key) => localValues.delete(key),
+};
+const cacheSnapshot = {
+  ...snapshot,
+  capturedAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
+  viewerDay: "2026-08-21",
+  daySelectionsComplete: true,
+  selection: {
+    ...activeOne,
+    meetingProvider: "teams",
+    eventToken: "private-event-token",
+    eventWorkspace: {
+      projectId: "private-project",
+      projectName: "Private project",
+      listId: null,
+      listName: null,
+      notesPresent: true,
+      linkUrlPresent: true,
+      linkUrl: "https://private.example/event",
+    },
+  },
+  overlappingSelections: [],
+  nextSelection: null,
+  daySelections: [],
+};
+displayCache.writeWorkCalendarDisplayCache(cacheSnapshot);
+const storedDisplay = [...localValues.values()][0];
+assert.doesNotMatch(storedDisplay, /join-1|private-event-token|private-project|private\.example/);
+const restoredDisplay = displayCache.readWorkCalendarDisplayCache(
+  Date.parse("2026-08-21T10:05:00Z"),
+);
+assert.equal(restoredDisplay.selection.subject, "Primary active");
+assert.equal(restoredDisplay.selection.joinToken, null);
+assert.equal(restoredDisplay.selection.eventToken, null);
+assert.equal(restoredDisplay.selection.eventWorkspace, null);
+assert.equal(
+  displayCache.readWorkCalendarDisplayCache(Date.parse("2026-08-22T10:00:01Z")),
+  null,
+  "display cache expires after one day",
+);
 
 const temporaryFailure = {
   ...snapshot,
@@ -156,7 +247,34 @@ assert.equal(
     temporaryFailure,
     Date.parse("2026-08-21T11:00:01Z"),
   ),
+  snapshot,
+  "a future next event keeps the cached snapshot useful after the primary ends",
+);
+assert.equal(
+  calendar.retainWorkCalendarSnapshot(
+    snapshot,
+    temporaryFailure,
+    Date.parse("2026-08-21T13:00:01Z"),
+  ),
   temporaryFailure,
+  "a transient failure replaces the cache after every display candidate ends",
+);
+const activeOverlapAfterPrimary = {
+  ...snapshot,
+  selection: { ...activeOne, end: "2026-08-21T10:15:00Z" },
+  overlappingSelections: [
+    { ...activeTwo, end: "2026-08-21T11:30:00Z" },
+  ],
+  nextSelection: null,
+};
+assert.equal(
+  calendar.retainWorkCalendarSnapshot(
+    activeOverlapAfterPrimary,
+    temporaryFailure,
+    Date.parse("2026-08-21T10:30:00Z"),
+  ),
+  activeOverlapAfterPrimary,
+  "an active overlap keeps the cached snapshot useful after the primary ends",
 );
 const removedCalendar = { ...temporaryFailure, status: "notConfigured" };
 assert.equal(
@@ -166,23 +284,67 @@ assert.equal(
 
 assert.equal(
   calendar.workCalendarRetryNotice({
-    consecutiveFailures: 1,
+    consecutiveFailures: 2,
     lastSuccessfulAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
     stopReason: "requestTimeout",
     nowMs: Date.parse("2026-08-21T10:02:00Z"),
   }),
   null,
 );
+assert.equal(
+  calendar.workCalendarRetryNotice({
+    consecutiveFailures: 3,
+    lastSuccessfulAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
+    stopReason: "requestTimeout",
+    nowMs: Date.parse("2026-08-21T10:09:59Z"),
+  }),
+  null,
+);
 const retryNotice = calendar.workCalendarRetryNotice({
-  consecutiveFailures: 2,
+  consecutiveFailures: 3,
   lastSuccessfulAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
   stopReason: "requestTimeout",
-  nowMs: Date.parse("2026-08-21T10:02:00Z"),
+  nowMs: Date.parse("2026-08-21T10:10:00Z"),
 });
 assert.equal(retryNotice.state, "Calendar sync delayed");
-assert.match(retryNotice.detail, /took too long/i);
-assert.match(retryNotice.detail, /2 minutes ago/i);
+assert.match(retryNotice.detail, /took too long to download/i);
+assert.match(retryNotice.detail, /10 minutes ago/i);
 assert.doesNotMatch(retryNotice.detail, /https?:|:\/\//i);
+const commandDeadlineNotice = calendar.workCalendarRetryNotice({
+  consecutiveFailures: 3,
+  lastSuccessfulAtUnixMs: Date.parse("2026-08-21T10:00:00Z"),
+  stopReason: "commandDeadline",
+  nowMs: Date.parse("2026-08-21T10:10:00Z"),
+});
+assert.match(commandDeadlineNotice.detail, /safety deadline/i);
+assert.doesNotMatch(commandDeadlineNotice.detail, /download/i);
+assert.equal(
+  calendar.workCalendarRetryNotice({
+    consecutiveFailures: 3,
+    lastSuccessfulAtUnixMs: null,
+    stopReason: "requestFailed",
+    nowMs: Date.parse("2026-08-21T10:02:00Z"),
+  })?.state,
+  "Calendar sync delayed",
+);
+
+const nextWithoutPrimary = calendar.selectWorkCalendarDisplay(
+  {
+    ...snapshot,
+    selection: null,
+    overlappingSelections: [],
+    nextSelection: upcoming,
+  },
+  new Set(),
+  null,
+  new Set(),
+  Date.parse("2026-08-21T11:30:00Z"),
+);
+assert.equal(
+  nextWithoutPrimary.selection?.occurrenceId,
+  upcoming.occurrenceId,
+  "a sanitized cache may promote a valid next event without a primary",
+);
 
 const pendingPolls = [];
 const scheduledPolls = [];
@@ -260,6 +422,7 @@ const simultaneousUpcoming = {
   overlappingSelections: [
     {
       ...upcoming,
+      occurrenceId: "occ-parallel-upcoming",
       subject: "Parallel upcoming",
       end: "2026-08-21T13:30:00Z",
       joinToken: "join-3",
@@ -272,7 +435,7 @@ const alertNow = Date.parse("2026-08-21T11:58:30Z");
 assert.deepEqual(
   calendar.nextWorkCalendarMeetingAlert(simultaneousUpcoming, alertNow),
   {
-    key: "2026-08-21T12:00:00.000Z",
+    key: "occ-upcoming",
     startMs: Date.parse("2026-08-21T12:00:00Z"),
     delayMs: 30_000,
   },
@@ -286,7 +449,7 @@ assert.equal(
 );
 assert.equal(
   calendar.nextWorkCalendarMeetingAlert(snapshot, alertNow)?.key,
-  "2026-08-21T12:00:00.000Z",
+  "occ-upcoming",
 );
 assert.equal(
   calendar.nextWorkCalendarMeetingAlert(
@@ -329,6 +492,42 @@ const chosenParallel = calendar.selectWorkCalendarDisplay(
 );
 assert.equal(chosenParallel.selection.subject, "Parallel upcoming");
 assert.equal(chosenParallel.companion, null);
+
+const primarySkipped = calendar.selectWorkCalendarDisplay(
+  snapshot,
+  new Set(),
+  primaryKey,
+  new Set([activeOne.occurrenceId]),
+);
+assert.equal(primarySkipped.selection.subject, "Overlapping active");
+assert.equal(primarySkipped.companion, null);
+
+const upcomingSkipped = calendar.selectWorkCalendarDisplay(
+  simultaneousUpcoming,
+  new Set(),
+  null,
+  new Set([upcoming.occurrenceId]),
+);
+assert.equal(upcomingSkipped.selection.subject, "Parallel upcoming");
+assert.equal(upcomingSkipped.companion, null);
+assert.equal(
+  calendar.nextWorkCalendarMeetingAlert(
+    simultaneousUpcoming,
+    alertNow,
+    new Set([upcoming.occurrenceId, "occ-parallel-upcoming"]),
+  ),
+  null,
+  "skipped occurrences must not trigger the meeting-start sound",
+);
+const allSkippedIds = new Set([activeOne.occurrenceId, activeTwo.occurrenceId, upcoming.occurrenceId]);
+const allSkipped = calendar.selectWorkCalendarDisplay(snapshot, new Set(), null, allSkippedIds);
+assert.equal(allSkipped.selection, null);
+assert.equal(calendar.firstSkippedWorkCalendarSelection(snapshot, allSkippedIds).subject, "Primary active");
+assert.equal(calendar.firstSkippedWorkCalendarSelection({ ...snapshot, status: "unavailable" }, allSkippedIds), null);
+const widgetSource = await readFile(new URL("../src/WidgetView.tsx", import.meta.url), "utf8");
+assert.match(widgetSource, /calendarSuppressedBySkip[\s\S]+vocabulary\.skippedLocally/);
+assert.match(widgetSource, /calendarSkippedSelection\.subject/);
+assert.match(widgetSource, /Skipped locally · open Today to undo\./);
 
 /* A join token's lifetime is derived from how often this surface polls the
  * calendar, but the two constants live on opposite sides of the IPC boundary.

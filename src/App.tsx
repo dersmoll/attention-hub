@@ -42,6 +42,7 @@ import {
   DEFAULT_MONITORED_SOURCES,
   DEFAULT_WIDGET_PREFERENCES,
   LIVE_VISUAL_APP_KEYS,
+  MEETING_START_SOUND_OPTIONS,
   WIDGET_PREFERENCES_CHANGED_EVENT,
   normalizeWidgetPreferences,
   panelAccentContrastRatio,
@@ -83,7 +84,7 @@ const ADVANCED_PAGES: Array<{
   {
     id: "clocks",
     label: "Clocks",
-    description: "Primary and secondary timezone settings.",
+    description: "Clock layout, visibility, and timezone settings.",
   },
   {
     id: "apps",
@@ -112,7 +113,7 @@ const ADVANCED_PAGES: Array<{
   },
 ];
 
-const PUBLISHED_ICS_UI_DEADLINE_MS = 20_000;
+const PUBLISHED_ICS_UI_DEADLINE_MS = 40_000;
 class PublishedIcsUiDeadlineError extends Error {}
 
 function workCalendarStopReasonMessage(stopReason: string | null) {
@@ -125,8 +126,11 @@ function workCalendarStopReasonMessage(stopReason: string | null) {
   if (stopReason === "titleCapabilityNotConfirmed") {
     return "Confirm the exact calendar publication level before saving this source.";
   }
-  if (stopReason === "requestTimeout" || stopReason === "commandDeadline") {
-    return "Calendar verification timed out safely. The pasted link is still available to retry.";
+  if (stopReason === "requestTimeout") {
+    return "The calendar source took too long to download. The pasted link is still available to retry.";
+  }
+  if (stopReason === "commandDeadline") {
+    return "Calendar verification did not finish within its safety deadline. The pasted link is still available to retry.";
   }
   if (stopReason === "htmlResponse") {
     return "That link returned a web page, not a calendar file. Use the iCal/ICS address rather than the link that opens the calendar in a browser.";
@@ -583,6 +587,7 @@ function AdvancedView() {
   }, [focusWorkCalendarSetup]);
 
   useEffect(() => {
+    if (activePage !== "diagnostics") return;
     let disposed = false;
     let stopListening: (() => void) | undefined;
     void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
@@ -629,14 +634,16 @@ function AdvancedView() {
         clearTimeout(timer);
       }
     };
-  }, [refreshAttentionSignals]);
+  }, [activePage, refreshAttentionSignals]);
 
   useEffect(() => {
+    if (activePage !== "diagnostics") return;
     const timer = window.setInterval(() => setAttentionClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [activePage]);
 
   useEffect(() => {
+    if (activePage !== "diagnostics") return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -655,7 +662,7 @@ function AdvancedView() {
         clearTimeout(timer);
       }
     };
-  }, [refreshTeamsMirror]);
+  }, [activePage, refreshTeamsMirror]);
 
   const activePageDetails =
     ADVANCED_PAGES.find((page) => page.id === activePage) ?? ADVANCED_PAGES[0];
@@ -968,7 +975,7 @@ function AdvancedView() {
                 }
                 type="checkbox"
               />
-              Show Projects and To-dos
+              Show To-dos
             </label>
             <label>
               <input
@@ -1062,40 +1069,56 @@ function AdvancedView() {
             >
               Use system timezone
             </button>
-            <label htmlFor="widget-secondary-time-zone">
-              Secondary timezone
+            <label className="widget-clock-secondary-toggle">
+              <input
+                checked={widgetPreferences.showSecondaryClock}
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    showSecondaryClock: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Show secondary clock</span>
             </label>
-            <input
-              aria-label="Search secondary timezones"
-              className="widget-time-zone-search"
-              onChange={(event) => setSecondaryTimeZoneSearch(event.target.value)}
-              placeholder="Search city, IANA name, or UTC offset"
-              type="search"
-              value={secondaryTimeZoneSearch}
-            />
-            <select
-              id="widget-secondary-time-zone"
-              onChange={(event) =>
-                applyWidgetPreferences({
-                  secondaryTimeZone: event.target.value,
-                })
-              }
-              value={widgetPreferences.secondaryTimeZone}
-            >
-              {secondaryTimeZoneOptions.map((timeZone) => (
-                <option key={timeZone} value={timeZone}>
-                  {timeZoneOptionLabel(timeZone)}
-                </option>
-              ))}
-            </select>
-            <small>
-              The widget shows a short city label and a compact common-zone
-              list. Search by city, country, IANA name, or UTC offset.
-            </small>
-            <small>
-              IANA timezone rules automatically apply summer and winter clock
-              changes wherever the selected zone observes them.
-            </small>
+            {widgetPreferences.showSecondaryClock && (
+              <>
+                <label htmlFor="widget-secondary-time-zone">
+                  Secondary timezone
+                </label>
+                <input
+                  aria-label="Search secondary timezones"
+                  className="widget-time-zone-search"
+                  onChange={(event) => setSecondaryTimeZoneSearch(event.target.value)}
+                  placeholder="Search city, IANA name, or UTC offset"
+                  type="search"
+                  value={secondaryTimeZoneSearch}
+                />
+                <select
+                  id="widget-secondary-time-zone"
+                  onChange={(event) =>
+                    applyWidgetPreferences({
+                      secondaryTimeZone: event.target.value,
+                    })
+                  }
+                  value={widgetPreferences.secondaryTimeZone}
+                >
+                  {secondaryTimeZoneOptions.map((timeZone) => (
+                    <option key={timeZone} value={timeZone}>
+                      {timeZoneOptionLabel(timeZone)}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  The widget shows a short city label and a compact common-zone
+                  list. Search by city, country, IANA name, or UTC offset.
+                </small>
+                <small>
+                  IANA timezone rules automatically apply summer and winter clock
+                  changes wherever the selected zone observes them.
+                </small>
+              </>
+            )}
             <label htmlFor="widget-extra-time-zone">Additional timezones</label>
             {widgetPreferences.extraTimeZones.length > 0 && (
               <ul className="widget-extra-time-zones">
@@ -1148,7 +1171,7 @@ function AdvancedView() {
             >
               <option value="">
                 {widgetPreferences.extraTimeZones.length >= 3
-                  ? "Maximum of five clocks reached"
+                  ? "Maximum additional timezones reached"
                   : "Add a timezone…"}
               </option>
               {extraTimeZoneOptions.map((timeZone) => (
@@ -1159,7 +1182,8 @@ function AdvancedView() {
             </select>
             <small>
               Add up to three display-only clocks. Time conversion remains
-              between the primary and secondary zones.
+              between the primary and saved secondary zones, even when the
+              secondary clock is hidden.
             </small>
           </fieldset>
 
@@ -1397,22 +1421,46 @@ function AdvancedView() {
               }
               type="checkbox"
             />{" "}
-            Play the bundled meeting notification sound one minute before an
-            upcoming meeting
+            Play a meeting notification sound one minute before an upcoming
+            meeting
           </label>
-          <button
-            onClick={() =>
-              void invoke("play_meeting_start_sound").catch(() =>
-                showFrontendNotice(
-                  "The meeting sound could not be played on this device.",
-                ),
-              )
-            }
-            type="button"
-          >
-            Test sound
-          </button>
-          <small>
+          <div className="calendar-attention-settings__sound-choice">
+            <label htmlFor="meeting-start-sound">Reminder sound</label>
+            <div className="calendar-attention-settings__sound-controls">
+              <select
+                aria-describedby="meeting-start-sound-help"
+                id="meeting-start-sound"
+                onChange={(event) =>
+                  applyWidgetPreferences({
+                    meetingStartSound:
+                      event.target.value as typeof widgetPreferences.meetingStartSound,
+                  })
+                }
+                value={widgetPreferences.meetingStartSound}
+              >
+                {MEETING_START_SOUND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() =>
+                  void invoke("play_meeting_start_sound", {
+                    sound: widgetPreferences.meetingStartSound,
+                  }).catch(() =>
+                    showFrontendNotice(
+                      "The meeting sound could not be played on this device.",
+                    ),
+                  )
+                }
+                type="button"
+              >
+                Test sound
+              </button>
+            </div>
+          </div>
+          <small id="meeting-start-sound-help">
             Sound is enabled by default, contains no meeting data, and fires once
             per observed timed meeting, one minute before it starts, while
             Attention Hub is running.
@@ -1613,9 +1661,9 @@ function AdvancedView() {
 
       </section>
 
-      <section className="advanced-page-body" hidden={activePage !== "updates"}>
+      {activePage === "updates" && <section className="advanced-page-body">
         <AppUpdatePanel variant="settings" />
-      </section>
+      </section>}
 
       <div
         className="advanced-page-body advanced-diagnostics"

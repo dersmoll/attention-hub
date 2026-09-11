@@ -169,11 +169,21 @@ const dailySnapshot = {
   ],
 };
 const dailyGroups = medicine.medicineDailyTreatments(dailySnapshot, new Date("2026-09-04T09:30:00"));
+assert.deepEqual(medicine.activeMedicineTreatments(dailySnapshot, new Date("2026-09-04T09:30:00")).map((treatment) => treatment.id), ["first-treatment", "later-treatment"]);
 assert.deepEqual(dailyGroups.map((group) => group.treatment.id), ["first-treatment", "later-treatment"]);
 assert.deepEqual(dailyGroups[0].rows.map((row) => row.medicine.id), ["first-med", "second-med"]);
 assert.deepEqual(dailyGroups[0].rows.map((row) => row.state), ["taken", "due"]);
 assert.equal(dailyGroups[0].takenToday, 1);
 assert.deepEqual(medicine.medicineDailyRows(dailySnapshot, new Date("2026-09-04T09:30:00")).map((row) => row.medicine.id), ["first-med", "second-med", "later-med"]);
+const mixedContinuationSnapshot = {
+  ...dailySnapshot,
+  doses: dailySnapshot.doses.filter((dose) => dose.medicineId === "later-med"),
+};
+assert.deepEqual(
+  medicine.medicineTreatmentsWithoutDosesToday(mixedContinuationSnapshot, new Date("2026-09-04T09:30:00")).map((treatment) => treatment.id),
+  ["first-treatment"],
+  "one treatment having a dose today must not hide a different continuing treatment",
+);
 assert.equal(medicine.medicineDoseStateLabel("missed"), "Missed");
 const oversizedGroups = Array.from({ length: 4 }, (_, groupIndex) => ({ ...dailyGroups[0], treatment: { ...dailyGroups[0].treatment, id: `treatment-${groupIndex}` }, rows: Array.from({ length: 3 }, (_, rowIndex) => ({ ...dailyGroups[0].rows[0], dose: { ...dailyGroups[0].rows[0].dose, slotTime: `0${rowIndex}:00` } })) }));
 const bounded = medicine.boundedMedicinePanelGroups(oversizedGroups);
@@ -238,6 +248,16 @@ const withOverflow = medicine.boundedMedicinePanelGroups([busyDueGroup, lateReco
 assert.equal(withOverflow.hiddenItems.length, withOverflow.hiddenRows);
 assert.deepEqual(withOverflow.hiddenItems.map((item) => item.dose.medicineId), ["missed-med", "taken-med"], "hidden doses must be ordered by urgency, so the overflow target is the first");
 assert.equal(medicine.dosePriority("due"), medicine.dosePriority("missed"));
+
+const managerSource = await readFile(new URL("../src/MedicineManagerView.tsx", import.meta.url), "utf8");
+assert.match(managerSource, /aria-label={`Dose time \$\{index \+ 1\}`}/, "existing dose times must be directly editable");
+assert.match(managerSource, /type="time" value={time}/);
+assert.match(managerSource, /Treatment extended and reopened\./);
+
+const panelSource = await readFile(new URL("../src/MedicinePanelView.tsx", import.meta.url), "utf8");
+const todaySource = await readFile(new URL("../src/TodayPopupView.tsx", import.meta.url), "utf8");
+assert.match(panelSource, /medicine-panel__continues/);
+assert.match(todaySource, /today-popup-medicine__continues/);
 assert.ok(medicine.dosePriority("upcoming") > medicine.dosePriority("due"));
 assert.ok(medicine.dosePriority("taken") > medicine.dosePriority("upcoming"));
 // A budget that fits everything hides nothing and reorders nothing.

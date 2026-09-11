@@ -505,8 +505,8 @@ assert.equal(school.minutesUntil(NOW - 60_000, NOW), 0);
     );
   }
 
-  // "Starting soon" is genuinely mode-neutral; everything else should read
-  // differently, or the mode switch is not doing anything.
+  // Mode-specific nouns stay distinct. The compact "Soon" attention pill is
+  // intentionally shared because the adjacent title supplies the event kind.
   const shared = Object.keys(work).filter((key) => work[key] === school[key]);
   assert.deepEqual(
     shared,

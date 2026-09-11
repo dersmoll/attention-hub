@@ -18,6 +18,27 @@ export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
 export type WidgetWidthMode = "recommended" | "slim";
 export type ClockLayout = "horizontal" | "vertical" | "timeFocus";
 export type PanelSurfaceMode = "light" | "dark" | "custom";
+export type MeetingStartSound =
+  | "meeting-chime"
+  | "game-bonus"
+  | "laugh"
+  | "school-bell"
+  | "thriller"
+  | "surprise"
+  | "whistle";
+
+export const MEETING_START_SOUND_OPTIONS: ReadonlyArray<{
+  value: MeetingStartSound;
+  label: string;
+}> = [
+  { value: "meeting-chime", label: "Meeting chime" },
+  { value: "game-bonus", label: "Game bonus" },
+  { value: "laugh", label: "Laugh" },
+  { value: "school-bell", label: "School bell" },
+  { value: "thriller", label: "Thriller" },
+  { value: "surprise", label: "Surprise" },
+  { value: "whistle", label: "Whistle" },
+];
 
 export const PANEL_SURFACE_COLORS = {
   light: { background: "#f8fafc", text: "#111827" },
@@ -30,9 +51,11 @@ export interface WidgetPreferences {
   pinned: boolean;
   primaryTimeZone: string | null;
   secondaryTimeZone: string;
+  showSecondaryClock: boolean;
   extraTimeZones: string[];
   clockLayout: ClockLayout;
   meetingStartSoundEnabled: boolean;
+  meetingStartSound: MeetingStartSound;
   /**
    * Read the calendar as a school timetable rather than a work diary.
    *
@@ -91,9 +114,11 @@ export const DEFAULT_WIDGET_PREFERENCES: WidgetPreferences = {
   pinned: true,
   primaryTimeZone: null,
   secondaryTimeZone: DEFAULT_TIME_ZONE,
+  showSecondaryClock: true,
   extraTimeZones: [],
   clockLayout: "horizontal",
   meetingStartSoundEnabled: true,
+  meetingStartSound: "meeting-chime",
   // Off by default: an existing work calendar must not start being narrated as
   // a school day because the app updated.
   schoolModeEnabled: false,
@@ -246,6 +271,12 @@ function normalizeClockLayout(value: unknown): ClockLayout {
     : "horizontal";
 }
 
+function normalizeMeetingStartSound(value: unknown): MeetingStartSound {
+  return MEETING_START_SOUND_OPTIONS.some((option) => option.value === value)
+    ? (value as MeetingStartSound)
+    : DEFAULT_WIDGET_PREFERENCES.meetingStartSound;
+}
+
 function normalizeCoordinate(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.round(value)
@@ -327,6 +358,10 @@ export function normalizeWidgetPreferences(
         : DEFAULT_WIDGET_PREFERENCES.pinned,
     primaryTimeZone,
     secondaryTimeZone,
+    showSecondaryClock:
+      typeof value?.showSecondaryClock === "boolean"
+        ? value.showSecondaryClock
+        : DEFAULT_WIDGET_PREFERENCES.showSecondaryClock,
     extraTimeZones: normalizeExtraTimeZones(
       value?.extraTimeZones,
       primaryTimeZone,
@@ -337,6 +372,7 @@ export function normalizeWidgetPreferences(
       typeof value?.meetingStartSoundEnabled === "boolean"
         ? value.meetingStartSoundEnabled
         : DEFAULT_WIDGET_PREFERENCES.meetingStartSoundEnabled,
+    meetingStartSound: normalizeMeetingStartSound(value?.meetingStartSound),
     schoolModeEnabled:
       typeof value?.schoolModeEnabled === "boolean"
         ? value.schoolModeEnabled

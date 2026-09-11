@@ -11,7 +11,7 @@ export interface WorkspaceProject { id: string; name: string; notes: NoteSegment
 export interface WorkspaceList { id: string; categoryId: string | null; name: string; sortIndex: number; createdAt: string; updatedAt: string; }
 export interface ProjectLink { id: string; projectId: string; label: string; url: string; kind: ProjectLinkKind; sortIndex: number; createdAt: string; updatedAt: string; }
 export interface ActionItem { id: string; ownerKind: ActionItemOwnerKind; ownerId: string; title: string; notes: NoteSegment[]; dueOn: string | null; remindAt: string | null; notifiedRemindAt: string | null; completedAt: string | null; createdAt: string; updatedAt: string; }
-export interface WorkspaceBinding { eventKey: string; projectId: string | null; projectLinkId: string | null; linkUrl: string | null; createdAt: string; updatedAt: string; }
+export interface WorkspaceBinding { eventKey: string; projectId: string | null; listId: string | null; projectLinkId: string | null; linkUrl: string | null; createdAt: string; updatedAt: string; }
 export interface WorkspaceSnapshot { schemaVersion: 1; revision: number; capturedAt: string; storagePath: string; recoveredFromBackup: boolean; categories: PersonalCategory[]; projects: WorkspaceProject[]; lists: WorkspaceList[]; links: ProjectLink[]; actionItems: ActionItem[]; bindings: WorkspaceBinding[]; }
 export interface WorkspaceTransferCounts { categories: number; projects: number; lists: number; links: number; actionItems: number; bindings: number; }
 export interface WorkspaceImportPreview { schemaVersion: 1; exportedAt: string; digest: string; workspaceRevision: number; counts: WorkspaceTransferCounts; }
