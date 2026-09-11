@@ -1,10 +1,10 @@
 # Attention Hub 0.6.0-beta.14
 
-- Prepared: 2026-09-11
-- Status: human accepted; publication approved
+- Released: 2026-09-11
+- Status: public beta
 - Platform: Windows x64
 - Format: NSIS setup executable
-- Publication: not tagged or published
+- Tag: `v0.6.0-beta.14`
 
 ## Milestone 22 — daily workflow and interface polish
 
@@ -74,4 +74,6 @@ will build and sign the updater artifact separately.
 - Installed beta.13-to-beta.14 updater download, replacement, and restart remain
   post-publication acceptance checks and are not implied by source validation.
 
-Publication was explicitly approved on 2026-09-11.
+Publication was explicitly approved on 2026-09-11. Signed Tauri updater
+metadata validates in-app beta updates separately from Windows Authenticode
+signing, which remains unavailable for this installer.
