@@ -10,7 +10,8 @@ pub use semantics::{
 
 const MAX_URL_BYTES: usize = 4_096;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const COMMAND_DEADLINE: Duration = Duration::from_secs(35);
 const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PHYSICAL_LINES: u32 = 250_000;
 const MAX_PROPERTIES: u32 = 200_000;
@@ -153,7 +154,7 @@ impl PublishedIcsSemanticProbe {
         probe.fail(
             PublishedIcsProbeStatus::Timeout,
             PublishedIcsStopReason::CommandDeadline,
-            "The complete one-shot semantic command exceeded its fixed 15-second deadline.",
+            "The complete one-shot semantic command exceeded its fixed 35-second deadline.",
         );
         probe
     }
@@ -466,7 +467,7 @@ pub async fn get_semantic_probe_with_deadline(
         published_url,
         title_capability_confirmed,
     ));
-    match tokio::time::timeout(Duration::from_secs(15), &mut task).await {
+    match tokio::time::timeout(COMMAND_DEADLINE, &mut task).await {
         Ok(Ok(probe)) => probe,
         Ok(Err(_)) => PublishedIcsSemanticProbe::command_failed(title_capability_confirmed),
         Err(_) => {
@@ -900,5 +901,15 @@ mod tests {
         assert!(!probe.semantic_extraction_allowed);
         assert!(probe.selection.is_none());
         assert_eq!(probe.diagnostics.len(), 1);
+        assert!(!probe.diagnostics[0].contains("http"));
+    }
+
+    #[test]
+    fn timeout_layers_leave_room_for_the_bounded_request_to_finish() {
+        assert_eq!(CONNECT_TIMEOUT, Duration::from_secs(5));
+        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
+        assert_eq!(COMMAND_DEADLINE, Duration::from_secs(35));
+        assert!(CONNECT_TIMEOUT < REQUEST_TIMEOUT);
+        assert!(REQUEST_TIMEOUT < COMMAND_DEADLINE);
     }
 }

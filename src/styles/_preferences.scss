@@ -106,6 +106,18 @@
   }
 }
 
+.widget-preference-card > .widget-clock-secondary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+
+  input {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+}
+
 .widget-color-control {
   display: flex;
   align-items: center;
@@ -402,6 +414,26 @@
 
   > button {
     justify-self: start;
+  }
+
+  &__sound-choice {
+    display: grid;
+    gap: 0.35rem;
+
+    > label {
+      font-weight: 650;
+    }
+  }
+
+  &__sound-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+
+    select {
+      min-width: 0;
+    }
   }
 
   > small {

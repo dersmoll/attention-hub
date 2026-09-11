@@ -47,7 +47,7 @@ const view = await readFile(new URL("../src/MedicinePanelView.tsx", import.meta.
  * failed — so an empty day and unreachable data read identically. */
 assert.match(
   view,
-  /const footerLabel = bounded\.visibleRows \? "[^"]*"\s*: loadFailure !== null \? "Medicine data is unavailable\."\s*: snapshot === null \? "Loading[^"]*"\s*: "No doses scheduled today\."/,
+  /const footerLabel = bounded\.visibleRows \? "[^"]*"\s*: loadFailure !== null \? "Medicine data is unavailable\."\s*: snapshot === null \? "Loading[^"]*"\s*: continuingTreatments\.length > 0 \?[^;]+\s*: "No doses scheduled today\."/,
   "emptiness may be claimed only with a successful load and no outstanding failure behind it",
 );
 

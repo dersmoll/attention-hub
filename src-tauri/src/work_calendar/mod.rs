@@ -99,6 +99,7 @@ pub struct WorkCalendarSnapshot {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkCalendarSelection {
+    pub occurrence_id: String,
     pub subject: String,
     pub start: String,
     pub end: String,
@@ -116,6 +117,7 @@ pub struct WorkCalendarSelection {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkCalendarDaySelection {
+    pub occurrence_id: String,
     pub subject: String,
     pub start: String,
     pub end: String,
@@ -133,6 +135,8 @@ pub struct WorkCalendarDaySelection {
 pub struct EventWorkspaceSummary {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
+    pub list_id: Option<String>,
+    pub list_name: Option<String>,
     pub notes_present: bool,
     pub link_url_present: bool,
     pub link_url: Option<String>,
@@ -213,6 +217,13 @@ fn occurrence_key(source_scope: Option<&str>, series_uid: &str, start: &str) -> 
     format!(
         "{}\u{0}{series_uid}\u{0}{start}",
         source_scope.unwrap_or("")
+    )
+}
+
+fn occurrence_id(source_scope: Option<&str>, series_uid: &str, start: &str) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(occurrence_key(source_scope, series_uid, start).as_bytes())
     )
 }
 
@@ -408,6 +419,7 @@ impl WorkCalendarSelection {
             event.private,
         );
         Self {
+            occurrence_id: occurrence_id(source_scope, &event.series_uid, &event.start),
             subject: event.subject,
             start: event.start,
             end: event.end,
@@ -963,6 +975,7 @@ fn day_selection(event: DayEventSelection, source_scope: Option<&str>) -> WorkCa
         })
         .flatten();
     WorkCalendarDaySelection {
+        occurrence_id: occurrence_id(source_scope, &event.series_uid, &event.start),
         subject: event.subject,
         start: event.start,
         end: event.end,
@@ -1755,6 +1768,10 @@ mod tests {
         assert_eq!(first.workspace_key, same.workspace_key);
         assert_ne!(first.workspace_key, other_source.workspace_key);
         assert_eq!(first.workspace_key.as_deref().unwrap().len(), 64);
+        assert_eq!(first.occurrence_id, same.occurrence_id);
+        assert_ne!(first.occurrence_id, other_source.occurrence_id);
+        assert_eq!(first.occurrence_id.len(), 64);
+        assert!(!first.occurrence_id.contains("series-uid"));
 
         let private = day_selection(
             DayEventSelection {

@@ -89,6 +89,11 @@ The provider never controls Outlook. AppointmentStore, Outlook My Day UI
 Automation, Microsoft Graph, OCR, and generalized calendar providers are not
 part of the production command surface.
 
+Meeting reminders use one normalized local preference and a fixed set of
+bundled WAV identifiers. React sends only the selected identifier; Rust maps it
+to an allowlisted resource path and plays it through the Windows `PlaySoundW`
+API. Arbitrary frontend filenames and filesystem paths are never accepted.
+
 ### Project Hub, event settings, and to-dos
 
 One versioned `workspace.json` store owns projects, personal categories and
@@ -294,7 +299,8 @@ applicable, and open only after explicit user action.
 The widget polls bounded source snapshots and refreshes the saved calendar at
 controlled intervals. Native listeners and taskbar mirrors are cleaned up when
 the owning surface exits. There is no installer-managed autostart, Hub tray
-process, updater, or closed-app reminder service in this beta.
+process or closed-app reminder service in this beta. Updates use the separately
+documented user-confirmed signed updater flow.
 
 ## Validation
 

@@ -12,3 +12,11 @@ The project owner supplied this generated sound and approved bundling it in the
 public beta. It was generated on the ElevenLabs free plan, is restricted to
 non-commercial use with attribution to `elevenlabs.io`, and is not covered by
 the repository's MIT licence. See `THIRD_PARTY_NOTICES.md` before redistribution.
+
+## Selectable reminder sounds
+
+The six WAV files under `new/` were converted by the project owner from Pixabay
+MP3 downloads retained outside the bundled release. The application bundles
+only the WAV files and maps stable preference IDs to fixed resource paths in
+Rust. The original download titles, creators, asset IDs, and applicable Pixabay
+Content License are recorded in `THIRD_PARTY_NOTICES.md`.

@@ -90,10 +90,12 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
   const panelStyle = useWidgetPanelStyle();
   const initialParams = new URLSearchParams(window.location.search);
   const initialProjectId = projectId ?? initialParams.get("projectId");
+  const initialListId = compact ? null : initialParams.get("listId");
+  const initialOwner: SelectedOwner = initialProjectId ? { kind: "project", id: initialProjectId } : initialListId ? { kind: "list", id: initialListId } : null;
   const initialFocus = initialParams.get("focus") === "todos" ? "todos" : "projects";
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
-  const [selected, setSelected] = useState<SelectedOwner>(initialProjectId ? { kind: "project", id: initialProjectId } : null);
-  const [managerSection, setManagerSection] = useState<ManagerSection>(initialProjectId || initialFocus === "projects" ? "projects" : "all-todos");
+  const [selected, setSelected] = useState<SelectedOwner>(initialOwner);
+  const [managerSection, setManagerSection] = useState<ManagerSection>(initialOwner || initialFocus === "projects" ? "projects" : "all-todos");
   const [tab, setTab] = useState<ProjectTab>(compact ? "notes" : "todos");
   const [newProject, setNewProject] = useState("");
   const [newList, setNewList] = useState("");
@@ -105,7 +107,7 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
   const [noteDirty, setNoteDirty] = useState(false);
   const [noteConflict, setNoteConflict] = useState(false);
   const [todo, setTodo] = useState<TodoDraft>(EMPTY_TODO);
-  const [todoOwner, setTodoOwner] = useState<SelectedOwner>(initialProjectId ? { kind: "project", id: initialProjectId } : null);
+  const [todoOwner, setTodoOwner] = useState<SelectedOwner>(initialOwner);
   const [todoExpanded, setTodoExpanded] = useState(false);
   const [todoFilter, setTodoFilter] = useState<"all" | "unscheduled">("all");
   const [linkLabel, setLinkLabel] = useState("");
@@ -121,6 +123,8 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [sidebarCreate, setSidebarCreate] = useState<"project" | "list" | "category" | null>(null);
+  const [collapsedCategories, setCollapsedCategories] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const noteTextRef = useRef("");
   const focusRef = useRef<"projects" | "todos">(initialFocus);
@@ -208,13 +212,15 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
     return match ? `Personal · ${match.name}` : "Unknown list";
   };
 
-  const applyManagerFocus = useCallback((focus: "projects" | "todos", requestedProjectId?: string) => {
+  const applyManagerFocus = useCallback((focus: "projects" | "todos", requestedProjectId?: string, requestedListId?: string) => {
     focusRef.current = focus;
     if (!snapshot) return;
     if (focus === "projects") {
       setManagerSection("projects");
       const requested = requestedProjectId && snapshot.projects.find((item) => item.id === requestedProjectId);
       if (requested) { setSelected({ kind: "project", id: requested.id }); setTab("notes"); return; }
+      const requestedList = requestedListId && snapshot.lists.find((item) => item.id === requestedListId);
+      if (requestedList) { setSelected({ kind: "list", id: requestedList.id }); setTab("todos"); return; }
       const first = snapshot.projects.find((item) => item.archivedAt === null);
       if (first) { setSelected({ kind: "project", id: first.id }); setTab("notes"); }
       return;
@@ -232,7 +238,7 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
     if (compact) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ focus: "projects" | "todos"; projectId?: string }>(MANAGER_FOCUS_EVENT, ({ payload }) => applyManagerFocus(payload.focus, payload.projectId)).then((next) => { if (disposed) next(); else unlisten = next; });
+    void listen<{ focus: "projects" | "todos"; projectId?: string; listId?: string }>(MANAGER_FOCUS_EVENT, ({ payload }) => applyManagerFocus(payload.focus, payload.projectId, payload.listId)).then((next) => { if (disposed) next(); else unlisten = next; });
     return () => { disposed = true; unlisten?.(); };
   }, [applyManagerFocus, compact]);
 
@@ -314,12 +320,13 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
     const created = kind === "project" ? next.projects[next.projects.length - 1] : next.lists[next.lists.length - 1];
     if (created) setSelected({ kind, id: created.id });
     if (kind === "project") setNewProject(""); else setNewList("");
+    setSidebarCreate(null);
   };
 
   const createCategory = async () => {
     if (!newCategory.trim()) return;
     const next = await runMutation("create_personal_category", { name: newCategory });
-    if (next) setNewCategory("");
+    if (next) { setNewCategory(""); setSidebarCreate(null); }
   };
 
   const renameCategory = async () => {
@@ -521,37 +528,38 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
     </div>}
     {!compact && managerSection === "projects" && <aside className="manager-items" id="manager-projects-sidebar">
       <section className="manager-items__section">
-        <header><p>Projects</p><span>{projects.length}</span></header>
+        <header><p>Projects <small>{projects.length}</small></p><span><button aria-expanded={sidebarCreate === "project"} className="manager-sidebar-add" onClick={() => setSidebarCreate((value) => value === "project" ? null : "project")} type="button">+ Add project</button></span></header>
         <nav aria-label="Projects">{projects.map((item) => ownerRow("project", item.id, item.name))}</nav>
         {archivedProjects.length > 0 && <div className="manager-archived">
           <button aria-expanded={showArchived} onClick={() => setShowArchived((value) => !value)} type="button">Archived ({archivedProjects.length})</button>
           {showArchived && <nav aria-label="Archived projects">{archivedProjects.map((item) => ownerRow("project", item.id, item.name, true))}</nav>}
         </div>}
-        <form onSubmit={(event) => { event.preventDefault(); void createOwner("project"); }}>
+        {sidebarCreate === "project" && <form onSubmit={(event) => { event.preventDefault(); void createOwner("project"); }}>
           <input aria-label="New project name" onChange={(event) => setNewProject(event.target.value)} placeholder="New project name" value={newProject}/>
           <button aria-label="Add project" className="manager-icon-action is-primary" title="Add project" type="submit"><ActionIcon name="add"/></button>
-        </form>
+        </form>}
       </section>
       <section className="manager-items__section manager-items__personal">
-        <header><p>Personal</p><span>{personalLists.length}</span></header>
+        <header><p>Personal lists <small>{personalLists.length}</small></p><span><button aria-expanded={sidebarCreate === "list" || sidebarCreate === "category"} className="manager-sidebar-add" onClick={() => setSidebarCreate((value) => value === "list" || value === "category" ? null : "list")} type="button">+ Add</button></span></header>
+        {(sidebarCreate === "list" || sidebarCreate === "category") && <div aria-label="Choose what to add" className="manager-create-switch" role="group"><button aria-pressed={sidebarCreate === "list"} onClick={() => setSidebarCreate("list")} type="button">List</button><button aria-pressed={sidebarCreate === "category"} onClick={() => setSidebarCreate("category")} type="button">Category</button></div>}
         <div className="manager-category">
-          <p>General</p>
+          <p className="manager-category__label"><span>General</span><small>{personalLists.filter((item) => item.categoryId === null).length}</small></p>
           <nav aria-label="General personal lists">{personalLists.filter((item) => item.categoryId === null).map((item) => ownerRow("list", item.id, item.name))}</nav>
         </div>
         {personalCategories.map((category, categoryIndex) => <div className="manager-category" key={category.id}>
           <div className="manager-category__header">{editingCategoryId === category.id
             ? <form onSubmit={(event) => { event.preventDefault(); void renameCategory(); }}><input aria-label={`Rename ${category.name}`} autoFocus onChange={(event) => setCategoryName(event.target.value)} value={categoryName}/><button type="submit">Save</button><button onClick={() => setEditingCategoryId(null)} type="button">Cancel</button></form>
-            : <><p>{category.name}</p><span><button aria-label={`Move ${category.name} up`} disabled={categoryIndex === 0} onClick={() => void swapOrder("move_personal_category", "categoryId", personalCategories, categoryIndex, -1)} type="button"><ActionIcon name="up"/></button><button aria-label={`Move ${category.name} down`} disabled={categoryIndex === personalCategories.length - 1} onClick={() => void swapOrder("move_personal_category", "categoryId", personalCategories, categoryIndex, 1)} type="button"><ActionIcon name="down"/></button><button aria-label={`Rename ${category.name}`} onClick={() => { setEditingCategoryId(category.id); setCategoryName(category.name); }} type="button"><ActionIcon name="edit"/></button><button aria-label={`Delete ${category.name}`} className="is-danger" onClick={() => void prepareCategoryDelete(category.id)} type="button"><ActionIcon name="delete"/></button></span></>}
+            : <><button aria-expanded={!collapsedCategories.includes(category.id)} className="manager-category__toggle" onClick={() => setCollapsedCategories((value) => value.includes(category.id) ? value.filter((id) => id !== category.id) : [...value, category.id])} type="button"><span aria-hidden="true" className="manager-category__chevron">{collapsedCategories.includes(category.id) ? "›" : "⌄"}</span><span className="manager-category__name">{category.name}</span><small>{personalLists.filter((item) => item.categoryId === category.id).length}</small></button><span><button aria-label={`Move ${category.name} up`} disabled={categoryIndex === 0} onClick={() => void swapOrder("move_personal_category", "categoryId", personalCategories, categoryIndex, -1)} type="button"><ActionIcon name="up"/></button><button aria-label={`Move ${category.name} down`} disabled={categoryIndex === personalCategories.length - 1} onClick={() => void swapOrder("move_personal_category", "categoryId", personalCategories, categoryIndex, 1)} type="button"><ActionIcon name="down"/></button><button aria-label={`Rename ${category.name}`} onClick={() => { setEditingCategoryId(category.id); setCategoryName(category.name); }} type="button"><ActionIcon name="edit"/></button><button aria-label={`Delete ${category.name}`} className="is-danger" onClick={() => void prepareCategoryDelete(category.id)} type="button"><ActionIcon name="delete"/></button></span></>}
           </div>
-          <nav aria-label={`${category.name} personal lists`}>{personalLists.filter((item) => item.categoryId === category.id).map((item) => ownerRow("list", item.id, item.name))}</nav>
+          {!collapsedCategories.includes(category.id) && <nav aria-label={`${category.name} personal lists`}>{personalLists.filter((item) => item.categoryId === category.id).map((item) => ownerRow("list", item.id, item.name))}</nav>}
         </div>)}
         {categoryDeleteImpact && <div className="manager-category__confirm" role="alert"><p>Delete {categoryDeleteImpact.name}? This removes {impactSummary(categoryDeleteImpact)}.</p><button autoFocus className="is-danger" onClick={() => void confirmCategoryDelete()} type="button">Delete</button><button onClick={() => setCategoryDeleteImpact(null)} type="button">Cancel</button></div>}
-        <form onSubmit={(event) => { event.preventDefault(); void createOwner("list"); }}>
+        {sidebarCreate === "list" && <form onSubmit={(event) => { event.preventDefault(); void createOwner("list"); }}>
           <input aria-label="New personal list name" onChange={(event) => setNewList(event.target.value)} placeholder="New list" value={newList}/>
           <select aria-label="New list category" onChange={(event) => setNewListCategoryId(event.target.value)} value={newListCategoryId}><option value="">General</option>{personalCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>
           <button aria-label="Add personal list" className="manager-icon-action is-primary" title="Add personal list" type="submit"><ActionIcon name="add"/></button>
-        </form>
-        <form className="manager-category-create" onSubmit={(event) => { event.preventDefault(); void createCategory(); }}><input aria-label="New personal category name" onChange={(event) => setNewCategory(event.target.value)} placeholder="New category" value={newCategory}/><button aria-label="Add personal category" className="manager-icon-action is-primary" title="Add personal category" type="submit"><ActionIcon name="add"/></button></form>
+        </form>}
+        {sidebarCreate === "category" && <form className="manager-category-create" onSubmit={(event) => { event.preventDefault(); void createCategory(); }}><input aria-label="New personal category name" onChange={(event) => setNewCategory(event.target.value)} placeholder="New category" value={newCategory}/><button aria-label="Add personal category" className="manager-icon-action is-primary" title="Add personal category" type="submit"><ActionIcon name="add"/></button></form>}
       </section>
     </aside>}
     <section aria-labelledby={!compact ? `manager-main-tab-${managerSection}` : undefined} className={`manager-detail${!compact && managerSection === "all-todos" ? " manager-all-todos" : ""}`} id={!compact && managerSection === "all-todos" ? "manager-all-todos-section" : "manager-projects-section"} role={!compact ? "tabpanel" : undefined}>
@@ -582,7 +590,7 @@ export function ManagerView({ projectId = null, compact = false }: { projectId?:
             {project && <button aria-label={project.archivedAt ? "Restore project" : "Archive project"} className="manager-icon-action" onClick={() => void archiveProject()} title={project.archivedAt ? "Restore project" : "Archive project"} type="button"><ActionIcon name={project.archivedAt ? "restore" : "archive"}/></button>}
             <button aria-label="Delete" className="manager-icon-action is-danger" onClick={() => void prepareDelete()} title="Delete" type="button"><ActionIcon name="delete"/></button>
           </div>}
-          {compact && <div className="manager-owner-actions"><button onClick={() => void openManagerWindow("projects", project?.id)} type="button">Open in Project Hub</button><button aria-label="Close project panel" className="hub-close-button" onClick={() => void getCurrentWindow().close()} type="button"><HubCloseIcon /></button></div>}
+          {compact && <div className="manager-owner-actions"><button className="manager-open-hub" onClick={() => void openManagerWindow("projects", project?.id)} type="button">Open in Project Hub</button><button aria-label="Close project panel" className="hub-close-button" onClick={() => void getCurrentWindow().close()} type="button"><HubCloseIcon /></button></div>}
         </header>
         {selected?.kind === "list" && <label className="manager-list-category">Category<select onChange={(event) => void runMutation("set_list_category", { listId: selected.id, categoryId: event.target.value || null })} value={snapshot?.lists.find((item) => item.id === selected.id)?.categoryId ?? ""}><option value="">General</option>{personalCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>}
         {deleteImpact && <div className="manager-confirm" role="alert">

@@ -17,6 +17,33 @@ the sound outside this non-commercial beta:
 Replace this asset with an original or commercially redistributable sound
 before any commercial distribution of Attention Hub.
 
+## Selectable reminder sounds from Pixabay
+
+The following sounds were downloaded from Pixabay, converted locally from MP3
+to WAV, and are bundled as selectable notification sounds. They are not covered
+by the repository's MIT licence:
+
+- `Game Bonus 02` by Universfield — Pixabay asset 294436
+- `Crowd laughing sound effect - no copyright` by RibhavAgrawal — Pixabay asset
+  390899
+- `School Bell` by Emg5991 — Pixabay asset 310293
+- `Sound Effect Thriller 1` by Phoenix_Connection_Brazil — Pixabay asset 108404
+- `Surprise Sound Effect` by Phoenix_Connection_Brazil — Pixabay asset 99300
+- `fietfieuw wistle` by freesound_community — Pixabay asset 44787
+
+These assets are used under the Pixabay Content License. That licence permits
+use and adaptation, including commercial use, subject to its prohibited uses;
+in particular, the original content must not be sold or distributed on a
+standalone basis. Attribution is not required, but the creator and asset records
+above are retained for provenance. Review the current binding terms before
+redistribution:
+
+<https://pixabay.com/service/terms/>
+
+License summary:
+
+<https://pixabay.com/service/license-summary/>
+
 ## Product names and glyphs
 
 Microsoft Teams, Microsoft Outlook, Telegram, Slack, Viber, and WhatsApp are

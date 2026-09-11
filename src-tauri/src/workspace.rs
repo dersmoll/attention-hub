@@ -130,6 +130,8 @@ pub struct Binding {
     pub event_key: String,
     pub project_id: Option<String>,
     #[serde(default)]
+    pub list_id: Option<String>,
+    #[serde(default)]
     pub project_link_id: Option<String>,
     pub link_url: Option<String>,
     pub created_at: String,
@@ -212,6 +214,8 @@ pub struct ProjectLinkInput {
 #[serde(rename_all = "camelCase")]
 pub struct EventWorkspaceInput {
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub list_id: Option<String>,
     pub project_link_id: Option<String>,
     pub link_url: Option<String>,
 }
@@ -223,6 +227,7 @@ pub struct EventWorkspaceSnapshot {
     pub start: String,
     pub end: String,
     pub project_id: Option<String>,
+    pub list_id: Option<String>,
     pub project_link_id: Option<String>,
     pub link_url: Option<String>,
     pub recovered_from_backup: bool,
@@ -407,7 +412,13 @@ fn valid(store: &Store) -> bool {
                 .link_url
                 .as_ref()
                 .is_none_or(|url| external_url::normalize_url(url, "Link").is_ok());
+            let list_exists = b
+                .list_id
+                .as_ref()
+                .is_none_or(|id| store.lists.iter().any(|list| list.id == *id));
             project_exists
+                && list_exists
+                && !(b.project_id.is_some() && b.list_id.is_some())
                 && referenced_link_is_valid
                 && custom_link_is_valid
                 && !(b.project_link_id.is_some() && b.link_url.is_some())
@@ -1416,6 +1427,9 @@ pub fn delete_list(
         store
             .action_items
             .retain(|item| !(item.owner_kind == OwnerKind::List && item.owner_id == list_id));
+        store
+            .bindings
+            .retain(|binding| binding.list_id.as_deref() != Some(list_id));
         Ok(())
     })
 }
@@ -1447,6 +1461,12 @@ pub fn delete_category(
             .retain(|list| list.category_id.as_deref() != Some(category_id));
         store.action_items.retain(|item| {
             !(item.owner_kind == OwnerKind::List && list_ids.contains(&item.owner_id))
+        });
+        store.bindings.retain(|binding| {
+            binding
+                .list_id
+                .as_ref()
+                .is_none_or(|list_id| !list_ids.contains(list_id))
         });
         Ok(())
     })
@@ -1615,6 +1635,13 @@ pub fn delete_impact(
                     .filter(|item| item.owner_kind == OwnerKind::List && item.owner_id == entity_id)
                     .count(),
             );
+            counts.bindings = Some(
+                store
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.list_id.as_deref() == Some(entity_id))
+                    .count(),
+            );
             Some(list.name.clone())
         }
         "category" => {
@@ -1638,6 +1665,18 @@ pub fn delete_impact(
                     .filter(|item| {
                         item.owner_kind == OwnerKind::List
                             && list_ids.contains(item.owner_id.as_str())
+                    })
+                    .count(),
+            );
+            counts.bindings = Some(
+                store
+                    .bindings
+                    .iter()
+                    .filter(|binding| {
+                        binding
+                            .list_id
+                            .as_ref()
+                            .is_some_and(|list_id| list_ids.contains(list_id.as_str()))
                     })
                     .count(),
             );
@@ -1770,6 +1809,7 @@ pub fn carry_over_calendar_associations(
             store.bindings.push(Binding {
                 event_key: current_key.clone(),
                 project_id: source.project_id,
+                list_id: source.list_id,
                 project_link_id: source.project_link_id,
                 link_url: source.link_url,
                 created_at: timestamp.clone(),
@@ -1791,10 +1831,16 @@ fn binding_summary(store: &Store, event_key: &str) -> Option<EventWorkspaceSumma
         .project_id
         .as_ref()
         .and_then(|id| store.projects.iter().find(|project| project.id == *id));
+    let list = binding
+        .list_id
+        .as_ref()
+        .and_then(|id| store.lists.iter().find(|list| list.id == *id));
     let link_url = binding_project_link_url(store, binding);
     Some(EventWorkspaceSummary {
         project_id: project.map(|project| project.id.clone()),
         project_name: project.map(|project| project.name.clone()),
+        list_id: list.map(|list| list.id.clone()),
+        list_name: list.map(|list| list.name.clone()),
         notes_present: project.is_some_and(|project| !project.notes.is_empty()),
         link_url_present: link_url.is_some(),
         link_url,
@@ -1828,6 +1874,7 @@ pub fn get_event_workspace(
         start: target.start,
         end: target.end,
         project_id: binding.and_then(|binding| binding.project_id.clone()),
+        list_id: binding.and_then(|binding| binding.list_id.clone()),
         project_link_id: binding.and_then(|binding| binding.project_link_id.clone()),
         link_url: binding.and_then(|binding| binding.link_url.clone()),
         recovered_from_backup: recovered,
@@ -1842,6 +1889,7 @@ pub fn save_event_workspace(
 ) -> Result<WorkspaceSnapshot, String> {
     let target = event_target(state, event_token)?;
     let project_id = input.project_id;
+    let list_id = input.list_id;
     let project_link_id = input.project_link_id;
     let link_url = input
         .link_url
@@ -1853,6 +1901,18 @@ pub fn save_event_workspace(
             .is_some_and(|id| !store.projects.iter().any(|project| project.id == *id))
         {
             return Err("The selected project no longer exists.".into());
+        }
+        if list_id
+            .as_ref()
+            .is_some_and(|id| !store.lists.iter().any(|list| list.id == *id))
+        {
+            return Err("The selected personal list no longer exists.".into());
+        }
+        if project_id.is_some() && list_id.is_some() {
+            return Err("Choose either a project or a personal list.".into());
+        }
+        if list_id.is_some() && project_link_id.is_some() {
+            return Err("Project Hub links are available only for project destinations.".into());
         }
         if project_link_id.is_some() && link_url.is_some() {
             return Err("Choose either a Project Hub link or a custom Today link.".into());
@@ -1874,6 +1934,7 @@ pub fn save_event_workspace(
             .find(|binding| binding.event_key == target.workspace_key)
         {
             binding.project_id = project_id;
+            binding.list_id = list_id;
             binding.project_link_id = project_link_id;
             binding.link_url = link_url;
             binding.updated_at = timestamp;
@@ -1881,6 +1942,7 @@ pub fn save_event_workspace(
             store.bindings.push(Binding {
                 event_key: target.workspace_key,
                 project_id,
+                list_id,
                 project_link_id,
                 link_url,
                 created_at: timestamp.clone(),
@@ -2003,6 +2065,7 @@ mod tests {
         store.bindings.push(Binding {
             event_key: "event".into(),
             project_id: Some("project".into()),
+            list_id: None,
             project_link_id: Some("link".into()),
             link_url: None,
             created_at: timestamp.clone(),

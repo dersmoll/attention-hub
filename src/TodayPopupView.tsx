@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import {
   LogicalSize,
   availableMonitors,
@@ -27,9 +27,10 @@ import { EventWorkspaceActions } from "./EventWorkspaceActions";
 import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerAt, openMedicineManagerWindow } from "./medicine-manager-window";
 import { medicineDoseKey } from "./medicine-manager-navigation";
-import { boundedDoseRows, medicineDailyRows, medicineDoseStateLabel, medicineFoodRuleLabel, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
+import { boundedDoseRows, medicineDailyRows, medicineDoseStateLabel, medicineFoodRuleLabel, medicineTreatmentsWithoutDosesToday, type MedicineDailyDoseRow, type MedicineSnapshot } from "./medicine-model";
 import { deferActionItemToTomorrow, isFromActiveOwner, isVisibleInToday, sortActionItems, type ActionItem, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { todayPopupHeight, TODAY_DOSE_MAX_ITEMS, TODAY_TODO_MAX_ITEMS } from "./widget-layout";
+import { CALENDAR_SKIPS_CHANGED_EVENT, readSkippedCalendarOccurrences, setCalendarOccurrenceSkipped } from "./calendar-skip-store";
 
 function formatTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat([], {
@@ -74,9 +75,21 @@ export function TodayPopupView() {
   const graceMinutes = useMedicineGraceMinutes();
   const [payload, setPayload] = useState<TodayPopupPayload | null>(null);
   const [now, setNow] = useState(() => new Date());
-  const [error, setError] = useState<string | null>(null);
+  const [medicineError, setMedicineError] = useState<string | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [skippedCalendarOccurrences, setSkippedCalendarOccurrences] = useState<ReadonlySet<string>>(() => readSkippedCalendarOccurrences());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen(CALENDAR_SKIPS_CHANGED_EVENT, () => {
+      if (!disposed) setSkippedCalendarOccurrences(readSkippedCalendarOccurrences());
+    }).then((next) => { if (disposed) next(); else unlisten = next; });
+    return () => { disposed = true; unlisten?.(); };
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
@@ -87,8 +100,8 @@ export function TodayPopupView() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     const refresh = async () => {
-      try { const next = await invoke<MedicineSnapshot>("get_medicine_snapshot"); if (!disposed) setMedicine(next); }
-      catch (cause) { if (!disposed) setError(String(cause)); }
+      try { const next = await invoke<MedicineSnapshot>("get_medicine_snapshot"); if (!disposed) { setMedicine(next); setMedicineError(null); } }
+      catch { if (!disposed) setMedicineError("Medicine could not refresh. Retrying automatically."); }
     };
     void listen("medicine-changed", () => void refresh()).then((stop) => { if (disposed) stop(); else unlisten = stop; });
     void refresh();
@@ -101,8 +114,8 @@ export function TodayPopupView() {
     const refresh = async () => {
       try {
         const next = await invoke<WorkspaceSnapshot>("get_workspace_snapshot");
-        if (!disposed) setWorkspace(next);
-      } catch (cause) { if (!disposed) setError(String(cause)); }
+        if (!disposed) { setWorkspace(next); setWorkspaceError(null); }
+      } catch { if (!disposed) setWorkspaceError("Projects and to-dos could not refresh. Retrying automatically."); }
     };
     void listen(WORKSPACE_CHANGED_EVENT, () => void refresh()).then((next) => { if (disposed) next(); else unlisten = next; });
     void refresh();
@@ -115,7 +128,7 @@ export function TodayPopupView() {
     void listen<TodayPopupPayload>(TODAY_POPUP_OPEN_EVENT, ({ payload: next }) => {
       if (disposed) return;
       setPayload(next);
-      setError(null);
+      setActionError(null);
       const currentWindow = getCurrentWindow();
       void currentWindow
         .setSize(new LogicalSize(next.width, next.height))
@@ -154,12 +167,12 @@ export function TodayPopupView() {
     if (!selection.eventToken) return;
     const anchor = await currentPopupAnchor();
     if (!anchor) {
-      setError("Event settings could not be positioned.");
+      setActionError("Event settings could not be positioned.");
       return;
     }
     await openEventSettingsWindow(
       { eventToken: selection.eventToken, anchor },
-      (message) => setError(message),
+      (message) => setActionError(message),
     );
   };
 
@@ -168,24 +181,24 @@ export function TodayPopupView() {
     if (!projectId) return;
     const anchor = await currentPopupAnchor();
     if (!anchor) {
-      setError("Project panel could not be positioned.");
+      setActionError("Project panel could not be positioned.");
       return;
     }
     await openProjectPanelWindow(
       { projectId, view, anchor },
-      (message) => setError(message),
+      (message) => setActionError(message),
     );
   };
 
   const openTodoDetails = async (item: ActionItem) => {
     const anchor = await currentPopupAnchor();
-    if (!anchor) { setError("To-do details could not be positioned."); return; }
+    if (!anchor) { setActionError("To-do details could not be positioned."); return; }
     await openProjectPanelWindow({
       projectId: item.ownerKind === "project" ? item.ownerId : "",
       itemId: item.id,
       view: "todo",
       anchor,
-    }, (message) => setError(message));
+    }, (message) => setActionError(message));
   };
 
   const openEventLink = async (selection: WorkCalendarDaySelection) => {
@@ -194,20 +207,20 @@ export function TodayPopupView() {
       await invoke("open_event_workspace_link_from_workspace", {
         eventToken: selection.eventToken,
       });
-      setError(null);
+      setActionError(null);
     } catch {
-      setError("The saved event link could not be opened.");
+      setActionError("The saved event link could not be opened.");
     }
   };
 
-  const openEventProject = (selection: WorkCalendarDaySelection) => {
-    return selection.eventWorkspace?.projectId
-      ? openProjectPanel(selection)
-      : openEventSettings(selection);
+  const toggleEventSkipped = (selection: WorkCalendarDaySelection) => {
+    const skipped = skippedCalendarOccurrences.has(selection.occurrenceId);
+    setSkippedCalendarOccurrences(setCalendarOccurrenceSkipped(selection, !skipped));
+    void emit(CALENDAR_SKIPS_CHANGED_EVENT);
   };
 
-  const pendingProjectTodos = (projectId: string | null | undefined) => projectId
-    ? workspace?.actionItems.filter((item) => item.ownerKind === "project" && item.ownerId === projectId && item.completedAt === null).length ?? 0
+  const pendingDestinationTodos = (projectId: string | null | undefined, listId: string | null | undefined) => projectId || listId
+    ? workspace?.actionItems.filter((item) => item.ownerKind === (projectId ? "project" : "list") && item.ownerId === (projectId ?? listId) && item.completedAt === null).length ?? 0
     : 0;
 
   const todayTodos = sortActionItems(workspace?.actionItems.filter((item) => isVisibleInToday(item, now) && isFromActiveOwner(item, workspace)) ?? []);
@@ -218,6 +231,7 @@ export function TodayPopupView() {
     ? workspace?.projects.find((item) => item.id === id)?.name ?? "Project"
     : workspace?.lists.find((item) => item.id === id)?.name ?? "Personal";
   const todayDoses = medicine ? medicineDailyRows(medicine, now, graceMinutes) : [];
+  const continuingTreatments = medicine ? medicineTreatmentsWithoutDosesToday(medicine, now, graceMinutes) : [];
   const liveDoses = boundedDoseRows(todayDoses, TODAY_DOSE_MAX_ITEMS);
   /* This popup re-renders every second, and which doses fit depends on their
    * state — a dose turning Due can displace a recorded one. Landing between
@@ -268,15 +282,15 @@ export function TodayPopupView() {
     if (!target) { await openMedicineManagerWindow(); await close(); return; }
     const result = await openMedicineManagerAt({ treatmentId: target.treatment.id, doseKey: medicineDoseKey(target.dose) });
     if (result.applied) await close();
-    else setError(result.reason ?? "Medicine could not be opened at that dose.");
+    else setActionError(result.reason ?? "Medicine could not be opened at that dose.");
   };
 
   useEffect(() => {
     if (!payload) return;
-    const next = { ...payload, height: Math.min(payload.maxHeight, todayPopupHeight(payload.selections.length, todayDoses.length, todayTodos.length, medicine?.recoveredFromBackup === true)) };
+    const next = { ...payload, height: Math.min(payload.maxHeight, todayPopupHeight(payload.selections.length, todayDoses.length, todayTodos.length, medicine?.recoveredFromBackup === true, continuingTreatments.length > 0)) };
     const currentWindow = getCurrentWindow();
     void currentWindow.setSize(new LogicalSize(next.width, next.height)).then(() => currentWindow.setPosition(todayPopupPosition(next)));
-  }, [todayTodos.length, todayDoses.length, medicine?.recoveredFromBackup, payload]);
+  }, [todayTodos.length, todayDoses.length, continuingTreatments.length, medicine?.recoveredFromBackup, payload]);
 
   const recordDose = async (row: MedicineDailyDoseRow, state: "taken" | "skipped" | "undo") => {
     if (dosePending.current) return;
@@ -288,14 +302,14 @@ export function TodayPopupView() {
       const skip = state === "skipped" || (state === "undo" && row.state === "skipped");
       const command = skip ? "set_medicine_dose_skipped" : "set_medicine_dose_taken";
       const next = await invoke<MedicineSnapshot>(command, { medicineId: row.dose.medicineId, slotDay: row.dose.slotDay, slotTime: row.dose.slotTime, [skip ? "skipped" : "taken"]: state !== "undo" });
-      setMedicine(next); setError(null);
-    } catch (cause) { setError(String(cause)); }
+      setMedicine(next); setActionError(null);
+    } catch { setActionError("Medicine could not be updated. Try again."); }
     finally { dosePending.current = false; releaseDoses(); }
   };
 
   const toggleTodo = async (item: ActionItem) => {
-    try { setWorkspace(await invoke<WorkspaceSnapshot>(item.completedAt ? "restore_action_item" : "complete_action_item", { itemId: item.id })); setError(null); }
-    catch (cause) { setError(String(cause)); }
+    try { setWorkspace(await invoke<WorkspaceSnapshot>(item.completedAt ? "restore_action_item" : "complete_action_item", { itemId: item.id })); setActionError(null); }
+    catch { setActionError("The to-do could not be updated. Try again."); }
   };
 
   const deferTodo = async (item: ActionItem) => {
@@ -305,8 +319,8 @@ export function TodayPopupView() {
         itemId: item.id,
         input: { ownerKind: item.ownerKind, ownerId: item.ownerId, title: item.title, notes: item.notes, ...schedule },
       }));
-      setError(null);
-    } catch (cause) { setError(String(cause)); }
+      setActionError(null);
+    } catch { setActionError("The to-do could not be deferred. Try again."); }
   };
 
   if (!payload) return null;
@@ -348,8 +362,10 @@ export function TodayPopupView() {
           const startMs = Date.parse(selection.start);
           const endMs = Date.parse(selection.end);
           const finished = Number.isFinite(endMs) && endMs <= now.getTime();
+          const skipped = skippedCalendarOccurrences.has(selection.occurrenceId);
           const live =
             !selection.cancelled &&
+            !skipped &&
             !finished &&
             Number.isFinite(startMs) &&
             Number.isFinite(endMs) &&
@@ -361,6 +377,7 @@ export function TodayPopupView() {
               data-event-workspace={selection.eventWorkspace ? "linked" : undefined}
               data-finished={finished || undefined}
               data-live={live || undefined}
+              data-skipped={skipped || undefined}
               key={selection.eventToken ?? `${selection.start}|${selection.end}|${index}`}
             >
               <time>
@@ -371,32 +388,35 @@ export function TodayPopupView() {
                       payload.systemTimeZone,
                     )}`}
               </time>
-              <button className="widget-calendar-day-panel__subject" onClick={() => void openEventProject(selection)} title={selection.eventWorkspace?.projectName ? `Open ${selection.eventWorkspace.projectName}` : "Assign a project"} type="button">
+              <button className="widget-calendar-day-panel__subject" onClick={() => void openEventSettings(selection)} title={`Open settings for ${selection.subject}`} type="button">
                 {finished && <span className="sr-only">Finished: </span>}
                 {selection.cancelled && <span className="sr-only">Cancelled: </span>}
+                {skipped && <span className="sr-only">Skipped: </span>}
                 {live && <span className="sr-only">Live now: </span>}
                 {selection.subject}
               </button>
-              {selection.eventToken && !selection.cancelled && (
-                <EventWorkspaceActions
-                  className="widget-calendar-day-panel__actions"
+              {!selection.cancelled && !selection.allDay && <div className="widget-calendar-day-panel__actions">
+                <button aria-label={`${skipped ? "Undo skip for" : "Skip"} ${selection.subject}`} className="widget-calendar-day-panel__skip" onClick={() => toggleEventSkipped(selection)} type="button">{skipped ? "Undo" : "Skip"}</button>
+                {!skipped && selection.eventToken && <EventWorkspaceActions
+                  className=""
                   onOpenLink={() => void openEventLink(selection)}
                   onOpenSettings={() => void openEventSettings(selection)}
                   onOpenNotes={() => void openProjectPanel(selection, "notes")}
-                  onOpenTodos={() => void openProjectPanel(selection, "todos")}
-                  pendingTodoCount={pendingProjectTodos(selection.eventWorkspace?.projectId)}
+                  onOpenTodos={() => selection.eventWorkspace?.listId ? void openManagerWindow("projects", undefined, selection.eventWorkspace.listId) : void openProjectPanel(selection, "todos")}
+                  pendingTodoCount={pendingDestinationTodos(selection.eventWorkspace?.projectId, selection.eventWorkspace?.listId)}
                   subject={selection.subject}
                   workspace={selection.eventWorkspace}
-                />
-              )}
+                />}
+              </div>}
             </li>
           );
         })}
       </ol>
       {medicine?.recoveredFromBackup && <p className="medicine-recovery-notice" role="status">Showing recovered Medicine backup data.</p>}
-      {todayDoses.length > 0 && <section className="today-popup-todos today-popup-medicine" aria-labelledby="today-medicine-heading">
-        <header><strong id="today-medicine-heading">Medicine</strong><span>{todayDoses.filter((row) => row.state !== "taken" && row.state !== "skipped").length} left</span></header>
-        <ol onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") holdDoses(); }} onPointerDown={() => { dosePointerDown.current = true; holdDoses(); }}>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{hiddenDoses > 0 && <li className="today-popup-todos__more"><button onClick={() => void openHiddenDose()} type="button">+{hiddenDoses} more</button></li>}</ol>
+      {(todayDoses.length > 0 || continuingTreatments.length > 0) && <section className="today-popup-todos today-popup-medicine" aria-labelledby="today-medicine-heading">
+        <header><strong id="today-medicine-heading">Medicine</strong><span>{todayDoses.length > 0 ? `${todayDoses.filter((row) => row.state !== "taken" && row.state !== "skipped").length} left` : "Course active"}</span></header>
+        {todayDoses.length > 0 && <ol onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") holdDoses(); }} onPointerDown={() => { dosePointerDown.current = true; holdDoses(); }}>{visibleDoses.map((row) => { const recorded = row.state === "taken" || row.state === "skipped"; const foodRule = medicineFoodRuleLabel(row.medicine.foodRule); return <li data-completed={recorded || undefined} data-state={row.state} key={`${row.dose.medicineId}:${row.dose.slotDay}:${row.dose.slotTime}`}><time className="today-popup-medicine__time">{row.dose.slotTime}</time><span className="today-popup-medicine__title"><span className="sr-only">{medicineDoseStateLabel(row.state)}: </span>{row.medicine.name}{row.medicine.strength || row.medicine.doseAmount ? ` · ${[row.medicine.strength, row.medicine.doseAmount].filter(Boolean).join(" ")}` : ""}<small>{row.treatment.name} · {medicineDoseStateLabel(row.state)}{foodRule === "Any time" ? "" : ` · ${foodRule}`}</small></span>{!recorded && <button aria-label={`Skip ${row.medicine.name}`} className="today-popup-medicine__skip" onClick={() => void recordDose(row, "skipped")} type="button">Skip</button>}<button aria-label={recorded ? `Undo ${row.medicine.name}` : `Take ${row.medicine.name}`} className="today-popup-todos__check" onClick={() => void recordDose(row, recorded ? "undo" : "taken")} type="button"><span aria-hidden="true">{row.state === "taken" ? "✓" : row.state === "skipped" ? "–" : ""}</span></button></li>; })}{hiddenDoses > 0 && <li className="today-popup-todos__more"><button onClick={() => void openHiddenDose()} type="button">+{hiddenDoses} more</button></li>}</ol>}
+        {continuingTreatments.length > 0 && <p className="today-popup-medicine__continues" role="status"><strong>{continuingTreatments.length === 1 ? continuingTreatments[0].name : `${continuingTreatments.length} treatments`} {continuingTreatments.length === 1 ? "continues" : "continue"}</strong><span>No doses scheduled today.</span></p>}
       </section>}
       {todayTodos.length > 0 && <section className="today-popup-todos" aria-labelledby="today-todos-heading">
         <header><strong id="today-todos-heading">To Do:</strong><span>{openTodayTodos.length} need attention</span></header>
@@ -407,7 +427,7 @@ export function TodayPopupView() {
           {!item.completedAt && <button aria-label={`Move ${item.title} to tomorrow`} className="today-popup-todos__defer" onClick={() => void deferTodo(item)} title="Move to tomorrow" type="button"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v3m-4.2-.8L5.9 6M2 8h3m7.5-3.5A5.5 5.5 0 1 1 5 12.9"/><path d="m3.7 11.1 1.5 2.2-2.6.4"/></svg><span>Not today</span></button>}
         </li>)}{hasMoreTodos && <li className="today-popup-todos__more"><button onClick={() => void openManagerWindow("todos")} type="button">+{todayTodos.length - visibleTodos.length} more</button></li>}</ol>
       </section>}
-      {error && <p className="today-popup-shell__error" role="status">{error}</p>}
+      {[actionError, workspaceError, medicineError].filter(Boolean).map((message) => <p className="today-popup-shell__error" key={message} role="status">{message}</p>)}
     </main>
   );
 }

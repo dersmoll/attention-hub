@@ -212,7 +212,8 @@
   &__times { display: grid; gap: 5px; min-width: 0; margin: 0; padding: 0; border: 0; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__times legend { margin-bottom: 5px; padding: 0; color: var(--medicine-quiet); font-size: var(--medicine-helper-size); font-weight: 600; }
   &__time-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  &__time-chips > span { display: inline-flex; min-height: 26px; align-items: center; gap: 3px; padding-left: 7px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--medicine-text); background: var(--medicine-raised); font-size: var(--medicine-text-size); font-weight: 500; }
+  &__time-chips > span { display: inline-flex; min-height: 30px; align-items: center; gap: 3px; padding: 2px 3px 2px 5px; border: 1px solid var(--medicine-border); border-radius: var(--radius-field); color: var(--medicine-text); background: var(--medicine-raised); font-size: var(--medicine-text-size); font-weight: 500; }
+  &__time-chips input { width: 92px; min-height: 24px; padding: 2px 4px; border: 0; background: transparent; }
   &__time-chips button { border: 0; }
   &__add-time { display: grid; max-width: 240px; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
   &__interval { display: flex; align-items: center; gap: 8px; color: var(--medicine-text); font-size: var(--medicine-text-size); font-weight: 400; }
@@ -376,9 +377,12 @@
   &__check:hover:not(:disabled), &__check:focus-visible { color: var(--widget-panel-accent) !important; }
   li[data-state="taken"] &__check { color: var(--color-success) !important; }
   &__close { position: absolute; top: -5px; right: 2px; @include square(16px); min-height: 22px; padding: 5px; z-index: 2; border-color: transparent; color: var(--widget-panel-foreground); background: transparent; }
-  &__close:hover:not(:disabled), &__close:focus-visible { border-color: var(--widget-panel-border); color: var(--widget-panel-accent); background: #{panel-tint(10%)}; }
+  &__close:hover:not(:disabled), &__close:focus-visible { border-color: transparent; color: var(--widget-panel-accent); background: none }
   &__more { justify-self: center; min-height: 24px; padding: 2px 9px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; }
   &__more:hover:not(:disabled), &__more:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }
+  &__continues { display: flex; align-items: baseline; gap: 4px; padding: 5px 7px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-field); color: var(--widget-panel-muted); background: #{panel-tint(4%)}; font-size: 10px; }
+  &__continues strong { min-width: 0; color: var(--widget-panel-foreground); @include truncate; }
+  &__continues span { white-space: nowrap; }
   &__footer { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 8px; padding-top: 5px; border-top: 1px solid var(--widget-panel-border); color: var(--widget-panel-muted); font-size: 10px; }
   &__footer button { min-height: 22px; padding: 2px 7px; border: 1px solid var(--widget-panel-border); border-radius: var(--radius-pill); color: var(--widget-panel-accent); background: #{panel-tint(6%)}; font-size: 10px; }
   &__footer button:hover:not(:disabled), &__footer button:focus-visible { border-color: var(--widget-panel-accent); color: var(--widget-panel-accent); background: #{panel-tint(12%)}; }

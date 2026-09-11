@@ -59,11 +59,11 @@
   z-index: 4;
   display: grid;
   width: var(--widget-destinations-width);
-  grid-template-columns: minmax(0, 15fr) minmax(0, 7fr);
-  background: panel-tint(3%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  //background: panel-tint(3%);
 
   &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
-  &[data-segments="3"] { grid-template-columns: 60px 28px minmax(44px, 1fr); }
+  &[data-segments="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
   button {
     position: relative;
@@ -91,52 +91,15 @@
     &:focus-visible { @include widget-focus-ring; }
   }
 
-  svg {
-    @include stroke-icon(17px, 1.65);
-  }
-
-  &__label {
-    font-size: 14px;
-    font-weight: 650;
-    line-height: 1;
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin-bottom: 2px;
-  }
-
-  small {
-    color: var(--widget-panel-muted);
-    font-size: 10px;
-    font-weight: 500;
-    line-height: 1.2;
-    white-space: nowrap;
-
-    b { color: var(--widget-panel-accent); font-size: inherit; }
-  }
-
   &__today { min-width: 0; }
 
-  &__projects {
-    display: grid;
-    min-width: 0;
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    border-left: 1px solid panel-border-wash(72%);
-
-    button {
-      padding: 1px;
-      gap: 0;
-
-      + button { border-top: 1px solid panel-border-wash(72%); border-left: 0; }
-    }
-
-    svg { @include stroke-icon(12px, 1.7); }
-    .widget-destinations__label { font-size: 9px; }
+  &__todos { min-width: 0; }
+  &__emoji {
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+    font-size: 16px;
+    line-height: 1;
   }
 
-  &[data-segments="1"] &__projects { border-left: 0; }
-  &__medicine { border-left: 1px solid panel-border-wash(72%) !important; }
   &__medicine[data-due] { color: var(--color-danger); box-shadow: inset 0 -2px 0 var(--color-danger); }
 
   &__badge {
@@ -442,6 +405,7 @@
       place-items: center start;
       border-radius: 0;
       max-width: fit-content;
+      padding-left: 3px;
 
       &:hover {
         color: currentColor;

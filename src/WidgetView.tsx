@@ -30,6 +30,7 @@ import {
 } from "./attention-model";
 import {
   nextWorkCalendarMeetingAlert,
+  firstSkippedWorkCalendarSelection,
   nextWorkCalendarRefreshDelay,
   retainWorkCalendarSnapshot,
   selectWorkCalendarDisplay,
@@ -46,11 +47,13 @@ import {
   selectSchoolDayState,
   viewerLocalDate,
 } from "./school-day-model";
-import {
-  calendarVocabulary,
-  type CalendarVocabulary,
-} from "./calendar-vocabulary";
+import { calendarVocabulary } from "./calendar-vocabulary";
 import { createCalendarPollController } from "./calendar-poll-controller";
+import {
+  clearWorkCalendarDisplayCache,
+  readWorkCalendarDisplayCache,
+  writeWorkCalendarDisplayCache,
+} from "./work-calendar-display-cache";
 import {
   convertZonedTimeToInstant,
   formatZonedConversion,
@@ -67,6 +70,7 @@ import {
   WIDGET_DRAG_HANDLE_WIDTH,
   calendarDayPanelDirection,
   todayPopupHeight,
+  todayPopupWidth,
   widgetCalendarMinimumWidth,
   widgetCalendarWidth,
   widgetClockPanelWidth,
@@ -139,6 +143,7 @@ import {
   APP_UPDATE_INITIAL_DELAY_MS,
 } from "./app-update-model";
 import { checkAndOpenAppUpdate } from "./app-update-window";
+import { CALENDAR_SKIPS_CHANGED_EVENT, readSkippedCalendarOccurrences, setCalendarOccurrenceSkipped } from "./calendar-skip-store";
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
@@ -250,10 +255,11 @@ function formatCalendarRange(selection: WorkCalendarSelection, now: Date) {
   }
   const startDay = start.toDateString();
   const endDay = end.toDateString();
-  const dayLabel = startDay === now.toDateString() ? "Today" : day.format(start);
+  const startsToday = startDay === now.toDateString();
+  const startLabel = startsToday ? "" : `${day.format(start)} · `;
   return startDay === endDay
-    ? `${dayLabel} · ${time.format(start)}–${time.format(end)}`
-    : `${dayLabel} ${time.format(start)}–${day.format(end)} ${time.format(end)}`;
+    ? `${startLabel}${time.format(start)}–${time.format(end)}`
+    : `${startsToday ? "" : `${day.format(start)} `}${time.format(start)}–${day.format(end)} ${time.format(end)}`;
 }
 
 function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
@@ -288,12 +294,10 @@ function formatCalendarCountdown(selection: WorkCalendarSelection, now: Date) {
 function formatCalendarDetail(
   selection: WorkCalendarSelection,
   now: Date,
-  vocabulary: CalendarVocabulary,
 ) {
   return [
     formatCalendarCountdown(selection, now),
     formatCalendarRange(selection, now),
-    selection.meetingLinkPresent === true ? vocabulary.onlineEvent : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -335,19 +339,12 @@ function MeetingProviderGlyph({
 function CalendarEventDetail({
   selection,
   now,
-  vocabulary,
 }: {
-  vocabulary: CalendarVocabulary;
   selection: WorkCalendarSelection;
   now: Date;
 }) {
   const countdown = formatCalendarCountdown(selection, now);
-  const metadata = [
-    formatCalendarRange(selection, now),
-    selection.meetingLinkPresent === true ? vocabulary.onlineEvent : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const metadata = formatCalendarRange(selection, now);
 
   return (
     <small className="widget-calendar__detail">
@@ -657,6 +654,7 @@ function presenceHealth(
 
 export function WidgetView() {
   const initialPreferences = useMemo(readWidgetPreferences, []);
+  const initialWorkCalendar = useMemo(readWorkCalendarDisplayCache, []);
   const [now, setNow] = useState(() => new Date());
   const [preferences, setPreferences] = useState(initialPreferences);
   const [attentionSnapshot, setAttentionSnapshot] =
@@ -666,17 +664,17 @@ export function WidgetView() {
     Partial<Record<LiveVisualAppKey, TaskbarMirrorStatus>>
   >({});
   const [workCalendar, setWorkCalendar] =
-    useState<WorkCalendarSnapshot | null>(null);
+    useState<WorkCalendarSnapshot | null>(initialWorkCalendar);
   const [workCalendarRefreshing, setWorkCalendarRefreshing] = useState(true);
   const [workCalendarTransportFailed, setWorkCalendarTransportFailed] =
     useState(false);
   const [workCalendarCheckSlow, setWorkCalendarCheckSlow] = useState(false);
   const [workCalendarRefreshHealth, setWorkCalendarRefreshHealth] = useState({
     consecutiveFailures: 0,
-    lastSuccessfulAtUnixMs: null as number | null,
+    lastSuccessfulAtUnixMs: initialWorkCalendar?.capturedAtUnixMs ?? null,
     stopReason: null as string | null,
   });
-  const workCalendarRef = useRef<WorkCalendarSnapshot | null>(null);
+  const workCalendarRef = useRef<WorkCalendarSnapshot | null>(initialWorkCalendar);
   const [calendarDayPanelOpen, setCalendarDayPanelOpen] = useState(false);
   const [calendarDayPanelPlacement, setCalendarDayPanelPlacement] = useState<
     "above" | "below"
@@ -694,6 +692,7 @@ export function WidgetView() {
   const [finishedActiveEvents, setFinishedActiveEvents] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [skippedCalendarOccurrences, setSkippedCalendarOccurrences] = useState<ReadonlySet<string>>(() => readSkippedCalendarOccurrences());
   const [widgetError, setWidgetError] = useState<string | null>(null);
   const [sourceActivationNotice, setSourceActivationNotice] = useState<{
     sourceKey: AttentionAppKey;
@@ -958,7 +957,7 @@ export function WidgetView() {
   const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible) + Number(medicinePanelVisible);
   const visibleClockCount = timeFocusMode
     ? 1
-    : 2 + preferences.extraTimeZones.length;
+    : 1 + Number(preferences.showSecondaryClock) + preferences.extraTimeZones.length;
   const enabledVisualSources = useMemo(
     () =>
       appsPanelVisible
@@ -1015,8 +1014,10 @@ export function WidgetView() {
         workCalendar,
         finishedActiveEvents,
         acknowledgedActiveEvent,
+        skippedCalendarOccurrences,
+        now.getTime(),
       ),
-    [acknowledgedActiveEvent, finishedActiveEvents, workCalendar],
+    [acknowledgedActiveEvent, finishedActiveEvents, now, skippedCalendarOccurrences, workCalendar],
   );
   const showNextEvent = calendarDisplay.companion !== null;
   const calendarDaySelectionCount = workCalendar?.daySelections.length ?? 0;
@@ -1100,6 +1101,11 @@ export function WidgetView() {
       workCalendarRef.current = displaySnapshot;
       setWorkCalendar(displaySnapshot);
       setWorkCalendarTransportFailed(false);
+      if (snapshot.status === "observed") {
+        writeWorkCalendarDisplayCache(snapshot);
+      } else if (snapshot.status === "notConfigured") {
+        clearWorkCalendarDisplayCache();
+      }
       setWorkCalendarRefreshHealth((current) => {
         if (snapshot.status === "observed") {
           return {
@@ -1145,6 +1151,15 @@ export function WidgetView() {
       setWorkCalendarRefreshing(false);
       setWorkCalendarCheckSlow(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen(CALENDAR_SKIPS_CHANGED_EVENT, () => {
+      if (!disposed) setSkippedCalendarOccurrences(readSkippedCalendarOccurrences());
+    }).then((next) => { if (disposed) next(); else unlisten = next; });
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -2032,7 +2047,7 @@ export function WidgetView() {
       },
       {
         checked: preferences.showProjectsPanel,
-        text: "Show Projects and To-dos",
+        text: "Show To-dos",
         action: () =>
           updateWidgetPreferences({
             showProjectsPanel: !preferences.showProjectsPanel,
@@ -2065,6 +2080,10 @@ export function WidgetView() {
       },
     ];
     const items: NonNullable<MenuOptions["items"]> = [
+      {
+        text: "Open Project Hub",
+        action: () => void openManagerWindow("projects"),
+      },
       { text: "Size preset", items: sizePresetItems },
       { text: "Visible panels", items: visiblePanelItems },
       { text: "Appearance", items: panelSurfaceItems },
@@ -2177,7 +2196,9 @@ export function WidgetView() {
       const payload: TodayPopupPayload = {
         anchor,
         placement,
-        width: (anchor.right - anchor.left) / anchor.scaleFactor,
+        width: todayPopupWidth(
+          (anchor.right - anchor.left) / anchor.scaleFactor,
+        ),
         height: Math.min(calendarDayPanelLogicalHeight, Math.max(160, Math.floor((anchor.monitorBottom - anchor.monitorTop) / anchor.scaleFactor - 12))),
         maxHeight: Math.max(160, Math.floor((anchor.monitorBottom - anchor.monitorTop) / anchor.scaleFactor - 12)),
         occupiedMinutes: workCalendarOccupiedMinutes(
@@ -2273,6 +2294,12 @@ export function WidgetView() {
       next.add(eventKey);
       return next;
     });
+  };
+
+  const skipCalendarEvent = (selection: WorkCalendarSelection) => {
+    setSkippedCalendarOccurrences(setCalendarOccurrenceSkipped(selection, true));
+    if (acknowledgedActiveEvent && selection.classification === "active") setAcknowledgedActiveEvent(null);
+    void emit(CALENDAR_SKIPS_CHANGED_EVENT);
   };
 
   const chooseCalendarEvent = (eventKey: string | null) => {
@@ -2413,7 +2440,15 @@ export function WidgetView() {
     selection: WorkCalendarSelection,
   ) => {
     const projectId = selection.eventWorkspace?.projectId;
-    if (!projectId) return;
+    const listId = selection.eventWorkspace?.listId;
+    if (listId) {
+      await openManagerWindow("projects", undefined, listId);
+      return;
+    }
+    if (!projectId) {
+      await openCalendarEventSettings(selection);
+      return;
+    }
     const anchor = await calendarPopupAnchor();
     if (!anchor) {
       showWidgetNotice("calendar", "Project panel could not be positioned.");
@@ -2542,7 +2577,8 @@ export function WidgetView() {
       ? calendarDisplay.selectionKey
       : null;
   const activeEventAcknowledged =
-    activeEventKey !== null && acknowledgedActiveEvent === activeEventKey;
+    activeEventKey !== null &&
+    (preferences.schoolModeEnabled || acknowledgedActiveEvent === activeEventKey);
   const calendarStartMs = calendarSelection
     ? Date.parse(calendarSelection.start)
     : Number.NaN;
@@ -2558,8 +2594,13 @@ export function WidgetView() {
   const calendarStartedNeedsAttention =
     calendarSelection?.classification === "active" &&
     !calendarSelection.allDay &&
+    !preferences.schoolModeEnabled &&
     !activeEventAcknowledged;
   const calendarNotConfigured = workCalendar?.status === "notConfigured";
+  const calendarSkippedSelection = calendarSelection === null
+    ? firstSkippedWorkCalendarSelection(workCalendar, skippedCalendarOccurrences)
+    : null;
+  const calendarSuppressedBySkip = calendarSkippedSelection !== null;
   const calendarAttentionState = calendarStartedNeedsAttention
     ? "started"
     : calendarImminent
@@ -2571,7 +2612,7 @@ export function WidgetView() {
     if (!preferences.meetingStartSoundEnabled) {
       return;
     }
-    const alert = nextWorkCalendarMeetingAlert(workCalendar);
+    const alert = nextWorkCalendarMeetingAlert(workCalendar, Date.now(), skippedCalendarOccurrences);
     if (
       !alert ||
       announcedMeetingStartAlertsRef.current.has(alert.key) ||
@@ -2588,7 +2629,9 @@ export function WidgetView() {
         ...announcedMeetingStartAlertsRef.current,
         alert.key,
       ]);
-      void invoke("play_meeting_start_sound")
+      void invoke("play_meeting_start_sound", {
+        sound: preferences.meetingStartSound,
+      })
         .then(() => clearWidgetNotice("sound"))
         .catch(() =>
           showWidgetNotice(
@@ -2604,7 +2647,12 @@ export function WidgetView() {
     }
     const timer = window.setTimeout(playAlert, alert.delayMs);
     return () => window.clearTimeout(timer);
-  }, [preferences.meetingStartSoundEnabled, workCalendar]);
+  }, [
+    preferences.meetingStartSound,
+    preferences.meetingStartSoundEnabled,
+    skippedCalendarOccurrences,
+    workCalendar,
+  ]);
 
   useEffect(
     () => () => {
@@ -2618,12 +2666,46 @@ export function WidgetView() {
     ...workCalendarRefreshHealth,
     nowMs: now.getTime(),
   });
+  const calendarRecoveringWithoutSelection = Boolean(
+    !calendarSelection &&
+      !calendarNotConfigured &&
+      (workCalendarRefreshing ||
+        workCalendarCheckSlow ||
+        workCalendarTransportFailed ||
+        workCalendar?.status === "busy" ||
+        workCalendar?.status === "error" ||
+        workCalendar?.status === "unavailable"),
+  );
+  const calendarAwaitingFirstSync = Boolean(
+    calendarRecoveringWithoutSelection && !calendarRetryNotice,
+  );
+  const calendarHealthNotice = calendarRetryNotice
+    ? {
+        detail: calendarRetryNotice.detail,
+        label: calendarRetryNotice.state,
+        tone: "warning" as const,
+      }
+    : workCalendarCheckSlow && !calendarSelection
+      ? {
+          detail: "Refresh is taking longer than expected. Retrying automatically.",
+          label: vocabulary.checking,
+          tone: "warning" as const,
+        }
+      : workCalendarRefreshing && !calendarSelection
+        ? {
+            detail: "Reading the saved source without controlling Outlook.",
+            label: vocabulary.checking,
+            tone: "neutral" as const,
+          }
+        : workCalendar?.status === "busy" && !calendarSelection
+          ? {
+              detail: "Another calendar check is already finishing.",
+              label: vocabulary.checking,
+              tone: "neutral" as const,
+            }
+          : null;
   const calendarState = calendarSelection
-    ? calendarRetryNotice
-      ? calendarRetryNotice.state
-      : workCalendarCheckSlow
-        ? vocabulary.checking
-      : calendarStartedNeedsAttention
+    ? calendarStartedNeedsAttention
       ? vocabulary.startedNeedsAttention
       : calendarStartingSoon
         ? vocabulary.startingSoon
@@ -2631,26 +2713,30 @@ export function WidgetView() {
           (calendarSelection.classification === "active"
             ? vocabulary.inProgress
             : vocabulary.upNext))
+    : calendarSuppressedBySkip
+      ? vocabulary.skippedLocally
     : calendarNotConfigured
       ? vocabulary.idle
-      : workCalendarRefreshing
-        ? vocabulary.checking
-        : (schoolDayLabel ?? vocabulary.unavailable);
+      : calendarAwaitingFirstSync
+        ? "Retrying"
+      : (schoolDayLabel ?? vocabulary.unavailable);
   const calendarTitle = calendarSelection
     ? calendarSelection.subject
+    : calendarSuppressedBySkip
+      ? calendarSkippedSelection.subject
     : calendarNotConfigured
       ? vocabulary.connectPrompt
+      : calendarAwaitingFirstSync
+        ? "Waiting for saved calendar"
       : workCalendar?.status === "busy"
         ? "Another calendar check is finishing"
         : vocabulary.noFreshEvent;
   const calendarDetail = calendarSelection
-    ? `${formatCalendarDetail(calendarSelection, now, vocabulary)}${
-        calendarRetryNotice
-          ? ` · ${calendarRetryNotice.detail}`
-          : workCalendarCheckSlow
-            ? " · Refresh is taking longer than expected"
-          : ""
-      }`
+    ? formatCalendarDetail(calendarSelection, now)
+    : calendarSuppressedBySkip
+      ? "Skipped locally · open Today to undo."
+    : calendarAwaitingFirstSync
+      ? "The saved calendar is temporarily unavailable. Retrying automatically."
     : workCalendarRefreshing
       ? "Reading the saved source without controlling Outlook."
       : workCalendarTransportFailed || workCalendar?.status === "error"
@@ -2658,6 +2744,13 @@ export function WidgetView() {
         : workCalendar?.status === "notConfigured"
           ? "Open Advanced to save one published calendar securely."
           : "The last refresh was unavailable; no cached event is shown.";
+  const calendarHealthOnly = Boolean(
+    calendarHealthNotice &&
+      !calendarAwaitingFirstSync &&
+      !calendarSelection &&
+      !calendarSuppressedBySkip &&
+      !calendarNotConfigured,
+  );
   const calendarProgress = calendarEventProgress(calendarSelection, now);
   const calendarJoinOpened =
     calendarDisplay.selectionKey !== null &&
@@ -2665,13 +2758,14 @@ export function WidgetView() {
   const calendarNextAcknowledged =
     calendarNextSelection?.classification === "active" &&
     calendarDisplay.companionKey !== null &&
-    acknowledgedActiveEvent === calendarDisplay.companionKey;
+    (preferences.schoolModeEnabled || acknowledgedActiveEvent === calendarDisplay.companionKey);
   const calendarNextJoinOpened =
     calendarDisplay.companionKey !== null &&
     acknowledgedActiveEvent === calendarDisplay.companionKey;
   const calendarNextStartedNeedsAttention =
     calendarNextSelection?.classification === "active" &&
     !calendarNextSelection.allDay &&
+    !preferences.schoolModeEnabled &&
     !calendarNextAcknowledged;
   const calendarNextState =
     calendarNextSelection?.classification === "active"
@@ -2679,8 +2773,18 @@ export function WidgetView() {
         ? vocabulary.inProgress
         : vocabulary.startedNeedsAttention
       : vocabulary.upNext;
+  const calendarWorkspaceActionsPresent = Boolean(
+    calendarSelection?.eventWorkspace?.linkUrlPresent ||
+      calendarSelection?.eventWorkspace?.projectId ||
+      calendarSelection?.eventWorkspace?.listId,
+  );
+  const calendarNextWorkspaceActionsPresent = Boolean(
+    calendarNextSelection?.eventWorkspace?.linkUrlPresent ||
+      calendarNextSelection?.eventWorkspace?.projectId ||
+      calendarNextSelection?.eventWorkspace?.listId,
+  );
   const calendarNextDetail = calendarNextSelection
-    ? formatCalendarDetail(calendarNextSelection, now, vocabulary)
+    ? formatCalendarDetail(calendarNextSelection, now)
     : "";
   const calendarNextProgress = calendarEventProgress(
     calendarNextSelection,
@@ -2913,6 +3017,17 @@ export function WidgetView() {
       data-width-mode={preferences.widthMode}
       data-apps-panel={appsPanelVisible || undefined}
       data-clocks-panel={clocksPanelVisible || undefined}
+      data-first-zone={
+        appsPanelVisible
+          ? "apps"
+          : clocksPanelVisible
+            ? "clocks"
+            : calendarPanelVisible
+              ? "calendar"
+              : destinationPanelCount > 0
+                ? "destinations"
+                : "utility"
+      }
       onContextMenu={handleWidgetContextMenu}
       style={panelStyle}
     >
@@ -2948,7 +3063,7 @@ export function WidgetView() {
         <section
           className="widget-zone widget-clock"
           aria-label="Current time"
-          data-clock-count={2 + preferences.extraTimeZones.length}
+          data-clock-count={visibleClockCount}
           data-clock-layout={preferences.clockLayout}
           data-clock-mode={clockConversionSource ? "converter" : "live"}
           data-clock-conversion-source={clockConversionSource ?? undefined}
@@ -3068,7 +3183,7 @@ export function WidgetView() {
                 {formatClockDay(now, primaryTimeZone)}
               </span>
             </div>
-            <div data-tauri-drag-region>
+            {preferences.showSecondaryClock && <div data-tauri-drag-region>
               <span className="widget-clock__label widget-clock__label--select">
                 <select
                   aria-label="Secondary timezone"
@@ -3112,7 +3227,7 @@ export function WidgetView() {
               <span className="widget-clock__day">
                 {formatClockDay(now, secondaryTimeZone)}
               </span>
-            </div>
+            </div>}
             {preferences.extraTimeZones.map((timeZone) => (
               <div data-tauri-drag-region key={timeZone}>
                 <span
@@ -3145,6 +3260,10 @@ export function WidgetView() {
         }
         className="widget-zone widget-calendar"
         data-calendar-attention={calendarAttentionState}
+        data-calendar-health={calendarHealthNotice?.tone}
+        data-calendar-health-cached={
+          calendarHealthNotice && calendarSelection ? true : undefined
+        }
         data-calendar-setup={calendarNotConfigured || undefined}
         data-day-summary={workCalendar?.configured || undefined}
         aria-label={vocabulary.zoneLabel}
@@ -3193,19 +3312,21 @@ export function WidgetView() {
         >
           <div
             className="widget-calendar__event"
-            data-workspace-actions={calendarSelection?.eventToken || undefined}
-            title={`${calendarTitle}\n${calendarDetail}`}
+            data-calendar-skipped={calendarSuppressedBySkip || undefined}
+            data-calendar-health-only={calendarHealthOnly || undefined}
+            data-calendar-retrying={calendarAwaitingFirstSync || undefined}
+            data-calendar-selection={calendarSelection ? true : undefined}
+            data-workspace-actions={calendarWorkspaceActionsPresent || undefined}
+            title={`${calendarTitle}\n${calendarDetail}${
+              calendarHealthNotice
+                ? `\n${calendarHealthNotice.label}: ${calendarHealthNotice.detail}`
+                : ""
+            }`}
           >
-            <div className="widget-calendar__event-header">
+            {!calendarHealthOnly && <div className="widget-calendar__event-header">
               <span
                 className="widget-calendar__state"
-                data-calendar-status={
-                  calendarSelection
-                    ? calendarRetryNotice
-                      ? "retrying"
-                      : "observed"
-                    : undefined
-                }
+                data-calendar-status={calendarSelection ? "observed" : undefined}
                 data-calendar-progress={activeEventAcknowledged || undefined}
               >
                 {calendarState}
@@ -3214,11 +3335,12 @@ export function WidgetView() {
                 <MeetingProviderGlyph provider={calendarSelection?.meetingProvider ?? null} />
                 {calendarTitle}
               </strong>
-            </div>
+            </div>}
             {calendarSelection &&
               (calendarSelection.joinToken ||
                 calendarStartedNeedsAttention ||
-                activeEventAcknowledged) && (
+                activeEventAcknowledged ||
+                !calendarSelection.allDay) && (
                 <div className="widget-calendar__hover-actions">
                   {calendarStartedNeedsAttention && (
                     <button
@@ -3245,6 +3367,13 @@ export function WidgetView() {
                       {workCalendarJoinLabel(calendarJoinOpened)}
                     </button>
                   )}
+                  {!calendarSelection.allDay && <button
+                    aria-label={`Skip ${calendarSelection.subject}`}
+                    className="widget-calendar__skip"
+                    onClick={(event) => { event.stopPropagation(); skipCalendarEvent(calendarSelection); }}
+                    title="Skip this occurrence locally"
+                    type="button"
+                  >Skip</button>}
                   {activeEventAcknowledged && (
                     <button
                       aria-label={`Finish ${calendarSelection.subject} locally`}
@@ -3260,10 +3389,10 @@ export function WidgetView() {
                   )}
                 </div>
               )}
-            <strong className="widget-calendar__title widget-calendar__title--standard">
+            {!calendarHealthOnly && <strong className="widget-calendar__title widget-calendar__title--standard">
               <MeetingProviderGlyph provider={calendarSelection?.meetingProvider ?? null} />
               {calendarTitle}
-            </strong>
+            </strong>}
             {calendarNotConfigured ? (
               <div className="widget-calendar__detail widget-calendar__setup">
                 <small className="widget-calendar__metadata">
@@ -3279,10 +3408,24 @@ export function WidgetView() {
                   Set up
                 </button>
               </div>
-            ) : calendarSelection ? (
-              <CalendarEventDetail selection={calendarSelection} now={now} vocabulary={vocabulary} />
+            ) : calendarHealthOnly ? null : calendarSelection ? (
+              <CalendarEventDetail selection={calendarSelection} now={now} />
             ) : (
               <small>{calendarDetail}</small>
+            )}
+            {calendarHealthOnly && calendarHealthNotice && (
+              <span
+                aria-label={`${calendarHealthNotice.label}. ${calendarHealthNotice.detail}`}
+                className="widget-calendar__health"
+                role="status"
+              >
+                {calendarHealthNotice.label}
+              </span>
+            )}
+            {calendarHealthNotice && calendarSelection && (
+              <span className="sr-only" role="status">
+                Calendar refresh delayed. Showing the latest cached event.
+              </span>
             )}
             {calendarProgress !== null && (
               <div
@@ -3296,11 +3439,10 @@ export function WidgetView() {
                 <span style={{ width: `${calendarProgress}%` }} />
               </div>
             )}
-            {calendarSelection?.eventToken && (
+            {calendarSelection?.eventToken && calendarWorkspaceActionsPresent && (
               <EventWorkspaceActions
                 className="widget-calendar__workspace-actions"
                 onOpenLink={() => void openCalendarEventLink(calendarSelection)}
-                onOpenSettings={() => void openCalendarEventSettings(calendarSelection)}
                 onOpenProject={() => void openCalendarProjectPanel(calendarSelection)}
                 subject={calendarSelection.subject}
                 workspace={calendarSelection.eventWorkspace}
@@ -3318,7 +3460,8 @@ export function WidgetView() {
                     : "Next work-calendar event"
               }
               className="widget-calendar__next"
-              data-workspace-actions={calendarNextSelection.eventToken || undefined}
+              data-calendar-selection
+              data-workspace-actions={calendarNextWorkspaceActionsPresent || undefined}
               title={`${calendarNextSelection.subject}\n${calendarNextDetail}`}
             >
               <div className="widget-calendar__next-header">
@@ -3342,7 +3485,8 @@ export function WidgetView() {
               </div>
               {(calendarNextSelection.joinToken ||
                 calendarNextStartedNeedsAttention ||
-                calendarNextAcknowledged) && (
+                calendarNextAcknowledged ||
+                !calendarNextSelection.allDay) && (
                 <div className="widget-calendar__hover-actions">
                   {calendarNextStartedNeedsAttention && (
                     <button
@@ -3371,6 +3515,13 @@ export function WidgetView() {
                       {workCalendarJoinLabel(calendarNextJoinOpened)}
                     </button>
                   )}
+                  {!calendarNextSelection.allDay && <button
+                    aria-label={`Skip ${calendarNextSelection.subject}`}
+                    className="widget-calendar__skip"
+                    onClick={(event) => { event.stopPropagation(); skipCalendarEvent(calendarNextSelection); }}
+                    title="Skip this occurrence locally"
+                    type="button"
+                  >Skip</button>}
                   {calendarNextAcknowledged && (
                     <button
                       aria-label={`Finish ${calendarNextSelection.subject} locally`}
@@ -3396,7 +3547,6 @@ export function WidgetView() {
               <CalendarEventDetail
                 selection={calendarNextSelection}
                 now={now}
-                vocabulary={vocabulary}
               />
               {calendarNextProgress !== null && (
                 <div
@@ -3410,11 +3560,10 @@ export function WidgetView() {
                   <span style={{ width: `${calendarNextProgress}%` }} />
                 </div>
               )}
-              {calendarNextSelection.eventToken && (
+              {calendarNextSelection.eventToken && calendarNextWorkspaceActionsPresent && (
                 <EventWorkspaceActions
                   className="widget-calendar__workspace-actions"
                   onOpenLink={() => void openCalendarEventLink(calendarNextSelection)}
-                  onOpenSettings={() => void openCalendarEventSettings(calendarNextSelection)}
                   onOpenProject={() => void openCalendarProjectPanel(calendarNextSelection)}
                   subject={calendarNextSelection.subject}
                   workspace={calendarNextSelection.eventWorkspace}
@@ -3431,40 +3580,23 @@ export function WidgetView() {
           aria-label="Open Today"
           aria-pressed={calendarDayPanelOpen}
           onClick={() => void toggleCalendarDayPanel()}
-          title="Open Today"
-          type="button"
-        >
-          <span className="widget-destinations__label">
-            Today
-          </span>
-          <small aria-label={`${remainingCalendarEventCount} calls left`}>
-            <b>{remainingCalendarEventCount}</b><span> calls left</span>
-          </small>
-          <small aria-label={`${actionableTodos.length} to-dos left`}>
-            <b>{actionableTodos.length}</b><span> todo left</span>
-          </small>
+        title="Open Today"
+        type="button"
+      >
+          <span aria-hidden="true" className="widget-destinations__emoji">📅</span>
+          <span aria-label={`${remainingCalendarEventCount} events left`} className="widget-destinations__badge">{remainingCalendarEventCount > 99 ? "99+" : remainingCalendarEventCount}</span>
         </button>}
-        {projectsPanelVisible && <div className="widget-destinations__projects">
-          <button
-            aria-label="Open Project Hub"
-            onClick={() => void openManagerWindow("projects")}
-            title="Open Project Hub"
-            type="button"
-          >
-            <span className="widget-destinations__label">Hub</span>
-          </button>
-          <button
-            aria-label={`Open all to-dos, ${activeTodoCount} active${attentionTodoCount ? `, ${attentionTodoCount} need attention` : ""}`}
-            data-due={attentionTodoCount > 0 || undefined}
-            onClick={() => void openManagerWindow("todos")}
-            title="Open all TODOs"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 6h13M7 12h13M7 18h13"/><path d="m3 6 1 1 2-2M3 12h2M3 18h2"/></svg>
-            <span className="widget-destinations__label">TODO</span>
-            <span className="widget-destinations__badge">{activeTodoCount > 99 ? "99+" : activeTodoCount}</span>
-          </button>
-        </div>}
+        {projectsPanelVisible && <button
+          aria-label={`Open all to-dos, ${activeTodoCount} active${attentionTodoCount ? `, ${attentionTodoCount} need attention` : ""}`}
+          className="widget-destinations__todos"
+          data-due={attentionTodoCount > 0 || undefined}
+          onClick={() => void openManagerWindow("todos")}
+        title="Open all to-dos"
+        type="button"
+      >
+          <span aria-hidden="true" className="widget-destinations__emoji">✅</span>
+          <span className="widget-destinations__badge">{activeTodoCount > 99 ? "99+" : activeTodoCount}</span>
+        </button>}
         {medicinePanelVisible && <button
           aria-label={`Open Medicine, ${medicineBadgeLabel}${medicineAttentionCount ? `, ${medicineAttentionCount} due or missed` : ""}`}
           aria-pressed={medicinePanelOpen}
@@ -3475,8 +3607,7 @@ export function WidgetView() {
           title="Open Medicine"
           type="button"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 5h10v14H7z"/><path d="M9 9h6M9 13h6"/></svg>
-          <span className="widget-destinations__label">Meds</span>
+          <span aria-hidden="true" className="widget-destinations__emoji">💊</span>
           <span aria-label={medicineBadgeLabel} className="widget-destinations__badge">{medicineBadge}</span>
         </button>}
       </aside>}

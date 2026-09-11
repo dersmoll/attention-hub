@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EVENT_SETTINGS_OPEN_EVENT,
@@ -8,13 +8,16 @@ import {
   EVENT_SETTINGS_WINDOW_LABEL,
   type EventSettingsOpenPayload,
 } from "./event-workspace-model";
-import { readStoredFloatingGeometry, writeStoredFloatingGeometry } from "./event-workspace-window";
+import { writeStoredFloatingGeometry } from "./event-workspace-window";
 import { HubCloseIcon } from "./HubCloseIcon";
+import { openManagerWindow } from "./manager-window";
 import { useWidgetPanelStyle } from "./use-widget-panel-style";
 import { type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 
 const NEW_PROJECT_VALUE = "__new_project__";
 const CUSTOM_LINK_VALUE = "__custom_link__";
+const projectDestination = (id: string) => `project:${id}`;
+const listDestination = (id: string) => `list:${id}`;
 
 interface EventWorkspaceSnapshot {
   eventToken: string;
@@ -22,6 +25,7 @@ interface EventWorkspaceSnapshot {
   start: string;
   end: string;
   projectId: string | null;
+  listId: string | null;
   projectLinkId: string | null;
   linkUrl: string | null;
   recoveredFromBackup: boolean;
@@ -44,14 +48,13 @@ export function EventSettingsView() {
   const panelStyle = useWidgetPanelStyle();
   const requestRef = useRef<string | null>(initialEventToken());
   const shellRef = useRef<HTMLElement>(null);
-  const initialContentSizeAppliedRef = useRef(false);
   const [event, setEvent] = useState<EventWorkspaceSnapshot | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
-  const [projectValue, setProjectValue] = useState("");
+  const [destinationValue, setDestinationValue] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [projectLinkValue, setProjectLinkValue] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
-  const [pending, setPending] = useState<"load" | "save" | "unlink" | "open" | null>(null);
+  const [pending, setPending] = useState<"load" | "save" | "unlink" | "open" | "destination" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const dirtyRef = useRef(false);
@@ -68,13 +71,13 @@ export function EventSettingsView() {
       setEvent(nextEvent);
       setWorkspace(nextWorkspace);
       if (!preserveDraft || !dirtyRef.current) {
-        setProjectValue(nextEvent.projectId ?? "");
+        setDestinationValue(nextEvent.projectId ? projectDestination(nextEvent.projectId) : nextEvent.listId ? listDestination(nextEvent.listId) : "");
         setNewProjectName("");
         setProjectLinkValue(nextEvent.projectLinkId ?? (nextEvent.linkUrl ? CUSTOM_LINK_VALUE : ""));
         setLinkUrl(nextEvent.linkUrl ?? "");
         dirtyRef.current = false;
       }
-      setStatus(nextEvent.projectId || nextEvent.projectLinkId || nextEvent.linkUrl ? "Settings loaded." : "Choose a project, add a Today link, or both.");
+      setStatus(nextEvent.projectId || nextEvent.listId || nextEvent.projectLinkId || nextEvent.linkUrl ? "Settings loaded." : "Choose a destination and optionally add a Today link.");
     } catch (cause) { setError(String(cause)); }
     finally { setPending(null); }
   }, []);
@@ -108,29 +111,36 @@ export function EventSettingsView() {
   }, []);
 
   useEffect(() => {
-    if (!event || initialContentSizeAppliedRef.current) return;
-    const stored = readStoredFloatingGeometry(EVENT_SETTINGS_WINDOW_LABEL);
-    if (typeof stored.height === "number") return;
+    if (!event) return;
     const frame = window.requestAnimationFrame(() => {
       if (!shellRef.current) return;
-      initialContentSizeAppliedRef.current = true;
-      void getCurrentWindow().setSize(new LogicalSize(EVENT_SETTINGS_WINDOW_GEOMETRY.width, Math.max(EVENT_SETTINGS_WINDOW_GEOMETRY.minHeight, Math.ceil(shellRef.current.scrollHeight))));
+      void (async () => {
+        const currentWindow = getCurrentWindow();
+        const scaleFactor = await currentWindow.scaleFactor();
+        const currentSize = (await currentWindow.innerSize()).toLogical(scaleFactor);
+        const monitor = await currentMonitor();
+        const maxHeight = monitor ? monitor.workArea.size.toLogical(monitor.scaleFactor).height - 32 : 560;
+        const wantedHeight = Math.min(maxHeight, Math.max(EVENT_SETTINGS_WINDOW_GEOMETRY.minHeight, Math.ceil(shellRef.current?.scrollHeight ?? 0)));
+        if (wantedHeight > currentSize.height + 1) await currentWindow.setSize(new LogicalSize(currentSize.width, wantedHeight));
+      })().catch(() => setError("The event settings panel could not resize automatically. Scroll to reach the remaining controls."));
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [event]);
+  }, [event, destinationValue, projectLinkValue]);
 
   const save = async () => {
     if (!event) return;
     setPending("save");
     setError(null);
     try {
-      let projectId = projectValue && projectValue !== NEW_PROJECT_VALUE ? projectValue : null;
-      if (projectValue === NEW_PROJECT_VALUE) {
+      let projectId = destinationValue.startsWith("project:") ? destinationValue.slice("project:".length) : null;
+      const listId = destinationValue.startsWith("list:") ? destinationValue.slice("list:".length) : null;
+      if (destinationValue === NEW_PROJECT_VALUE) {
         const next = await invoke<WorkspaceSnapshot>("create_project", { name: newProjectName });
         projectId = next.projects[next.projects.length - 1]?.id ?? null;
       }
       await invoke("save_event_workspace", { eventToken: event.eventToken, input: {
         projectId,
+        listId,
         projectLinkId: projectLinkValue && projectLinkValue !== CUSTOM_LINK_VALUE ? projectLinkValue : null,
         linkUrl: projectLinkValue === CUSTOM_LINK_VALUE ? linkUrl.trim() || null : null,
       } });
@@ -148,7 +158,7 @@ export function EventSettingsView() {
       await invoke("unlink_event_workspace", { eventToken: event.eventToken });
       dirtyRef.current = false;
       await load(event.eventToken);
-      setStatus("Event settings removed. The project was kept.");
+      setStatus("Event settings removed. The destination was kept.");
     } catch (cause) { setError(String(cause)); }
     finally { setPending(null); }
   };
@@ -161,10 +171,35 @@ export function EventSettingsView() {
     finally { setPending(null); }
   };
 
+  const openDestination = async () => {
+    if (!event?.projectId && !event?.listId) return;
+    setPending("destination");
+    setError(null);
+    try {
+      await openManagerWindow(
+        "projects",
+        event.projectId ?? undefined,
+        event.listId ?? undefined,
+      );
+      setStatus("Opened the saved destination in Project Hub.");
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setPending(null);
+    }
+  };
+
   const markDirty = () => { dirtyRef.current = true; };
-  const projectLinks = workspace?.links.filter((link) => link.projectId === projectValue) ?? [];
-  const hasDraft = projectValue.length > 0 || projectLinkValue.length > 0 || linkUrl.trim().length > 0;
-  const validSelection = (projectValue !== NEW_PROJECT_VALUE || newProjectName.trim().length > 0)
+  const selectedProjectId = destinationValue.startsWith("project:") ? destinationValue.slice("project:".length) : null;
+  const projectLinks = workspace?.links.filter((link) => link.projectId === selectedProjectId) ?? [];
+  const uncategorizedLists = workspace?.lists.filter((list) => list.categoryId === null) ?? [];
+  const savedDestinationName = event?.projectId
+    ? workspace?.projects.find((project) => project.id === event.projectId)?.name
+    : event?.listId
+      ? workspace?.lists.find((list) => list.id === event.listId)?.name
+      : null;
+  const hasDraft = destinationValue.length > 0 || projectLinkValue.length > 0 || linkUrl.trim().length > 0;
+  const validSelection = (destinationValue !== NEW_PROJECT_VALUE || newProjectName.trim().length > 0)
     && (projectLinkValue !== CUSTOM_LINK_VALUE || linkUrl.trim().length > 0);
 
   return <main className="event-settings-shell" ref={shellRef} style={panelStyle}>
@@ -173,13 +208,20 @@ export function EventSettingsView() {
       <button aria-label="Close event settings" className="hub-close-button" onClick={() => void getCurrentWindow().close()} type="button"><HubCloseIcon /></button>
     </header>
     {pending === "load" && !event ? <p className="event-settings-loading">Loading local settings…</p> : <form onSubmit={(formEvent) => { formEvent.preventDefault(); void save(); }}>
-      <label htmlFor="event-project">Project</label>
-      <select disabled={pending !== null} id="event-project" onChange={(changeEvent) => { setProjectValue(changeEvent.target.value); setProjectLinkValue(""); setLinkUrl(""); markDirty(); }} value={projectValue}>
-        <option value="">No project</option>
-        {workspace?.projects.filter((project) => project.archivedAt === null || project.id === event?.projectId).map((project) => <option key={project.id} value={project.id}>{project.name}{project.archivedAt ? " (archived)" : ""}</option>)}
-        <option value={NEW_PROJECT_VALUE}>+ New project</option>
+      <label htmlFor="event-destination">Destination</label>
+      <select disabled={pending !== null} id="event-destination" onChange={(changeEvent) => { setDestinationValue(changeEvent.target.value); setProjectLinkValue(""); setLinkUrl(""); markDirty(); }} value={destinationValue}>
+        <option value="">No destination</option>
+        <optgroup label="Projects">
+          {workspace?.projects.filter((project) => project.archivedAt === null || project.id === event?.projectId).map((project) => <option key={project.id} value={projectDestination(project.id)}>{project.name}{project.archivedAt ? " (archived)" : ""}</option>)}
+          <option value={NEW_PROJECT_VALUE}>+ New project</option>
+        </optgroup>
+        {uncategorizedLists.length > 0 && <optgroup label="Personal lists · General">{uncategorizedLists.map((list) => <option key={list.id} value={listDestination(list.id)}>{list.name}</option>)}</optgroup>}
+        {workspace?.categories.map((category) => {
+          const lists = workspace.lists.filter((list) => list.categoryId === category.id);
+          return lists.length > 0 ? <optgroup key={category.id} label={`Personal lists · ${category.name}`}>{lists.map((list) => <option key={list.id} value={listDestination(list.id)}>{list.name}</option>)}</optgroup> : null;
+        })}
       </select>
-      {projectValue === NEW_PROJECT_VALUE && <><label htmlFor="event-project-name">New project name</label><input autoComplete="off" disabled={pending !== null} id="event-project-name" maxLength={80} onChange={(changeEvent) => { setNewProjectName(changeEvent.target.value); markDirty(); }} value={newProjectName}/></>}
+      {destinationValue === NEW_PROJECT_VALUE && <><label htmlFor="event-project-name">New project name</label><input autoComplete="off" disabled={pending !== null} id="event-project-name" maxLength={80} onChange={(changeEvent) => { setNewProjectName(changeEvent.target.value); markDirty(); }} value={newProjectName}/></>}
       <label htmlFor="event-project-link">Today link <em>optional</em></label>
       <select disabled={pending !== null} id="event-project-link" onChange={(changeEvent) => { setProjectLinkValue(changeEvent.target.value); if (changeEvent.target.value !== CUSTOM_LINK_VALUE) setLinkUrl(""); markDirty(); }} value={projectLinkValue}>
         <option value="">No Today link</option>
@@ -187,8 +229,8 @@ export function EventSettingsView() {
         <option value={CUSTOM_LINK_VALUE}>Custom link…</option>
       </select>
       {projectLinkValue === CUSTOM_LINK_VALUE && <><label htmlFor="event-link">Custom URL</label><input autoComplete="url" disabled={pending !== null} id="event-link" inputMode="url" onChange={(changeEvent) => { setLinkUrl(changeEvent.target.value); markDirty(); }} placeholder="https://…" type="url" value={linkUrl}/></>}
-      <p className="event-settings-help">Project Hub links stay synchronized here. A recurring event shares these settings with future occurrences.</p>
-      <div className="event-settings-actions"><button disabled={pending !== null || !hasDraft || !validSelection} type="submit">{pending === "save" ? "Saving…" : "Save"}</button>{(event?.projectLinkId || event?.linkUrl) && <button disabled={pending !== null} onClick={() => void openLink()} type="button">Open link</button>}{(event?.projectId || event?.projectLinkId || event?.linkUrl) && <button disabled={pending !== null} onClick={() => void unlink()} type="button">Unlink</button>}</div>
+      <p className="event-settings-help">Projects can reuse Project Hub links. Personal lists can use a custom link. A recurring event shares these settings with future occurrences.</p>
+      <div className="event-settings-actions"><button disabled={pending !== null || !hasDraft || !validSelection} type="submit">{pending === "save" ? "Saving…" : "Save"}</button>{(event?.projectId || event?.listId) && <button disabled={pending !== null} onClick={() => void openDestination()} type="button">{pending === "destination" ? "Opening…" : `Open ${savedDestinationName ?? "destination"}`}</button>}{(event?.projectLinkId || event?.linkUrl) && <button disabled={pending !== null} onClick={() => void openLink()} type="button">Open link</button>}{(event?.projectId || event?.listId || event?.projectLinkId || event?.linkUrl) && <button disabled={pending !== null} onClick={() => void unlink()} type="button">Unlink</button>}</div>
     </form>}
     {event?.recoveredFromBackup && <p className="event-settings-recovery">Showing the previous valid local backup.</p>}
     {error && <p className="event-settings-error" role="alert">{error}</p>}
