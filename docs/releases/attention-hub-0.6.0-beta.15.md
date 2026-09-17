@@ -1,10 +1,11 @@
 # Attention Hub 0.6.0-beta.15
 
 - Prepared: 2026-09-16
-- Status: release candidate, publication approved
+- Released: 2026-09-17
+- Status: public beta
 - Platform: Windows x64
 - Format: NSIS setup executable
-- Intended tag: `v0.6.0-beta.15`
+- Tag: `v0.6.0-beta.15`
 
 ## Milestone 23 — planning, focus, startup, and quick notes
 
