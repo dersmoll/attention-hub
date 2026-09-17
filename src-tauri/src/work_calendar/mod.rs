@@ -258,6 +258,7 @@ pub struct WorkCalendarSaveResult {
 pub struct WorkCalendarState {
     request_gate: Mutex<()>,
     join_targets: StdMutex<JoinTargetCache>,
+    day_cache: StdMutex<Vec<(String, String, WorkCalendarSnapshot)>>,
 }
 
 impl WorkCalendarState {
@@ -265,10 +266,14 @@ impl WorkCalendarState {
         Self {
             request_gate: Mutex::new(()),
             join_targets: StdMutex::new(JoinTargetCache::default()),
+            day_cache: StdMutex::new(Vec::new()),
         }
     }
 
     fn clear_join_targets(&self) {
+        if let Ok(mut cache) = self.day_cache.lock() {
+            cache.clear();
+        }
         if let Ok(mut cache) = self.join_targets.lock() {
             cache.targets.clear();
             cache.tokens_by_occurrence.clear();
@@ -646,6 +651,9 @@ where
     zero_string(&mut published_url);
     match write_result {
         Ok(()) => {
+            if let Ok(mut cache) = state.day_cache.lock() {
+                cache.clear();
+            }
             // Compute and apply the remap while this function still owns the
             // request gate. The credential transition and workspace mutation
             // therefore cannot be overtaken by another save or removal.
@@ -784,6 +792,90 @@ pub async fn get_snapshot(state: &WorkCalendarState) -> WorkCalendarSnapshot {
     let probe = published_ics::get_semantic_probe_with_deadline(published_url, true).await;
     drop(guard);
     snapshot_from_probe(state, probe, true, Some(&source_scope))
+}
+
+fn validate_selected_day(
+    selected_day: &str,
+    today: chrono::NaiveDate,
+) -> Result<chrono::NaiveDate, String> {
+    let day = chrono::NaiveDate::parse_from_str(selected_day, "%Y-%m-%d")
+        .map_err(|_| "Choose yesterday, today or tomorrow.".to_owned())?;
+    if day.format("%Y-%m-%d").to_string() != selected_day
+        || day.signed_duration_since(today).num_days().abs() > 1
+    {
+        return Err("Choose yesterday, today or tomorrow.".to_owned());
+    }
+    Ok(day)
+}
+
+/// Independent date preview. It never issues, renews or prunes live Join tokens.
+pub async fn get_day_snapshot(
+    state: &WorkCalendarState,
+    selected_day: &str,
+) -> Result<WorkCalendarSnapshot, String> {
+    let timezone = iana_time_zone::get_timezone()
+        .ok()
+        .and_then(|name| name.parse::<chrono_tz::Tz>().ok())
+        .ok_or_else(|| "The local calendar timezone is unavailable.".to_owned())?;
+    let day = validate_selected_day(
+        selected_day,
+        chrono::Utc::now().with_timezone(&timezone).date_naive(),
+    )?;
+    let _guard = match tokio::time::timeout(GATE_WAIT, state.request_gate.lock()).await {
+        Ok(guard) => guard,
+        Err(_) => return Ok(busy_snapshot(get_configuration())),
+    };
+    let mut published_url = match credential_store::read() {
+        Ok(Some(secret)) => secret,
+        result => {
+            let mut snapshot = busy_snapshot(get_configuration());
+            snapshot.status = if result.is_ok() {
+                WorkCalendarStatus::NotConfigured
+            } else {
+                WorkCalendarStatus::Error
+            };
+            snapshot.diagnostics =
+                vec!["The saved calendar source is unavailable for this day.".to_owned()];
+            return Ok(snapshot);
+        }
+    };
+    let source_scope = calendar_source_scope(&published_url);
+    // Include the viewer zone so changing Windows timezone cannot reuse another day's boundaries.
+    let cache_scope = format!("{source_scope}:{timezone}");
+    if let Ok(cache) = state.day_cache.lock() {
+        if let Some((_, _, snapshot)) = cache.iter().find(|(scope, date, snapshot)| {
+            scope == &cache_scope
+                && date == selected_day
+                && now_unix_ms().saturating_sub(snapshot.captured_at_unix_ms)
+                    < WIDGET_CALENDAR_POLL_INTERVAL_MS
+        }) {
+            zero_string(&mut published_url);
+            return Ok(snapshot.clone());
+        }
+    }
+    let probe = published_ics::get_day_probe_with_deadline(published_url, true, Some(day)).await;
+    let snapshot = day_snapshot_from_probe(probe, &source_scope);
+    if matches!(snapshot.status, WorkCalendarStatus::Observed) {
+        if let Ok(mut cache) = state.day_cache.lock() {
+            cache.retain(|(scope, date, _)| scope == &cache_scope && date != selected_day);
+            if cache.len() >= 3 {
+                cache.remove(0);
+            }
+            cache.push((cache_scope, selected_day.to_owned(), snapshot.clone()));
+        }
+    }
+    Ok(snapshot)
+}
+
+fn day_snapshot_from_probe(
+    mut probe: PublishedIcsSemanticProbe,
+    source_scope: &str,
+) -> WorkCalendarSnapshot {
+    probe.selection = None;
+    probe.overlapping_selections.clear();
+    probe.next_selection = None;
+    // The adapter's token handling is deliberately isolated from the live state.
+    snapshot_from_probe(&WorkCalendarState::new(), probe, true, Some(source_scope))
 }
 
 fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapshot {
@@ -1123,6 +1215,47 @@ mod credential_store {
 mod tests {
     use super::*;
     use crate::published_ics::{PublishedIcsContentTypeState, PublishedIcsProbeStatus};
+
+    #[test]
+    fn day_browser_validates_dates_across_month_and_year_boundaries() {
+        let today = chrono::NaiveDate::from_ymd_opt(2027, 1, 1).unwrap();
+        for value in ["2026-12-31", "2027-01-01", "2027-01-02"] {
+            assert!(validate_selected_day(value, today).is_ok());
+        }
+        for value in [
+            "2026-12-30",
+            "2027-01-03",
+            "2027-1-1",
+            "2027-02-30",
+            "garbage",
+        ] {
+            assert!(validate_selected_day(value, today).is_err());
+        }
+    }
+
+    #[test]
+    fn day_browser_exposes_no_live_selections_or_join_tokens() {
+        let mut probe = observed_school_contract_probe();
+        let event = joinable_event(
+            "https://teams.microsoft.com/meet/secret",
+            "private-uid",
+            "2026-09-07T12:00:00Z",
+        );
+        probe.selection = Some(event.clone());
+        probe.next_selection = Some(event.clone());
+        probe.overlapping_selections.push(event);
+        let snapshot = day_snapshot_from_probe(probe, "test-source");
+        assert!(snapshot.selection.is_none());
+        assert!(snapshot.next_selection.is_none());
+        assert!(snapshot.overlapping_selections.is_empty());
+        assert_eq!(snapshot.viewer_day.as_deref(), Some("2026-09-07"));
+        assert!(snapshot.day_selections_complete);
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(!json.contains("joinToken"));
+        assert!(!json.contains("workspaceKey"));
+        assert!(!json.contains("private-uid"));
+        assert!(!json.contains("meet/secret"));
+    }
 
     fn observed_school_contract_probe() -> PublishedIcsSemanticProbe {
         PublishedIcsSemanticProbe {

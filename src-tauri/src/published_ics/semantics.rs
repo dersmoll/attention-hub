@@ -208,6 +208,17 @@ pub fn extract_current_or_next(
     viewer_timezone: Tz,
     started: Instant,
 ) -> Result<SemanticScan, SemanticFailure> {
+    extract_for_day(body, now, viewer_timezone, None, started)
+}
+
+/// Browsing changes only the day list; live classification still uses the real clock.
+pub fn extract_for_day(
+    body: &[u8],
+    now: DateTime<Utc>,
+    viewer_timezone: Tz,
+    selected_day: Option<NaiveDate>,
+    started: Instant,
+) -> Result<SemanticScan, SemanticFailure> {
     let text = std::str::from_utf8(body).map_err(|_| {
         failure(
             SemanticFailureReason::MalformedEvent,
@@ -298,7 +309,8 @@ pub fn extract_current_or_next(
             .collect::<Vec<_>>()
     };
 
-    let viewer_day = now.with_timezone(&viewer_timezone).date_naive();
+    let viewer_day =
+        selected_day.unwrap_or_else(|| now.with_timezone(&viewer_timezone).date_naive());
     let mut day_selections = candidates
         .iter()
         .filter(|candidate| {
@@ -1385,6 +1397,40 @@ fn failure(reason: SemanticFailureReason, diagnostic: &'static str) -> SemanticF
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn day_browser_changes_recurring_day_list_without_moving_live_clock() {
+        let feed = b"BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:UTC\r\nBEGIN:VEVENT\r\nUID:daily\r\nDTSTART:20260810T130000Z\r\nDTEND:20260810T140000Z\r\nRRULE:FREQ=DAILY;COUNT=4\r\nSUMMARY:Daily\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let live = extract_current_or_next(feed, now(), chrono_tz::UTC, Instant::now()).unwrap();
+        for date in ["2026-08-10", "2026-08-12"] {
+            let selected = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+            let preview =
+                extract_for_day(feed, now(), chrono_tz::UTC, Some(selected), Instant::now())
+                    .unwrap();
+            assert_eq!(preview.viewer_day, date);
+            assert_eq!(preview.day_selections.len(), 1);
+            assert!(preview.day_selections[0].start.starts_with(date));
+            assert_eq!(
+                preview.selection.as_ref().unwrap().start,
+                live.selection.as_ref().unwrap().start
+            );
+        }
+    }
+
+    #[test]
+    fn day_browser_uses_viewer_timezone_and_exclusive_all_day_end() {
+        let feed = b"BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:Europe/Kiev\r\nBEGIN:VEVENT\r\nUID:boundary\r\nDTSTART:20260811T223000Z\r\nDTEND:20260811T233000Z\r\nSUMMARY:After local midnight\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:all-day\r\nDTSTART;VALUE=DATE:20260811\r\nDTEND;VALUE=DATE:20260812\r\nSUMMARY:All day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let preview = extract_for_day(
+            feed,
+            now(),
+            chrono_tz::Europe::Kiev,
+            Some(NaiveDate::from_ymd_opt(2026, 8, 12).unwrap()),
+            Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(preview.day_selections.len(), 1);
+        assert_eq!(preview.day_selections[0].subject, "After local midnight");
+    }
 
     fn now() -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-08-11T12:00:00Z")

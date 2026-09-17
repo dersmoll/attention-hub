@@ -20,6 +20,7 @@ import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { TodayPopupView } from "./TodayPopupView";
 import { MedicineManagerView } from "./MedicineManagerView";
 import { MedicinePanelView } from "./MedicinePanelView";
+import { StickyNoteView } from "./StickyNoteView";
 import { WidgetView } from "./WidgetView";
 import { AppUpdatePanel } from "./AppUpdatePanel";
 import {
@@ -71,6 +72,11 @@ type AdvancedPage =
   | "updates"
   | "diagnostics";
 
+type AutostartStatus = {
+  available: boolean;
+  enabled: boolean;
+};
+
 const ADVANCED_PAGES: Array<{
   id: AdvancedPage;
   label: string;
@@ -79,7 +85,7 @@ const ADVANCED_PAGES: Array<{
   {
     id: "general",
     label: "General",
-    description: "Widget size and panel appearance.",
+    description: "Widget appearance, size, and Windows startup.",
   },
   {
     id: "clocks",
@@ -231,6 +237,10 @@ function AdvancedView() {
   const [teamsMirror, setTeamsMirror] = useState<TeamsMirrorStatus | null>(null);
   const [teamsMirrorError, setTeamsMirrorError] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [autostartStatus, setAutostartStatus] =
+    useState<AutostartStatus | null>(null);
+  const [autostartPending, setAutostartPending] = useState(false);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
   const [frontendNotice, setFrontendNotice] = useState<string | null>(null);
   const frontendNoticeTimerRef = useRef<number | null>(null);
   const [primaryTimeZoneSearch, setPrimaryTimeZoneSearch] = useState("");
@@ -276,6 +286,40 @@ function AdvancedView() {
     }, 4_500);
   }, []);
 
+  const refreshAutostartStatus = useCallback(async () => {
+    try {
+      const status = await invoke<AutostartStatus>("get_autostart_status");
+      setAutostartStatus(status);
+      setAutostartError(null);
+    } catch {
+      setAutostartError("Windows startup status could not be read.");
+    }
+  }, []);
+
+  const changeAutostart = useCallback(
+    async (enabled: boolean) => {
+      setAutostartPending(true);
+      setAutostartError(null);
+      try {
+        const status = await invoke<AutostartStatus>("set_autostart_enabled", {
+          enabled,
+        });
+        setAutostartStatus(status);
+      } catch {
+        setAutostartError("Windows startup could not be updated. Try again.");
+        try {
+          const status = await invoke<AutostartStatus>("get_autostart_status");
+          setAutostartStatus(status);
+        } catch {
+          // The last confirmed state remains visible when Windows cannot reply.
+        }
+      } finally {
+        setAutostartPending(false);
+      }
+    },
+    [],
+  );
+
   useEffect(
     () => () => {
       if (frontendNoticeTimerRef.current !== null) {
@@ -284,6 +328,11 @@ function AdvancedView() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (activePage !== "general") return;
+    void refreshAutostartStatus();
+  }, [activePage, refreshAutostartStatus]);
 
   const applyWidgetPreferences = useCallback(
     (update: Parameters<typeof writeWidgetPreferences>[0]) => {
@@ -879,6 +928,35 @@ function AdvancedView() {
             >
               Reset panel appearance
             </button>
+          </fieldset>
+
+          <fieldset
+            className="widget-preference-card"
+            hidden={activePage !== "general"}
+          >
+            <legend>Windows startup</legend>
+            <label className="widget-appearance-pin">
+              <input
+                checked={autostartStatus?.enabled ?? false}
+                disabled={
+                  autostartPending ||
+                  autostartStatus === null ||
+                  !autostartStatus.available
+                }
+                onChange={(event) => void changeAutostart(event.target.checked)}
+                type="checkbox"
+              />
+              Start Attention Hub when I sign in to Windows
+            </label>
+            <small>Opens the widget automatically after you sign in.</small>
+            {autostartStatus && !autostartStatus.available && (
+              <small>Available from an installed Attention Hub build.</small>
+            )}
+            {autostartError && (
+              <small className="widget-preference-warning" role="status">
+                {autostartError}
+              </small>
+            )}
           </fieldset>
 
           <fieldset
@@ -1839,6 +1917,9 @@ function App() {
   }
   if (windowLabel === "medicine-panel") {
     return <MedicinePanelView />;
+  }
+  if (windowLabel === "sticky-note") {
+    return <StickyNoteView />;
   }
   return <WidgetView />;
 }

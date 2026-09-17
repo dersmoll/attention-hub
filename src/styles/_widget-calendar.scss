@@ -876,6 +876,96 @@
 
 /* Detached "today" popup window reuses the day panel markup. */
 .today-popup-shell {
+  &__day-nav {
+    position: relative;
+    display: grid;
+    grid-template-columns: 18px minmax(0, max-content) 18px;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 18px;
+    padding: 0 24px;
+
+    > button {
+      @include icon-button(18px, var(--radius-chrome));
+
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid transparent;
+      color: var(--widget-panel-muted);
+      background: transparent;
+
+      svg { @include stroke-icon(12px, 1.8); }
+
+      &:hover:not(:disabled),
+      &:focus-visible {
+        border-color: panel-foreground-wash(35%);
+        color: var(--widget-panel-accent);
+        background: panel-foreground-wash(7%);
+      }
+
+      &:disabled { opacity: .3; }
+    }
+
+    > time {
+      min-width: 96px;
+      color: var(--widget-panel-foreground);
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    > .today-popup-shell__return-today {
+      position: absolute;
+      right: 16px;
+      width: auto;
+      min-width: 0;
+      height: 18px;
+      padding-inline: 7px;
+      border-color: var(--widget-panel-border);
+      color: var(--widget-panel-foreground);
+      font-size: 10px;
+      font-weight: 700;
+    }
+  }
+
+  &__day-content {
+    animation: today-popup-day-enter 160ms ease-out both;
+  }
+
+  > .hub-close-button {
+    @include icon-button(14px, var(--radius-chrome));
+
+    position: absolute;
+    z-index: 1;
+    top: 1px;
+    right: 1px;
+    border: 1px solid transparent;
+    color: var(--widget-panel-muted);
+    background: transparent;
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      border-color: panel-foreground-wash(35%);
+      color: var(--widget-panel-accent);
+      background: panel-foreground-wash(7%);
+    }
+
+    .hub-close-icon { @include stroke-icon(9px, 1.8); }
+  }
+
+  @include reduced-motion {
+    &__day-content { animation: none; }
+  }
+
+  &__preview-note {
+    margin: 3px 0;
+    color: var(--widget-panel-muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
   min-width: 300px;
 
   :where(button:hover:not(:disabled)) {
@@ -1071,4 +1161,9 @@
 
     @include truncate;
   }
+}
+
+@keyframes today-popup-day-enter {
+  from { opacity: .35; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }

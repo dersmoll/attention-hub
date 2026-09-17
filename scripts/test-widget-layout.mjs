@@ -25,6 +25,8 @@ const layout = await import(
 
 assert.equal(layout.widgetHeight("recommended"), 48);
 assert.equal(layout.widgetHeight("slim"), 38);
+assert.equal(layout.widgetHeight("recommended", "timeFocus"), 190);
+assert.equal(layout.widgetHeight("slim", "timeFocus"), 190);
 assert.equal(layout.CALENDAR_DAY_PANEL_ROW_HEIGHT, 216);
 assert.equal(layout.CALENDAR_DAY_PANEL_WINDOW_EXTRA_HEIGHT, 224);
 assert.equal(layout.calendarDayPanelHeight(1), 76);
@@ -48,8 +50,8 @@ assert.equal(layout.widgetClockPanelWidth("recommended", 5, "horizontal"), 324);
 assert.equal(layout.widgetClockPanelWidth("recommended", 5, "vertical"), 135);
 assert.equal(layout.widgetClockPanelWidth("slim", 5, "horizontal"), 404);
 assert.equal(layout.widgetClockPanelWidth("slim", 5, "vertical"), 404);
-assert.equal(layout.widgetClockPanelWidth("recommended", 5, "timeFocus"), 240);
-assert.equal(layout.widgetClockPanelWidth("slim", 5, "timeFocus"), 192);
+assert.equal(layout.widgetClockPanelWidth("recommended", 5, "timeFocus"), 560);
+assert.equal(layout.widgetClockPanelWidth("slim", 5, "timeFocus"), 560);
 assert.equal(layout.widgetZoneGap("recommended"), 0);
 assert.equal(layout.widgetZoneGap("slim"), 0);
 
@@ -123,6 +125,15 @@ assert.equal(layout.widgetDestinationsWidth("recommended", false, false, true), 
 assert.equal(layout.widgetDestinationsWidth("recommended", true, false, true), 48);
 assert.equal(layout.widgetDestinationsWidth("recommended", false, true, true), 48);
 assert.equal(layout.widgetDestinationsWidth("recommended", true, true, true), 72);
+// The sticky note is an always-available fourth destination in the live widget.
+assert.equal(layout.widgetDestinationsWidth("recommended", false, false, false, true), 24);
+assert.equal(layout.widgetDestinationsWidth("recommended", true, true, true, true), 96);
+assert.equal(layout.widgetDestinationsWidth("slim", true, true, true, true), 132);
+for (const [mode, delta] of [["recommended", 24], ["slim", 33]]) {
+  const without = layout.widgetWidth(2, mode, false, 2, "horizontal", true, true, 0, null, true, true, true, true, false);
+  const withSticky = layout.widgetWidth(2, mode, false, 2, "horizontal", true, true, 0, null, true, true, true, true, true);
+  assert.equal(withSticky - without, delta);
+}
 // Enabling the segment must widen the widget by exactly the segment width and
 // disabling it must restore the previous width.
 for (const [mode, delta] of [["recommended", 24], ["slim", 33]]) {
@@ -184,7 +195,7 @@ assert.equal(
     false,
     false,
   ),
-  356,
+  676,
 );
 
 assert.equal(
@@ -294,6 +305,8 @@ assert.match(widgetSource, /text: "Time Focus"/);
 assert.match(widgetSource, /const timeFocusMode = preferences\.clockLayout === "timeFocus"/);
 assert.match(widgetSource, /calendarPanelVisible && <section/);
 assert.match(widgetSource, /className="widget-clock__focus"/);
+assert.match(widgetSource, /className="widget-focus-timer"/);
+assert.match(widgetSource, />\s*Start timer\s*<\/button>/);
 assert.equal(
   widgetSource.match(/className="widget-clock__seconds"/g)?.length,
   2,
@@ -366,8 +379,12 @@ assert.match(cssSource, /widget-clock-picker-filter/);
 assert.match(cssSource, /\.widget-clock-converter__close \{\s*position: absolute;/);
 assert.match(cssSource, /data-clock-conversion-source="secondary"/);
 assert.match(cssSource, /data-clock-layout="timeFocus"/);
-assert.match(cssSource, /font-size: 49px/);
-assert.match(cssSource, /font-size: 28px/);
+assert.match(cssSource, /font-size: 147px/);
+assert.match(cssSource, /\.widget-focus-timer \{/);
+assert.match(
+  slimStyleSource,
+  /data-clock-layout="timeFocus"[\s\S]*?> \.widget-clock__focus \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\) 26px;/,
+);
 assert.match(cssSource, /--widget-slim-control-size: 16px/);
 assert.match(
   cssSource,
@@ -493,9 +510,9 @@ assert.match(todayPopupSource, /data-cancelled=\{selection\.cancelled \|\| undef
 // It is also state-dependent: an empty list only means an empty day when the
 // day was actually read. scripts/test-school-day-model.mjs asserts the strings
 // and the state rules.
-assert.match(todayPopupSource, /payload\.dayState === "verified"/);
+assert.match(todayPopupSource, /dayState === "verified"/);
 assert.match(todayPopupSource, /vocabulary\.emptyDay/);
-assert.match(todayPopupSource, /vocabulary\.unknownDay/);
+assert.match(todayPopupSource, /This day’s calendar could not be read/);
 assert.match(cssSource, /widget-calendar-day-panel__empty/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-finished\]/);
 assert.match(cssSource, /widget-calendar-day-panel li\[data-cancelled\]/);

@@ -95,9 +95,10 @@
   }
 }
 
-.widget-appearance-pin {
+.widget-preference-card > .widget-appearance-pin {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.5rem;
 
   input {

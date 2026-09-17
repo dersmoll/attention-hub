@@ -9,7 +9,8 @@ own local reminders.
 
 The production bundle is one x64 NSIS installer. The primary window is a
 frameless, fixed-height widget with responsive width based on enabled sources
-and calendar density. Advanced, Project Hub, Today, and project panels are created on demand.
+and calendar density. Advanced, Project Hub, Today, project panels, and the
+sticky note are created on demand.
 
 ## Main surfaces
 
@@ -143,6 +144,22 @@ Notes/Links/To-dos in the detail pane. All To-dos uses the full window for one
 chronological cross-owner list; each row identifies its project or personal
 list and preserves inline completion, notes, edit, and delete actions.
 
+### Sticky note
+
+The widget's always-available note destination opens one frameless, resizable,
+always-on-top scratchpad. Its plain text is separate from Project Hub and stored
+locally in a versioned `sticky-note.json` file with one bounded recovery backup.
+Saving is revision-guarded and debounced while typing; the explicit close action
+waits for the latest text to commit before destroying the window.
+
+The note window remembers logical size and physical position independently of
+its content. A stored position is restored only when its title edge is reachable
+on a currently connected monitor; otherwise the note opens beside the widget.
+HTTP(S) text is surfaced as compact link actions. Rust re-reads the saved note,
+requires the requested normalized URL to still be present, and validates it
+immediately before Windows opens it. The sticky note is not included in Project
+Hub export and does not fetch link metadata.
+
 ### Medicine tracker
 
 A separate `medicine.json` store owns treatments, medicines, and dose records.
@@ -182,7 +199,7 @@ missed while the app was closed is never announced late.
 
 ### Widget composition
 
-The fixed-height widget separates communication sources, clocks, flexible
+The widget uses bounded heights per layout and separates communication sources, clocks, flexible
 calendar content, a narrow destination panel, and the original three-control
 close/pin/Settings utility rail. The destination panel has a Today segment and
 a vertically split Projects/All To-dos segment. Today reports meetings and
@@ -205,6 +222,10 @@ aligned with React.
 Recommended mode is the standard two-line clock layout. Dual calendar cards
 align at their top edges. Join and local Finish actions do not reserve title
 width: they overlay the card only on hover or keyboard focus.
+Time Focus is a dedicated 190 px canvas with a three-times-larger primary clock.
+Its optional stopwatch is stored separately from widget preferences as elapsed
+time plus a running start timestamp, so an active timer survives layout changes
+and application restarts without adding a background process.
 When two timed events overlap, both active cards take the two bounded columns
 and the future event waits until a column becomes available. Finish is a
 session-only display suppression until the scheduled event end; it is neither
@@ -298,9 +319,10 @@ applicable, and open only after explicit user action.
 
 The widget polls bounded source snapshots and refreshes the saved calendar at
 controlled intervals. Native listeners and taskbar mirrors are cleaned up when
-the owning surface exits. There is no installer-managed autostart, Hub tray
-process or closed-app reminder service in this beta. Updates use the separately
-documented user-confirmed signed updater flow.
+the owning surface exits. In an installed Windows build, General settings can
+opt in to a per-user Windows sign-in entry; development builds cannot register
+themselves. There is no Hub tray process or closed-app reminder service in this
+beta. Updates use the separately documented user-confirmed signed updater flow.
 
 ## Validation
 

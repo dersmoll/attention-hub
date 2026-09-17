@@ -3,6 +3,7 @@ mod external_url;
 mod local_store;
 mod medicine;
 mod published_ics;
+mod sticky_note;
 pub mod teams_mirror;
 mod uia_gate;
 mod work_calendar;
@@ -14,7 +15,8 @@ use medicine::{
     MedicineDeleteImpact, MedicineImportPreview, MedicineInput, MedicineSnapshot, MedicineState,
     TreatmentInput,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sticky_note::{StickyNoteSnapshot, StickyNoteState};
 use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use teams_mirror::{
@@ -32,6 +34,33 @@ fn emit_workspace_changed(app: &tauri::AppHandle) {
 
 fn emit_medicine_changed(app: &tauri::AppHandle) {
     let _ = app.emit("medicine-changed", ());
+}
+
+#[tauri::command]
+fn get_sticky_note(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, StickyNoteState>,
+) -> Result<StickyNoteSnapshot, String> {
+    sticky_note::get_snapshot(&app, state.inner())
+}
+
+#[tauri::command]
+fn save_sticky_note(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, StickyNoteState>,
+    text: String,
+    expected_revision: u64,
+) -> Result<StickyNoteSnapshot, String> {
+    sticky_note::save(&app, state.inner(), text, expected_revision)
+}
+
+#[tauri::command]
+fn open_sticky_note_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, StickyNoteState>,
+    url: String,
+) -> Result<(), String> {
+    external_url::open_external_url(&sticky_note::note_url(&app, state.inner(), &url)?)
 }
 
 #[tauri::command]
@@ -921,6 +950,22 @@ async fn remove_work_calendar_source(
 }
 
 #[tauri::command]
+async fn get_work_calendar_day_snapshot(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WorkCalendarState>,
+    workspace_state: tauri::State<'_, WorkspaceState>,
+    selected_day: String,
+) -> Result<WorkCalendarSnapshot, String> {
+    let mut snapshot = work_calendar::get_day_snapshot(state.inner(), &selected_day).await?;
+    if workspace::enrich_calendar_snapshot(&app, workspace_state.inner(), &mut snapshot).is_err() {
+        snapshot
+            .diagnostics
+            .push("Meeting workspace is temporarily unavailable.".to_owned());
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
 fn open_work_calendar_join_url(
     state: tauri::State<'_, WorkCalendarState>,
     join_token: String,
@@ -1060,6 +1105,73 @@ fn quit_application(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutostartStatus {
+    available: bool,
+    enabled: bool,
+}
+
+#[tauri::command]
+fn get_autostart_status(app: tauri::AppHandle) -> Result<AutostartStatus, String> {
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+
+        let enabled = app
+            .autolaunch()
+            .is_enabled()
+            .map_err(|_| "Windows startup status could not be read.".to_owned())?;
+        return Ok(AutostartStatus {
+            available: true,
+            enabled,
+        });
+    }
+
+    #[cfg(not(all(target_os = "windows", not(debug_assertions))))]
+    {
+        let _ = app;
+        Ok(AutostartStatus {
+            available: false,
+            enabled: false,
+        })
+    }
+}
+
+#[tauri::command]
+fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<AutostartStatus, String> {
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+
+        let manager = app.autolaunch();
+        if enabled {
+            manager
+                .enable()
+                .map_err(|_| "Windows startup could not be enabled.".to_owned())?;
+        } else {
+            manager
+                .disable()
+                .map_err(|_| "Windows startup could not be disabled.".to_owned())?;
+        }
+
+        let enabled = manager
+            .is_enabled()
+            .map_err(|_| "Windows startup status could not be read.".to_owned())?;
+        return Ok(AutostartStatus {
+            available: true,
+            enabled,
+        });
+    }
+
+    #[cfg(not(all(target_os = "windows", not(debug_assertions))))]
+    {
+        let _ = app;
+        let _ = enabled;
+        Err("Windows startup is available from an installed Attention Hub build.".to_owned())
+    }
+}
+
 #[tauri::command]
 fn open_main_panel_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(debug_assertions)]
@@ -1146,6 +1258,14 @@ fn play_meeting_start_sound(app: tauri::AppHandle, sound: MeetingStartSound) -> 
 pub fn run() {
     let builder = tauri::Builder::default();
 
+    // Register only an installed Windows executable. A development build lives
+    // under target/debug and must never become the user's sign-in entry.
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        None,
+    ));
+
     // Release builds only, and registered first as the plugin requires: a
     // second launch must be intercepted before the rest of the app starts.
     //
@@ -1177,12 +1297,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(WorkspaceState::new())
         .manage(MedicineState::new())
+        .manage(StickyNoteState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
         .invoke_handler(tauri::generate_handler![
             get_attention_signal_snapshot,
             get_workspace_snapshot,
             get_medicine_snapshot,
+            get_sticky_note,
+            save_sticky_note,
+            open_sticky_note_url,
             export_medicine_data,
             preview_medicine_import,
             import_medicine_data,
@@ -1249,6 +1373,7 @@ pub fn run() {
             get_work_calendar_configuration,
             save_work_calendar_source,
             get_work_calendar_snapshot,
+            get_work_calendar_day_snapshot,
             remove_work_calendar_source,
             open_work_calendar_join_url,
             get_teams_mirror_status,
@@ -1262,6 +1387,8 @@ pub fn run() {
             activate_zoom_meeting,
             play_meeting_start_sound,
             open_main_panel_devtools,
+            get_autostart_status,
+            set_autostart_enabled,
             quit_application
         ])
         .run(tauri::generate_context!())
