@@ -23,6 +23,29 @@
   background: transparent;
   box-shadow: none;
 
+  &[data-time-focus] {
+    padding: 0;
+    border: 1px solid var(--widget-panel-border);
+    border-radius: var(--radius-panel);
+    background: var(--widget-panel-background);
+    box-shadow: var(--shadow-panel);
+
+    > .widget-zone,
+    > .widget-utility,
+    > .widget-drag-handle {
+      height: 100%;
+    }
+
+    .widget-apps {
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .widget-utility {
+      align-content: center;
+    }
+  }
+
   /* Rail segments ------------------------------------------------------- */
 
   > .widget-zone,
@@ -70,6 +93,7 @@
 
     &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
     &[data-segments="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    &[data-segments="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
     button {
       display: flex;
@@ -206,12 +230,17 @@
       padding-inline: 8px;
 
       > .widget-clock__focus {
-        height: 34px;
-        padding: 0;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) 26px;
+        align-content: stretch;
+        justify-items: center;
+        gap: 4px;
+        height: 100%;
+        padding: 4px 10px;
       }
 
       time {
-        font-size: 28px;
+        font-size: 147px;
         font-weight: 750;
       }
     }

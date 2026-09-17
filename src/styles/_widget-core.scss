@@ -44,6 +44,12 @@
   }
 }
 
+.widget-shell[data-time-focus] {
+  .widget-utility {
+    align-content: center;
+  }
+}
+
 .widget-zone {
   min-width: 0;
   height: 100%;
@@ -64,6 +70,7 @@
 
   &[data-segments="1"] { grid-template-columns: minmax(0, 1fr); }
   &[data-segments="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  &[data-segments="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   button {
     position: relative;
@@ -416,7 +423,7 @@
 
   &[data-clock-layout="timeFocus"][data-clock-mode="live"] {
     grid-template-columns: minmax(0, 1fr);
-    padding: 3px 10px;
+    padding: 0 10px;
     color: var(--widget-panel-interactive-foreground);
     background: color-mix(
       in srgb,
@@ -428,17 +435,21 @@
     > .widget-clock__focus {
       display: grid;
       width: 100%;
+      height: 100%;
+      grid-template-rows: minmax(0, 1fr) 26px;
       place-items: center;
+      gap: 4px;
+      padding: 4px 10px;
       border: 0;
       text-align: center;
     }
 
     time {
-    font-size: 49px;
-    font-weight: 750;
-    letter-spacing: 0.02em;
-    color: var(--widget-panel-accent);
-    filter: drop-shadow(0px 3px 6px #000);
+      font-size: 147px;
+      font-weight: 750;
+      letter-spacing: 0.01em;
+      color: var(--widget-panel-accent);
+      filter: drop-shadow(0 3px 6px #000);
     }
   }
 
@@ -536,6 +547,47 @@
     padding: 0;
     border: 0;
     text-align: center;
+  }
+}
+
+.widget-focus-timer {
+  display: flex;
+  min-width: 0;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--widget-panel-muted);
+
+  output {
+    min-width: 92px;
+    color: var(--widget-panel-foreground);
+    font-family: var(--font-numeric);
+    font-variant-numeric: tabular-nums;
+    font-size: 22px;
+    font-weight: 650;
+    line-height: 1;
+  }
+
+  button {
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, var(--widget-panel-accent) 42%, transparent);
+    border-radius: var(--widget-control-radius);
+    color: var(--widget-panel-foreground);
+    background: color-mix(in srgb, var(--widget-panel-accent) 10%, transparent);
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--widget-panel-accent);
+      background: color-mix(in srgb, var(--widget-panel-accent) 18%, transparent);
+    }
+  }
+
+  &__start {
+    min-width: 82px;
   }
 }
 
@@ -882,6 +934,13 @@
 
     time {
       text-shadow: none;
+      filter: none;
     }
+  }
+
+  .widget-focus-timer button {
+    border-color: ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
   }
 }

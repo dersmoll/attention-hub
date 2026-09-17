@@ -1,6 +1,7 @@
 export const WIDGET_COMPACT_CLOCK_WIDTH = 126;
 export const WIDGET_COMPACT_HEIGHT = 48;
 export const WIDGET_SLIM_HEIGHT = 38  ;
+export const WIDGET_TIME_FOCUS_HEIGHT = 190;
 export const WIDGET_CALENDAR_COMPACT_WIDTH = 220;
 export const WIDGET_CALENDAR_COMPACT_DUAL_WIDTH = 340;
 export const WIDGET_COMPACT_DESTINATIONS_WIDTH = 48;
@@ -17,8 +18,8 @@ export const WIDGET_SLIM_LEFT_PADDING = 4;
 export const WIDGET_SLIM_CLOCK_ITEM_WIDTH = 80;
 export const WIDGET_PRIMARY_CLOCK_SECONDS_WIDTH = 9;
 export const WIDGET_SLIM_PRIMARY_CLOCK_SECONDS_WIDTH = 4;
-export const WIDGET_TIME_FOCUS_CLOCK_WIDTH = 240;
-export const WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH = 192;
+export const WIDGET_TIME_FOCUS_CLOCK_WIDTH = 560;
+export const WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH = 560;
 export const WIDGET_SLIM_CALENDAR_WIDTH = 260;
 export const WIDGET_SLIM_CALENDAR_DUAL_WIDTH = 440;
 export const WIDGET_SLIM_CALENDAR_MAX_WIDTH = 600;
@@ -52,7 +53,13 @@ export function widgetCalendarMinimumWidth(
     : WIDGET_CALENDAR_COMPACT_WIDTH;
 }
 
-export function widgetHeight(widthMode: WidgetWidthMode = "recommended") {
+export function widgetHeight(
+  widthMode: WidgetWidthMode = "recommended",
+  clockLayout: "horizontal" | "vertical" | "timeFocus" = "horizontal",
+) {
+  if (clockLayout === "timeFocus") {
+    return WIDGET_TIME_FOCUS_HEIGHT;
+  }
   if (widthMode === "slim") {
     return WIDGET_SLIM_HEIGHT;
   }
@@ -205,6 +212,7 @@ export function widgetFixedWidth(
   showTodayPanel = true,
   showProjectsPanel = true,
   showMedicinePanel = false,
+  showStickyNotePanel = false,
 ) {
   const segmentWidths = [
     showAppsPanel && visibleSourceCount > 0
@@ -218,6 +226,7 @@ export function widgetFixedWidth(
       showTodayPanel,
       showProjectsPanel,
       showMedicinePanel,
+      showStickyNotePanel,
     ),
     WIDGET_DRAG_HANDLE_WIDTH,
     widgetUtilityWidth(widthMode),
@@ -233,11 +242,17 @@ export function widgetDestinationsWidth(
   showTodayPanel = true,
   showProjectsPanel = true,
   showMedicinePanel = false,
+  showStickyNotePanel = false,
 ) {
+  const segmentCount =
+    Number(showTodayPanel) +
+    Number(showProjectsPanel) +
+    Number(showMedicinePanel) +
+    Number(showStickyNotePanel);
   if (widthMode === "slim") {
-    return 33 * (Number(showTodayPanel) + Number(showProjectsPanel) + Number(showMedicinePanel));
+    return 33 * segmentCount;
   }
-  return 24 * (Number(showTodayPanel) + Number(showProjectsPanel) + Number(showMedicinePanel));
+  return 24 * segmentCount;
 }
 
 export function todayPopupWidth(anchorWidth: number) {
@@ -268,6 +283,7 @@ export function widgetWidth(
   showProjectsPanel = true,
   showCalendarPanel = true,
   showMedicinePanel = false,
+  showStickyNotePanel = false,
 ) {
   return (
     widgetFixedWidth(
@@ -280,6 +296,7 @@ export function widgetWidth(
       showTodayPanel,
       showProjectsPanel,
       showMedicinePanel,
+      showStickyNotePanel,
     ) +
     (showCalendarPanel
       ? widgetCalendarWidth(

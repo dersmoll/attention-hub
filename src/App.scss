@@ -15,6 +15,7 @@
 @use "styles/widget-core";
 @use "styles/widget-calendar";
 @use "styles/event-panels";
+@use "styles/sticky-note";
 
 // Width-mode overrides, loaded last so they win on source order
 @use "styles/widget-standard";

@@ -202,8 +202,16 @@ struct ScanFailure {
 }
 
 pub async fn get_semantic_probe(
+    published_url: String,
+    title_capability_confirmed: bool,
+) -> PublishedIcsSemanticProbe {
+    get_semantic_probe_for_day(published_url, title_capability_confirmed, None).await
+}
+
+async fn get_semantic_probe_for_day(
     mut published_url: String,
     title_capability_confirmed: bool,
+    selected_day: Option<chrono::NaiveDate>,
 ) -> PublishedIcsSemanticProbe {
     let mut probe = PublishedIcsSemanticProbe::new(title_capability_confirmed);
     if !title_capability_confirmed {
@@ -394,12 +402,21 @@ pub async fn get_semantic_probe(
             return probe;
         }
     };
-    let semantic = semantics::extract_current_or_next(
-        &body,
-        chrono::Utc::now(),
-        viewer_timezone,
-        parse_started,
-    );
+    let semantic = match selected_day {
+        Some(day) => semantics::extract_for_day(
+            &body,
+            chrono::Utc::now(),
+            viewer_timezone,
+            Some(day),
+            parse_started,
+        ),
+        None => semantics::extract_current_or_next(
+            &body,
+            chrono::Utc::now(),
+            viewer_timezone,
+            parse_started,
+        ),
+    };
     probe.parse_ms = elapsed_ms(parse_started);
     body.fill(0);
     let semantic = match semantic {
@@ -463,10 +480,23 @@ pub async fn get_semantic_probe_with_deadline(
     published_url: String,
     title_capability_confirmed: bool,
 ) -> PublishedIcsSemanticProbe {
-    let mut task = tokio::spawn(get_semantic_probe(
-        published_url,
-        title_capability_confirmed,
-    ));
+    get_day_probe_with_deadline(published_url, title_capability_confirmed, None).await
+}
+
+pub async fn get_day_probe_with_deadline(
+    published_url: String,
+    title_capability_confirmed: bool,
+    selected_day: Option<chrono::NaiveDate>,
+) -> PublishedIcsSemanticProbe {
+    let mut task = tokio::spawn(async move {
+        match selected_day {
+            Some(day) => {
+                get_semantic_probe_for_day(published_url, title_capability_confirmed, Some(day))
+                    .await
+            }
+            None => get_semantic_probe(published_url, title_capability_confirmed).await,
+        }
+    });
     match tokio::time::timeout(COMMAND_DEADLINE, &mut task).await {
         Ok(Ok(probe)) => probe,
         Ok(Err(_)) => PublishedIcsSemanticProbe::command_failed(title_capability_confirmed),

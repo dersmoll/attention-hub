@@ -112,12 +112,13 @@ import {
 } from "./todo-preferences";
 import { openManagerWindow } from "./manager-window";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
-import { isActionable, isFromActiveOwner, isVisibleInToday, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
+import { isActionable, isFromActiveOwner, isVisibleInToday, localDateKey, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { activeMedicineTreatments, boundedMedicinePanelGroups, medicineDailyTreatments, type MedicineSnapshot } from "./medicine-model";
 import { MEDICINE_PREFERENCES_CHANGED_EVENT, readMedicinePreferences, type MedicinePreferences } from "./medicine-preferences";
 import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, MEDICINE_PANEL_WIDTH, MEDICINE_PANEL_WINDOW_LABEL, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
 import { createMedicinePanelWindow } from "./medicine-panel-window";
 import type { PopupAnchor } from "./event-workspace-model";
+import { openStickyNoteWindow } from "./sticky-note-window";
 import {
   openEventSettingsWindow,
   openProjectPanelWindow,
@@ -144,6 +145,15 @@ import {
 } from "./app-update-model";
 import { checkAndOpenAppUpdate } from "./app-update-window";
 import { CALENDAR_SKIPS_CHANGED_EVENT, readSkippedCalendarOccurrences, setCalendarOccurrenceSkipped } from "./calendar-skip-store";
+import {
+  focusTimerElapsedMs,
+  formatFocusTimer,
+  pauseFocusTimer,
+  readFocusTimerState,
+  resetFocusTimer,
+  startFocusTimer,
+  writeFocusTimerState,
+} from "./focus-timer-model";
 
 const WORK_CALENDAR_UI_DEADLINE_MS = 20_000;
 const WORK_CALENDAR_STARTING_SOON_MS = 5 * 60 * 1_000;
@@ -183,6 +193,7 @@ type WidgetNoticeScope =
   | "menu"
   | "calendar"
   | "medicine"
+  | "sticky-note"
   | "sound";
 const VISUAL_SOURCES: LiveVisualAppKey[] = [
   "teams",
@@ -657,6 +668,7 @@ export function WidgetView() {
   const initialWorkCalendar = useMemo(readWorkCalendarDisplayCache, []);
   const [now, setNow] = useState(() => new Date());
   const [preferences, setPreferences] = useState(initialPreferences);
+  const [focusTimer, setFocusTimer] = useState(readFocusTimerState);
   const [attentionSnapshot, setAttentionSnapshot] =
     useState<AttentionSignalSnapshot | null>(null);
   const [attentionRefreshFailed, setAttentionRefreshFailed] = useState(false);
@@ -719,6 +731,7 @@ export function WidgetView() {
   const medicinePanelReadyRef = useRef(false);
   const medicinePanelPositionedRef = useRef(false);
   const [medicinePanelOpen, setMedicinePanelOpen] = useState(false);
+  const [stickyNoteOpen, setStickyNoteOpen] = useState(false);
   const widgetInitialLayoutRef = useRef(true);
   const suppressPositionPersistenceRef = useRef(false);
   const resizeDirectionRef = useRef<WidgetResizeDirection | null>(null);
@@ -949,12 +962,21 @@ export function WidgetView() {
   const appsPanelVisible =
     preferences.showAppsPanel && appSlotCount > 0;
   const timeFocusMode = preferences.clockLayout === "timeFocus";
+  const focusTimerElapsed = focusTimerElapsedMs(focusTimer, now.getTime());
+  const focusTimerActive =
+    focusTimer.startedAtUnixMs !== null || focusTimer.elapsedMs > 0;
+  const updateFocusTimer = useCallback(
+    (update: (current: typeof focusTimer) => typeof focusTimer) => {
+      setFocusTimer((current) => writeFocusTimerState(update(current)));
+    },
+    [],
+  );
   const clocksPanelVisible = timeFocusMode || preferences.showClocksPanel;
   const calendarPanelVisible = !timeFocusMode;
   const todayPanelVisible = !timeFocusMode && preferences.showTodayPanel;
   const projectsPanelVisible = !timeFocusMode && preferences.showProjectsPanel;
   const medicinePanelVisible = !timeFocusMode && preferences.showMedicinePanel;
-  const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible) + Number(medicinePanelVisible);
+  const destinationPanelCount = Number(todayPanelVisible) + Number(projectsPanelVisible) + Number(medicinePanelVisible) + 1;
   const visibleClockCount = timeFocusMode
     ? 1
     : 1 + Number(preferences.showSecondaryClock) + preferences.extraTimeZones.length;
@@ -1577,14 +1599,19 @@ export function WidgetView() {
             todayPanelVisible,
             projectsPanelVisible,
             medicinePanelVisible,
+            true,
           ) +
           (calendarPanelVisible
             ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
             : 0);
+        const targetHeight = widgetHeight(
+          preferences.widthMode,
+          preferences.clockLayout,
+        );
         await widgetWindow.setSizeConstraints({
           minWidth: minimumWidth,
-          minHeight: widgetHeight("slim"),
-          maxHeight: widgetHeight("recommended"),
+          minHeight: timeFocusMode ? targetHeight : widgetHeight("slim"),
+          maxHeight: timeFocusMode ? targetHeight : widgetHeight("recommended"),
         });
         await widgetWindow.setSize(
           new LogicalSize(
@@ -1602,8 +1629,9 @@ export function WidgetView() {
               projectsPanelVisible,
               calendarPanelVisible,
               medicinePanelVisible,
+              true,
             ),
-            widgetHeight(preferences.widthMode),
+            targetHeight,
           ),
         );
         const [position, size, monitors] = await Promise.all([
@@ -1791,6 +1819,7 @@ export function WidgetView() {
               todayPanelVisible,
               projectsPanelVisible,
               medicinePanelVisible,
+              true,
             ) +
             (calendarPanelVisible
               ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
@@ -1805,11 +1834,15 @@ export function WidgetView() {
           resizeScaleFactorRef.current = scaleFactor;
           resizeDirectionRef.current = direction;
           lastResizeLogicalSizeRef.current = null;
+          const targetHeight = widgetHeight(
+            preferences.widthMode,
+            preferences.clockLayout,
+          );
           await widgetWindow.setSizeConstraints({
             minWidth: minimumWidth,
-            minHeight: widgetHeight("slim"),
+            minHeight: timeFocusMode ? targetHeight : widgetHeight("slim"),
             maxWidth: maximumWidth,
-            maxHeight: widgetHeight("recommended"),
+            maxHeight: timeFocusMode ? targetHeight : widgetHeight("recommended"),
           });
           await widgetWindow.startResizeDragging(direction);
           clearWidgetNotice("layout");
@@ -1832,6 +1865,7 @@ export function WidgetView() {
       preferences.widthMode,
       showNextEvent,
       showWidgetNotice,
+      timeFocusMode,
       visibleClockCount,
       appSlotCount,
       widgetWindow,
@@ -1877,6 +1911,7 @@ export function WidgetView() {
             todayPanelVisible,
             projectsPanelVisible,
             medicinePanelVisible,
+            true,
           );
           const calendarWidth = Math.max(
             widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent),
@@ -1887,6 +1922,10 @@ export function WidgetView() {
               ? { recommendedCalendarWidth: calendarWidth }
               : { slimCalendarWidth: calendarWidth },
           );
+          return;
+        }
+
+        if (timeFocusMode) {
           return;
         }
 
@@ -1903,10 +1942,6 @@ export function WidgetView() {
             );
           return;
         }
-        if (timeFocusMode) {
-          updateWidgetPreferences({ widthMode: nextMode });
-          return;
-        }
         const targetFixedWidth = widgetFixedWidth(
           appSlotCount,
           nextMode,
@@ -1917,6 +1952,7 @@ export function WidgetView() {
           todayPanelVisible,
           projectsPanelVisible,
           medicinePanelVisible,
+          true,
         );
         const targetCalendarWidth = Math.max(
           widgetCalendarMinimumWidth(nextMode, showNextEvent),
@@ -2209,6 +2245,7 @@ export function WidgetView() {
         systemTimeZone,
         schoolMode: preferences.schoolModeEnabled,
         dayState: calendarDay,
+        viewerDay: workCalendar?.viewerDay ?? localDateKey(now),
         selections: workCalendar?.daySelections ?? [],
       };
       todayPopupPayloadRef.current = payload;
@@ -2418,6 +2455,46 @@ export function WidgetView() {
     } catch {
       setMedicinePanelOpen(false);
       showWidgetNotice("medicine", "Medicine panel could not be opened.");
+    }
+  };
+
+  const openStickyNote = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const button = event.currentTarget;
+    try {
+      const [position, scaleFactor, monitors] = await Promise.all([
+        widgetWindow.outerPosition(),
+        widgetWindow.scaleFactor(),
+        availableMonitors(),
+      ]);
+      const rect = button.getBoundingClientRect();
+      const centerX = position.x + (rect.left + rect.width / 2) * scaleFactor;
+      const centerY = position.y + (rect.top + rect.height / 2) * scaleFactor;
+      const monitor = monitors.find((item) =>
+        centerX >= item.position.x && centerX <= item.position.x + item.size.width
+        && centerY >= item.position.y && centerY <= item.position.y + item.size.height
+      ) ?? monitors[0];
+      if (!monitor) throw new Error("Monitor unavailable");
+      const anchor: PopupAnchor = {
+        left: Math.round(position.x + rect.left * scaleFactor),
+        top: Math.round(position.y + rect.top * scaleFactor),
+        right: Math.round(position.x + rect.right * scaleFactor),
+        bottom: Math.round(position.y + rect.bottom * scaleFactor),
+        scaleFactor,
+        monitorLeft: monitor.workArea.position.x,
+        monitorTop: monitor.workArea.position.y,
+        monitorRight: monitor.workArea.position.x + monitor.workArea.size.width,
+        monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
+      };
+      setStickyNoteOpen(true);
+      await openStickyNoteWindow(
+        anchor,
+        () => setStickyNoteOpen(false),
+        () => showWidgetNotice("sticky-note", "Sticky note could not be opened."),
+      );
+      clearWidgetNotice("sticky-note");
+    } catch {
+      setStickyNoteOpen(false);
+      showWidgetNotice("sticky-note", "Sticky note could not be opened.");
     }
   };
 
@@ -2855,9 +2932,9 @@ export function WidgetView() {
       preferences.widthMode,
       showNextEvent,
     )}px`,
-    "--widget-height": `${widgetHeight(preferences.widthMode)}px`,
+    "--widget-height": `${widgetHeight(preferences.widthMode, preferences.clockLayout)}px`,
     "--widget-calendar-day-panel-height": `${calendarDayPanelLogicalHeight}px`,
-    "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible, medicinePanelVisible)}px`,
+    "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible, medicinePanelVisible, true)}px`,
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
     "--widget-utility-width": `${widgetUtilityWidth(preferences.widthMode)}px`,
     "--widget-drag-handle-width": `${WIDGET_DRAG_HANDLE_WIDTH}px`,
@@ -2901,6 +2978,7 @@ export function WidgetView() {
       systemTimeZone,
       schoolMode: preferences.schoolModeEnabled,
       dayState: calendarDay,
+      viewerDay: workCalendar?.viewerDay ?? localDateKey(now),
     };
     publishTodayPopup();
     // `calendarDay` and the mode both feed the payload, so an open popup must
@@ -3015,6 +3093,7 @@ export function WidgetView() {
       data-day-panel={calendarDayPanelOpen || undefined}
       data-day-panel-placement={calendarDayPanelPlacement}
       data-width-mode={preferences.widthMode}
+      data-time-focus={timeFocusMode || undefined}
       data-apps-panel={appsPanelVisible || undefined}
       data-clocks-panel={clocksPanelVisible || undefined}
       data-first-zone={
@@ -3080,6 +3159,58 @@ export function WidgetView() {
                 :{formatClockSeconds(now)}
               </span>
             </time>
+            <div
+              className="widget-focus-timer"
+              data-state={
+                focusTimer.startedAtUnixMs !== null
+                  ? "running"
+                  : focusTimerActive
+                    ? "paused"
+                    : "idle"
+              }
+            >
+              {focusTimerActive ? (
+                <>
+                  <output aria-label={`Focus timer ${formatFocusTimer(focusTimerElapsed)}`}>
+                    {formatFocusTimer(focusTimerElapsed)}
+                  </output>
+                  <button
+                    aria-label={
+                      focusTimer.startedAtUnixMs === null
+                        ? "Resume focus timer"
+                        : "Pause focus timer"
+                    }
+                    onClick={() =>
+                      updateFocusTimer((current) =>
+                        current.startedAtUnixMs === null
+                          ? startFocusTimer(current)
+                          : pauseFocusTimer(current),
+                      )
+                    }
+                    type="button"
+                  >
+                    {focusTimer.startedAtUnixMs === null ? "Resume" : "Pause"}
+                  </button>
+                  <button
+                    aria-label="Reset focus timer"
+                    onClick={() => updateFocusTimer(resetFocusTimer)}
+                    type="button"
+                  >
+                    Reset
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="widget-focus-timer__start"
+                  onClick={() =>
+                    updateFocusTimer((current) => startFocusTimer(current))
+                  }
+                  type="button"
+                >
+                  Start timer
+                </button>
+              )}
+            </div>
           </div>
         ) : clockConversionSource ? (
           <>
@@ -3610,6 +3741,16 @@ export function WidgetView() {
           <span aria-hidden="true" className="widget-destinations__emoji">💊</span>
           <span aria-label={medicineBadgeLabel} className="widget-destinations__badge">{medicineBadge}</span>
         </button>}
+        <button
+          aria-label="Open sticky note"
+          aria-pressed={stickyNoteOpen}
+          className="widget-destinations__sticky-note"
+          onClick={(event) => void openStickyNote(event)}
+          title="Open sticky note"
+          type="button"
+        >
+          <span aria-hidden="true" className="widget-destinations__emoji">📝</span>
+        </button>
       </aside>}
 
       <div

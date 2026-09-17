@@ -14,6 +14,8 @@ export interface TodayPopupPayload {
   maxHeight: number;
   occupiedMinutes: number;
   systemTimeZone: string;
+  /** Local date described by the widget payload, including empty/loading states. */
+  viewerDay?: string;
   /**
    * Whether the sender is reading this calendar as a school timetable. The
    * popup is a separate window with no access to preferences, so the widget

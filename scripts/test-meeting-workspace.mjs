@@ -52,7 +52,7 @@ assert.match(today, /restore_action_item/);
 assert.match(today, /deferActionItemToTomorrow/);
 assert.match(today, /view: "todo"/);
 assert.match(today, /className="today-popup-todos__defer"/);
-assert.match(today, /isVisibleInToday/);
+assert.match(today, /dayPlanTodos\(workspace, selectedDay, now\)/);
 assert.match(today, /pendingTodoCount=\{pendingDestinationTodos/);
 assert.match(today, /openProjectPanel\(selection, "notes"\)/);
 assert.match(today, /openProjectPanel\(selection, "todos"\)/);
