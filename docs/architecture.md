@@ -8,9 +8,11 @@ and parsing, secure link activation, unified local workspace storage, and the ap
 own local reminders.
 
 The production bundle is one x64 NSIS installer. The primary window is a
-frameless, fixed-height widget with responsive width based on enabled sources
-and calendar density. Advanced, Project Hub, Today, project panels, and the
-sticky note are created on demand.
+frameless widget with horizontal presets and a narrow stacked Vertical preset.
+Advanced, Project Hub, Today, To-dos, Medicine, project panels and the sticky
+note are created on demand. Auxiliary windows share the running widget's
+WebView2 environment. Opening requires native creation and a matching frontend
+readiness handshake, with bounded waits and sanitized failure notices.
 
 ## Main surfaces
 
@@ -143,6 +145,9 @@ two-column manager with Projects and grouped Personal lists in the sidebar and
 Notes/Links/To-dos in the detail pane. All To-dos uses the full window for one
 chronological cross-owner list; each row identifies its project or personal
 list and preserves inline completion, notes, edit, and delete actions.
+The widget's all-To-dos destination opens a compact themed popup grouped by
+project/list. Task titles reveal notes, saved links are easy to follow, and
+completed items remain available for Undo during that popup session.
 
 ### Sticky note
 
@@ -249,16 +254,18 @@ inside unchanged 28 px controls.
 
 Recommended is the fresh preference default. Preference normalization maps
 legacy `compact`, `auto`, `wide`, and `larger` values to `recommended`.
-Compact single-line is the only alternate size preset.
+Compact single-line and Vertical are the alternate size presets. Vertical
+stacks compact source icons, clocks, calendar context and destination controls.
 
 ### Advanced settings
 
 Advanced uses a PowerToys-inspired two-column shell: a fixed 190 px navigation
-sidebar and one scrollable active page. The six pages are General, Clocks,
-Apps, Calendar, Reminders, and Diagnostics. The window opens at 900×680 px with
+sidebar and one scrollable active page. The eight pages are General, Clocks,
+Apps, Calendar, Reminders, Backup & restore, Updates and Diagnostics. The window opens at 900×680 px with
 a 720×560 px minimum; the content column is capped at 680 px and form controls
-use a consistent 32 px height. Pages remain mounted but hidden so local drafts
-and listener state survive navigation. The `work-calendar` focus request first
+use a consistent 32 px height. Core settings pages remain mounted but hidden
+so local drafts and listener state survive navigation; transfer/update pages
+mount when selected. The `work-calendar` focus request first
 selects Calendar, then focuses the existing masked Published ICS field without
 moving the secret URL outside the native credential path.
 
@@ -277,12 +284,26 @@ with no selected event continues to show its ordinary empty state.
   grace-window preferences, and floating-window geometry.
 - Tauri application-data directory: one unified `workspace.json` plus pending
   and bounded-backup files, and a separate `medicine.json` with its own pending
-  and bounded-backup files.
-- User-selected files: optional manual workspace exports containing Project Hub
-  and to-do data, written only after an explicit Export action. **Medicine data
-  is excluded from that export**, and has no export of its own.
-- Windows Credential Manager: the single Published ICS source URL.
+  and bounded-backup files, plus `sticky-note.json`, `app-before-restore.json`
+  and a temporary `app-restore-journal.json` for coordinated recovery.
+- User-selected files: individual workspace/Medicine transfers and full
+  application backups from Backup & restore. Medicine stays excluded from the
+  individual workspace transfer, and is included in Medicine/full exports.
+  Full backups are unencrypted and can optionally include the private calendar
+  connection; that option is off by default.
+- Windows Credential Manager: the single Published ICS source URL and temporary
+  protected candidate/rollback slots during connection restoration.
 - Process memory only: current meeting URLs and ephemeral join tokens.
+
+Full restore validates selected sections and checks both the source digest and
+current-data fingerprint. It first saves an importable previous-data copy that
+excludes the private calendar connection, then stages native stores and exact
+frontend preference preimages in a durable journal. Other auxiliary windows
+must be closed. Failed or interrupted transactions restore the previous files,
+credential and preferences before normal access resumes. A committed decision
+is retained until frontend acknowledgement so a lost IPC reply cannot undo
+settings after a successful native commit. Cached calendar events and temporary
+join tokens are excluded; calendar data refreshes after restore.
 
 No message bodies, notification bodies, calendar publication URLs, raw
 recurrence UIDs, Project Hub content, medicine content, account

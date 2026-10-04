@@ -11,6 +11,12 @@ or account aggregation service.
 - Medicine treatments, medicines, schedules, and the dose history in a separate
   `medicine.json` in the same directory, with its own bounded backup.
 - One user-supplied Published ICS URL in Windows Credential Manager.
+- Sticky-note text in `sticky-note.json`, with one bounded recovery backup.
+- A full previous-data copy in `app-before-restore.json` after a restore, and a
+  temporary `app-restore-journal.json` while a restore is pending. Both contain
+  plaintext application data. The previous-data copy excludes the private
+  calendar connection; temporary connection candidates and rollback values
+  stay in Windows Credential Manager.
 - Current meeting URLs in process memory only, behind ephemeral tokens.
 
 Project Hub and to-do content can include text and HTTP(S) links
@@ -30,10 +36,10 @@ medicine names, strengths, schedules, and the complete dose history. A user who
 needs protection beyond that should rely on Windows account security and device
 encryption; Attention Hub does not substitute for either.
 
-**Medicine data is excluded from the workspace export.** Exporting Project Hub
-and to-do data never writes medicine records into the exported file, and there
-is no medicine export. This is a consequence of medicine living in its own
-file, not a filter applied at export time.
+**Medicine data is excluded from the individual workspace transfer.** Separate
+Medicine transfers and full backups include treatment names, schedules, notes
+and dose history in unencrypted JSON. Advanced / Backup & restore discloses
+these contents before export.
 
 ## Network activity
 
@@ -48,7 +54,7 @@ service exists.
 - Message or notification bodies.
 - Account credentials or authentication tokens.
 - External-service credentials, API tokens, API requests, or time-entry status.
-- Calendar publication URLs in logs or IPC.
+- Saved calendar publication URLs in logs or IPC responses.
 - DWM pixels, screenshots, OCR output, or inferred visual counts.
 - Project Hub, to-do, or medicine content in diagnostics or release evidence.
 - Treatment names, medicine names, strengths, schedules, or dose history in
@@ -74,17 +80,21 @@ personal lists, categories, and projects in the app. Removing a project also unl
 event assignments. Uninstall and operating-system profile cleanup
 remain Windows-managed. The app does not provide cloud backup; users who
 require automatic backup must protect their Windows profile through their
-normal local backup process. Advanced settings can manually export Project Hub
-and to-do data to a user-selected JSON file and replace the current workspace
-from a validated export after an explicit confirmation. Export files contain
-the user's project names, notes, links, lists, to-dos, and calendar bindings;
-they exclude the Published ICS credential, widget preferences, and all medicine
-data. Users are responsible for protecting and deleting exported files.
+normal local backup process. Advanced / Backup & restore supports individual
+workspace and Medicine transfers, plus full application backups. Full backups
+include preferences, calendar choices, workspace data, Medicine and the sticky
+note. Including the private Published ICS connection is optional and off by
+default; native code writes it directly to the chosen file without exposing it
+to the WebView. Downloaded events and temporary meeting tokens are excluded.
+Restore previews the file and saves a previous-data copy before replacing
+selected sections. Users are responsible for protecting and deleting exported
+files and retained recovery copies; these can contain older removed data.
 
 Medicine data is deleted separately. A treatment can be deleted in the Medicine
 window after a confirmation that reports how many medicines and dose records
 will be destroyed, and Advanced / Reminders can delete every medicine record at
-once. Both are permanent and neither is included in any export.
+once. Deletion of active records does not delete separately exported files or
+the full previous-data recovery copy.
 
 ## Security reports
 
