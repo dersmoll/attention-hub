@@ -1,15 +1,15 @@
 {
-  "version": "0.6.0-beta.15",
+  "version": "0.6.0-beta.16",
   "notes": "Signed in-app updater artifacts are included. The Windows installer remains Authenticode-unsigned unless the release notes state otherwise.",
-  "pub_date": "2026-09-17T17:25:18.781Z",
+  "pub_date": "2026-10-04T17:14:56.380Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdVR1dUdBWlRicitrZ2hTOU9nWG01eS9sRWltbEw4bmQyZ1J3c0p1YVNiaVBZOE1zdFlnTXBXeE9BcnZWdGR2OHBDek5kU1NkaXlZblRhRi9TUGgvcVFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjY1OTE2CWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjE1X3g2NC1zZXR1cC5leGUKT2lYV3Y1SzQ5REloSG5HMlM0NStzTFdnUWtmMkVmQlNGV1ozRkFJenBDQ1FQRk1FZDROcDZKZ2dhRERFU2xyckN3UTRBOXRNZC9oOVFNb25FYy9FQUE9PQo=",
-      "url": "https://api.github.com/repos/dersmoll/attention-hub/releases/assets/570732255"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdVNVdkZoVXY3eERqRDE3S3dSTUFGSzVMSXIxeWV2Ym5RcW5nc2UyMnpuMnFKRVQ0eFZKdCtYZlllQm0vYXhkK05CUWVubytrMnd1ZGxKYUtraHVsOUFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTM0MDkzCWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjE2X3g2NC1zZXR1cC5leGUKa3FSZnpUZVJGcEZzT0puMmd5WityOTNLdWMyMVhmeWw0enAzS3oyTStzS3FGSW5oRFpia251Um9pZXBlakJZN202ZUNOblkzdmZpeEltTkpVRWNWQ1E9PQo=",
+      "url": "https://api.github.com/repos/dersmoll/attention-hub/releases/assets/610253005"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdVR1dUdBWlRicitrZ2hTOU9nWG01eS9sRWltbEw4bmQyZ1J3c0p1YVNiaVBZOE1zdFlnTXBXeE9BcnZWdGR2OHBDek5kU1NkaXlZblRhRi9TUGgvcVFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjY1OTE2CWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjE1X3g2NC1zZXR1cC5leGUKT2lYV3Y1SzQ5REloSG5HMlM0NStzTFdnUWtmMkVmQlNGV1ozRkFJenBDQ1FQRk1FZDROcDZKZ2dhRERFU2xyckN3UTRBOXRNZC9oOVFNb25FYy9FQUE9PQo=",
-      "url": "https://api.github.com/repos/dersmoll/attention-hub/releases/assets/570732255"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS2tNRXdEeVFFdVNVdkZoVXY3eERqRDE3S3dSTUFGSzVMSXIxeWV2Ym5RcW5nc2UyMnpuMnFKRVQ0eFZKdCtYZlllQm0vYXhkK05CUWVubytrMnd1ZGxKYUtraHVsOUFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTM0MDkzCWZpbGU6QXR0ZW50aW9uIEh1Yl8wLjYuMC1iZXRhLjE2X3g2NC1zZXR1cC5leGUKa3FSZnpUZVJGcEZzT0puMmd5WityOTNLdWMyMVhmeWw0enAzS3oyTStzS3FGSW5oRFpia251Um9pZXBlakJZN202ZUNOblkzdmZpeEltTkpVRWNWQ1E9PQo=",
+      "url": "https://api.github.com/repos/dersmoll/attention-hub/releases/assets/610253005"
     }
   }
 }
