@@ -5,14 +5,14 @@
  * sizing lives here rather than being scattered across the components. */
 
 /* Frameless overlays: the widget panel and the today popup. */
-@include window-shell("main", "today", "medicine-panel", "sticky-note") {
+@include window-shell("main", "today", "medicine-panel", "todo-popup", "sticky-note") {
   width: 100%;
   height: 100%;
   overflow: hidden;
   background: transparent;
 }
 
-@include window-shell("today") {
+@include window-shell("main", "today") {
   min-width: 0;
 }
 
@@ -47,7 +47,7 @@
 }
 
 /* Themed satellite panels that inherit the widget's panel colours. */
-@include window-shell("event-settings", "project-panel", "medicine-panel", "sticky-note") {
+@include window-shell("event-settings", "project-panel", "medicine-panel", "todo-popup", "sticky-note") {
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -56,7 +56,7 @@
   overflow: hidden;
 }
 
-@include window-body("event-settings", "project-panel", "medicine-panel", "sticky-note") {
+@include window-body("event-settings", "project-panel", "medicine-panel", "todo-popup", "sticky-note") {
   color: var(--widget-panel-foreground);
   background: transparent;
 }

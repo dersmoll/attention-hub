@@ -563,6 +563,14 @@ const PUBLISHED_ICS_PROVIDERS: &[PublishedIcsProvider] = &[
     },
 ];
 
+/// Full backups use the same bounded provider policy, without returning the
+/// parsed publication URL or any diagnostic containing the submitted value.
+pub(crate) fn validate_backup_url(input: &str) -> Result<(), String> {
+    validate_published_url(input).map(|_| ()).map_err(|_| {
+        "The backup calendar connection is not a supported publication URL.".to_owned()
+    })
+}
+
 fn validate_published_url(
     input: &str,
 ) -> Result<ValidatedPublishedUrl, (PublishedIcsStopReason, &'static str)> {

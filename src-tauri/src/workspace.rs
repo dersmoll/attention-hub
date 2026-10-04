@@ -266,10 +266,17 @@ fn path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "Attention Hub could not resolve its local data directory.".into())
 }
 fn lock(state: &WorkspaceState) -> Result<MutexGuard<'_, ()>, String> {
-    state
+    if crate::app_backup::restore_is_pending() {
+        return Err("Backup restore is in progress. Try again when it finishes.".into());
+    }
+    let guard = state
         .gate
         .lock()
-        .map_err(|_| "Workspace storage is temporarily unavailable.".into())
+        .map_err(|_| "Workspace storage is temporarily unavailable.".to_owned())?;
+    if crate::app_backup::restore_is_pending() {
+        return Err("Backup restore is in progress. Try again when it finishes.".into());
+    }
+    Ok(guard)
 }
 fn event_target(state: &WorkspaceState, event_token: &str) -> Result<EventTarget, String> {
     state
@@ -547,6 +554,94 @@ fn load(app: &AppHandle) -> Result<(PathBuf, Store, bool), String> {
         Err(_) => {
             Err("Workspace data could not be read, and no valid local backup is available.".into())
         }
+    }
+}
+
+/// A full backup holds every domain gate until its journal commits or rolls back.
+pub(crate) struct BackupSession<'a> {
+    _guard: MutexGuard<'a, ()>,
+    path: PathBuf,
+    store: Store,
+    recovered: bool,
+}
+
+fn backup_store(value: &serde_json::Value) -> Result<Store, String> {
+    let bytes = serde_json::to_vec_pretty(value)
+        .map_err(|_| "Workspace backup data could not be verified.".to_owned())?;
+    if bytes.len() as u64 > local_store::MAX_FILE_BYTES {
+        return Err("Workspace backup exceeds its supported size.".into());
+    }
+    let store: Store = serde_json::from_slice(&bytes)
+        .map_err(|_| "Workspace backup data is invalid.".to_owned())?;
+    if !valid(&store) {
+        return Err("Workspace backup data is invalid.".into());
+    }
+    Ok(store)
+}
+
+pub(crate) fn validate_backup_value(value: &serde_json::Value) -> Result<(), String> {
+    backup_store(value).map(|_| ())
+}
+
+fn prepare_backup_store(value: &serde_json::Value, current: &Store) -> Result<Store, String> {
+    let mut imported = backup_store(value)?;
+    isolate_imported_note_revisions(&mut imported, current)?;
+    imported.revision = imported
+        .revision
+        .max(current.revision)
+        .checked_add(1)
+        .ok_or_else(|| "Workspace revision has reached its supported limit.".to_owned())?;
+    if serde_json::to_vec_pretty(&imported)
+        .map_err(|_| "Workspace backup data could not be prepared.".to_owned())?
+        .len() as u64
+        > local_store::MAX_FILE_BYTES
+    {
+        return Err("Workspace backup exceeds its supported size.".into());
+    }
+    Ok(imported)
+}
+
+pub(crate) fn backup_session<'a>(
+    app: &AppHandle,
+    state: &'a WorkspaceState,
+) -> Result<BackupSession<'a>, String> {
+    let guard = state
+        .gate
+        .lock()
+        .map_err(|_| "Workspace storage is temporarily unavailable.".to_owned())?;
+    let (path, store, recovered) = load(app)?;
+    Ok(BackupSession {
+        _guard: guard,
+        path,
+        store,
+        recovered,
+    })
+}
+
+impl BackupSession<'_> {
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+    pub(crate) fn value(&self) -> Result<serde_json::Value, String> {
+        serde_json::to_value(&self.store)
+            .map_err(|_| "Workspace backup data could not be captured.".to_owned())
+    }
+    pub(crate) fn prepare_import(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        serde_json::to_value(prepare_backup_store(value, &self.store)?)
+            .map_err(|_| "Workspace backup data could not be prepared.".to_owned())
+    }
+    pub(crate) fn commit(&mut self, value: &serde_json::Value) -> Result<(), String> {
+        let store = backup_store(value)?;
+        if store.revision <= self.store.revision {
+            return Err("Workspace restore must advance its current revision.".into());
+        }
+        local_store::write(&self.path, &store, true, self.recovered, "Workspace")?;
+        self.store = store;
+        self.recovered = false;
+        Ok(())
     }
 }
 fn snap(path: PathBuf, store: Store, recovered: bool) -> WorkspaceSnapshot {
@@ -1991,6 +2086,29 @@ pub fn event_workspace_link_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_backup_advances_both_revision_timelines_and_rejects_invalid_data() {
+        let mut current = seed();
+        current.revision = 12;
+        let mut imported = seed();
+        imported.revision = 30;
+        let value = serde_json::to_value(&imported).unwrap();
+        assert_eq!(prepare_backup_store(&value, &current).unwrap().revision, 31);
+        imported.revision = 2;
+        assert_eq!(
+            prepare_backup_store(&serde_json::to_value(&imported).unwrap(), &current)
+                .unwrap()
+                .revision,
+            13
+        );
+        imported.revision = u64::MAX;
+        assert!(prepare_backup_store(&serde_json::to_value(&imported).unwrap(), &current).is_err());
+        imported.revision = 0;
+        imported.schema_version = SCHEMA_VERSION + 1;
+        assert!(validate_backup_value(&serde_json::to_value(&imported).unwrap()).is_err());
+        assert!(validate_backup_value(&serde_json::json!({})).is_err());
+    }
 
     #[test]
     fn seed_is_stable_and_valid_without_materializing_a_file() {

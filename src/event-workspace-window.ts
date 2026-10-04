@@ -4,7 +4,7 @@ import {
   PhysicalPosition,
   availableMonitors,
 } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { createAuxiliaryWindow, findAuxiliaryWindow, revealAuxiliaryWindow, withAuxiliaryWindowDeadline } from "./auxiliary-window";
 import {
   EVENT_SETTINGS_OPEN_EVENT,
   positionIsReachable,
@@ -167,50 +167,49 @@ async function showAnchoredWindow(
   rememberGeometry = true,
   geometryLabel = label,
 ) {
-  const existing = await WebviewWindow.getByLabel(label);
-  const stored = rememberGeometry ? readStoredFloatingGeometry(geometryLabel) : {};
-  const resolvedGeometry = geometryWithinAnchor(
-    payload.anchor,
-    rememberGeometry ? geometryWithStoredSize(geometryLabel, geometry) : geometry,
-  );
-  const position = anchoredPosition(payload.anchor, resolvedGeometry, stored);
-  if (existing) {
-    await existing.setMinSize(new LogicalSize(geometry.minWidth, geometry.minHeight));
-    await existing.setSize(new LogicalSize(resolvedGeometry.width, resolvedGeometry.height));
-    await existing.setPosition(position);
-    await existing.unminimize();
-    await existing.show();
-    await existing.setFocus();
-    await emitTo(label, eventName, payload);
-    return;
-  }
+  try {
+    const existing = await findAuxiliaryWindow(label);
+    const stored = rememberGeometry ? readStoredFloatingGeometry(geometryLabel) : {};
+    const resolvedGeometry = geometryWithinAnchor(
+      payload.anchor,
+      rememberGeometry ? geometryWithStoredSize(geometryLabel, geometry) : geometry,
+    );
+    const position = anchoredPosition(payload.anchor, resolvedGeometry, stored);
+    if (existing) {
+      await withAuxiliaryWindowDeadline(label, async () => {
+        await existing.setMinSize(new LogicalSize(geometry.minWidth, geometry.minHeight));
+        await existing.setSize(new LogicalSize(resolvedGeometry.width, resolvedGeometry.height));
+        await existing.setPosition(position);
+        await revealAuxiliaryWindow(existing);
+        await emitTo(label, eventName, payload);
+      });
+      return;
+    }
 
-  const params = new URLSearchParams(
-    "eventToken" in payload
-      ? { eventToken: payload.eventToken }
-      : { projectId: payload.projectId, ...(payload.itemId ? { itemId: payload.itemId } : {}), ...(payload.view ? { view: payload.view } : {}) },
-  );
-  const window = new WebviewWindow(label, {
-    url: `/?${params.toString()}`,
-    title,
-    ...resolvedGeometry,
-    decorations: false,
-    resizable: true,
-    transparent: true,
-    shadow: false,
-    alwaysOnTop: true,
-    visible: false,
-  });
-  window.once("tauri://created", () => {
-    void (async () => {
+    const params = new URLSearchParams(
+      "eventToken" in payload
+        ? { eventToken: payload.eventToken }
+        : { projectId: payload.projectId, ...(payload.itemId ? { itemId: payload.itemId } : {}), ...(payload.view ? { view: payload.view } : {}) },
+    );
+    const window = await createAuxiliaryWindow(label, {
+      url: `/?${params.toString()}`,
+      title,
+      ...resolvedGeometry,
+      decorations: false,
+      resizable: true,
+      transparent: true,
+      shadow: false,
+      alwaysOnTop: true,
+      visible: false,
+    });
+    await withAuxiliaryWindowDeadline(label, async () => {
       await window.setPosition(position).catch(() => undefined);
-      await window.show();
-      await window.setFocus();
-    })().catch((cause) => onError?.(`${title} could not be shown: ${String(cause)}`));
-  });
-  window.once("tauri://error", ({ payload: error }) => {
-    onError?.(`${title} window failed: ${String(error)}`);
-  });
+      await revealAuxiliaryWindow(window);
+    });
+  } catch (cause) {
+    onError?.(cause instanceof Error ? cause.message : "The window could not be opened.");
+    throw cause;
+  }
 }
 
 export function openEventSettingsWindow(

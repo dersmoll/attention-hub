@@ -15,7 +15,7 @@ export type AttentionAppKey =
   | "viber"
   | "whatsapp";
 export type LiveVisualAppKey = Exclude<AttentionAppKey, "outlook">;
-export type WidgetWidthMode = "recommended" | "slim";
+export type WidgetWidthMode = "recommended" | "slim" | "vertical";
 export type ClockLayout = "horizontal" | "vertical" | "timeFocus";
 export type PanelSurfaceMode = "light" | "dark" | "custom";
 export type MeetingStartSound =
@@ -189,6 +189,7 @@ function normalizeWidthMode(value: unknown): WidgetWidthMode {
   if (value === "larger" || value === "wide") {
     return "recommended";
   }
+  if (value === "vertical") return "vertical";
   if (value === "slim") {
     return "slim";
   }

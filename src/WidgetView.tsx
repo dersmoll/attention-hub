@@ -13,10 +13,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { createAuxiliaryWindow, findAuxiliaryWindow, revealAuxiliaryWindow, withAuxiliaryWindowDeadline } from "./auxiliary-window";
+import { AUXILIARY_WINDOW_FAILURE_EVENT, auxiliaryWindowFailureMessage } from "./auxiliary-window-lifecycle";
 import {
   LogicalSize,
   PhysicalPosition,
   availableMonitors,
+  currentMonitor,
   getCurrentWindow,
 } from "@tauri-apps/api/window";
 import {
@@ -69,6 +72,15 @@ import {
 import {
   WIDGET_DRAG_HANDLE_WIDTH,
   calendarDayPanelDirection,
+  popupSidePlacement,
+  widgetVerticalHeight,
+  WIDGET_VERTICAL_WIDTH,
+  WIDGET_VERTICAL_APP_HEIGHT,
+  WIDGET_VERTICAL_CLOCK_HEIGHT,
+  WIDGET_VERTICAL_CALENDAR_HEIGHT,
+  WIDGET_VERTICAL_DESTINATION_HEIGHT,
+  WIDGET_VERTICAL_DRAG_HEIGHT,
+  WIDGET_VERTICAL_UTILITY_HEIGHT,
   todayPopupHeight,
   todayPopupWidth,
   widgetCalendarMinimumWidth,
@@ -115,6 +127,8 @@ import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { isActionable, isFromActiveOwner, isVisibleInToday, localDateKey, needsAttention, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { activeMedicineTreatments, boundedMedicinePanelGroups, medicineDailyTreatments, type MedicineSnapshot } from "./medicine-model";
 import { MEDICINE_PREFERENCES_CHANGED_EVENT, readMedicinePreferences, type MedicinePreferences } from "./medicine-preferences";
+import { TODO_POPUP_CLOSED_EVENT, TODO_POPUP_OPEN_EVENT, TODO_POPUP_READY_EVENT, TODO_POPUP_WIDTH, TODO_POPUP_WINDOW_LABEL, type TodoPopupPayload } from "./todo-popup-model";
+import { createTodoPopupWindow } from "./todo-popup-window";
 import { MEDICINE_PANEL_CLOSED_EVENT, MEDICINE_PANEL_OPEN_EVENT, MEDICINE_PANEL_READY_EVENT, MEDICINE_PANEL_WIDTH, MEDICINE_PANEL_WINDOW_LABEL, medicinePanelHeight, type MedicinePanelPayload } from "./medicine-panel-model";
 import { createMedicinePanelWindow } from "./medicine-panel-window";
 import type { PopupAnchor } from "./event-workspace-model";
@@ -183,6 +197,8 @@ type TaskbarMirrorLayoutRect = {
   height: number;
 };
 type WidgetNoticeScope =
+  | "todos"
+  | "windows"
   | "attention"
   | "inspect"
   | "later"
@@ -664,6 +680,24 @@ function presenceHealth(
 }
 
 export function WidgetView() {
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<boolean>("backup-restore-busy", ({ payload }) => {
+      const root = document.getElementById("root");
+      if (root) root.inert = payload;
+    }).then(unlisten => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
+  }, []);
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen("backup-restored", () => {
+      clearWorkCalendarDisplayCache();
+      setFocusTimer(readFocusTimerState());
+    }).then(unlisten => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
+  }, []);
   const initialPreferences = useMemo(readWidgetPreferences, []);
   const initialWorkCalendar = useMemo(readWorkCalendarDisplayCache, []);
   const [now, setNow] = useState(() => new Date());
@@ -689,7 +723,7 @@ export function WidgetView() {
   const workCalendarRef = useRef<WorkCalendarSnapshot | null>(initialWorkCalendar);
   const [calendarDayPanelOpen, setCalendarDayPanelOpen] = useState(false);
   const [calendarDayPanelPlacement, setCalendarDayPanelPlacement] = useState<
-    "above" | "below"
+    "above" | "below" | "left" | "right"
   >("below");
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [medicine, setMedicine] = useState<MedicineSnapshot | null>(null);
@@ -731,6 +765,10 @@ export function WidgetView() {
   const medicinePanelReadyRef = useRef(false);
   const medicinePanelPositionedRef = useRef(false);
   const [medicinePanelOpen, setMedicinePanelOpen] = useState(false);
+  const todoPopupPayloadRef = useRef<TodoPopupPayload | null>(null);
+  const todoPopupReadyRef = useRef(false);
+  const todoPopupPositionedRef = useRef(false);
+  const [todoPopupOpen, setTodoPopupOpen] = useState(false);
   const [stickyNoteOpen, setStickyNoteOpen] = useState(false);
   const widgetInitialLayoutRef = useRef(true);
   const suppressPositionPersistenceRef = useRef(false);
@@ -745,6 +783,7 @@ export function WidgetView() {
   const widgetNoticeTimerRef = useRef<number | null>(null);
   const widgetNoticeScopeRef = useRef<WidgetNoticeScope | null>(null);
   const applicationQuitInFlightRef = useRef(false);
+  const auxiliaryOpeningRef = useRef(new Set<string>());
   const sourceActivationNoticeTimerRef = useRef<number | null>(null);
   const zoomActivationFeedbackTimerRef = useRef<number | null>(null);
   const announcedMeetingStartAlertsRef = useRef<ReadonlySet<string>>(new Set());
@@ -821,6 +860,14 @@ export function WidgetView() {
     widgetNoticeScopeRef.current = null;
     setWidgetError(null);
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ label: string }>(AUXILIARY_WINDOW_FAILURE_EVENT, ({ payload }) => {
+      if (!disposed) showWidgetNotice("windows", auxiliaryWindowFailureMessage(payload.label));
+    }).then((unlisten) => { if (disposed) unlisten(); else stop = unlisten; }).catch(() => undefined);
+    return () => { disposed = true; stop?.(); };
+  }, [showWidgetNotice]);
   const requestApplicationQuit = useCallback(async () => {
     if (applicationQuitInFlightRef.current) return;
     applicationQuitInFlightRef.current = true;
@@ -929,6 +976,28 @@ export function WidgetView() {
     ]).then(([ready, closed]) => { if (disposed) { ready(); closed(); } else { stopReady = ready; stopClosed = closed; } });
     return () => { disposed = true; stopReady?.(); stopClosed?.(); };
   }, [publishMedicinePanel]);
+  const publishTodoPopup = useCallback(() => {
+    const payload = todoPopupPayloadRef.current;
+    if (!payload || !todoPopupReadyRef.current || !todoPopupPositionedRef.current) return;
+    void emitTo(TODO_POPUP_WINDOW_LABEL, TODO_POPUP_OPEN_EVENT, payload);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopReady: (() => void) | undefined;
+    let stopClosed: (() => void) | undefined;
+    void Promise.all([
+      listen(TODO_POPUP_READY_EVENT, () => { if (!disposed) { todoPopupReadyRef.current = true; publishTodoPopup(); } }),
+      listen(TODO_POPUP_CLOSED_EVENT, () => {
+        if (disposed) return;
+        setTodoPopupOpen(false);
+        todoPopupPayloadRef.current = null;
+        todoPopupReadyRef.current = false;
+        todoPopupPositionedRef.current = false;
+      }),
+    ]).then(([ready, closed]) => { if (disposed) { ready(); closed(); } else { stopReady = ready; stopClosed = closed; } });
+    return () => { disposed = true; stopReady?.(); stopClosed?.(); };
+  }, [publishTodoPopup]);
   const systemTimeZone = canonicalTimeZone(
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
@@ -961,7 +1030,8 @@ export function WidgetView() {
   const appSlotCount = visibleSources.length + Number(zoomMeetingPresence.visible);
   const appsPanelVisible =
     preferences.showAppsPanel && appSlotCount > 0;
-  const timeFocusMode = preferences.clockLayout === "timeFocus";
+  const verticalMode = preferences.widthMode === "vertical";
+  const timeFocusMode = !verticalMode && preferences.clockLayout === "timeFocus";
   const focusTimerElapsed = focusTimerElapsedMs(focusTimer, now.getTime());
   const focusTimerActive =
     focusTimer.startedAtUnixMs !== null || focusTimer.elapsedMs > 0;
@@ -980,6 +1050,9 @@ export function WidgetView() {
   const visibleClockCount = timeFocusMode
     ? 1
     : 1 + Number(preferences.showSecondaryClock) + preferences.extraTimeZones.length;
+  const verticalClockPanelHeight = clocksPanelVisible ? (clockConversionSource ? 110 : visibleClockCount * WIDGET_VERTICAL_CLOCK_HEIGHT) : 0;
+  const verticalRailHeight = verticalClockPanelHeight - (clocksPanelVisible ? visibleClockCount * WIDGET_VERTICAL_CLOCK_HEIGHT : 0) + widgetVerticalHeight(appsPanelVisible ? appSlotCount : 0,
+    clocksPanelVisible ? visibleClockCount : 0, calendarPanelVisible, destinationPanelCount);
   const enabledVisualSources = useMemo(
     () =>
       appsPanelVisible
@@ -1502,6 +1575,7 @@ export function WidgetView() {
             if (!surface) return [];
             const rect = surface.getBoundingClientRect();
             if (rect.width <= 0 || rect.height <= 0) return [];
+            if (verticalMode && (rect.top < shellRect.top || rect.bottom > shellRect.bottom)) return [];
             return [{
               sourceKey,
               left: Math.round(rect.left - shellRect.left),
@@ -1524,6 +1598,7 @@ export function WidgetView() {
 
     const observer = new ResizeObserver(updateLayout);
     observer.observe(shell);
+    shell.addEventListener("scroll", updateLayout, { passive: true });
     // CSS hot reload can change a shortcut offset without changing its size.
     // Reconcile only while a live surface is enabled so native DWM placement
     // follows those development and runtime layout changes as well.
@@ -1535,12 +1610,14 @@ export function WidgetView() {
       disposed = true;
       window.cancelAnimationFrame(frame);
       observer.disconnect();
+      shell.removeEventListener("scroll", updateLayout);
       if (reconcileTimer) window.clearInterval(reconcileTimer);
     };
   }, [
     appsPanelVisible,
     clearWidgetNotice,
     enabledVisualSources.length,
+    verticalMode,
     showWidgetNotice,
     visibleSources,
   ]);
@@ -1588,7 +1665,7 @@ export function WidgetView() {
       const initialLayout = widgetInitialLayoutRef.current;
       try {
         suppressPositionPersistenceRef.current = initialLayout;
-        const minimumWidth =
+        const minimumWidth = verticalMode ? WIDGET_VERTICAL_WIDTH :
           widgetFixedWidth(
             appSlotCount,
             preferences.widthMode,
@@ -1604,14 +1681,19 @@ export function WidgetView() {
           (calendarPanelVisible
             ? widgetCalendarMinimumWidth(preferences.widthMode, showNextEvent)
             : 0);
-        const targetHeight = widgetHeight(
+        let targetHeight = verticalMode ? verticalRailHeight : widgetHeight(
           preferences.widthMode,
           preferences.clockLayout,
         );
+        if (verticalMode) {
+          const [monitor, scale] = await Promise.all([currentMonitor(), widgetWindow.scaleFactor()]);
+          if (monitor) targetHeight = Math.min(targetHeight, Math.max(64, Math.floor(monitor.workArea.size.height / scale)));
+        }
         await widgetWindow.setSizeConstraints({
           minWidth: minimumWidth,
-          minHeight: timeFocusMode ? targetHeight : widgetHeight("slim"),
-          maxHeight: timeFocusMode ? targetHeight : widgetHeight("recommended"),
+          maxWidth: verticalMode ? WIDGET_VERTICAL_WIDTH : undefined,
+          minHeight: verticalMode || timeFocusMode ? targetHeight : widgetHeight("slim"),
+          maxHeight: verticalMode || timeFocusMode ? targetHeight : widgetHeight("recommended"),
         });
         await widgetWindow.setSize(
           new LogicalSize(
@@ -1691,6 +1773,9 @@ export function WidgetView() {
       disposed = true;
     };
   }, [
+    verticalMode,
+    verticalRailHeight,
+    medicinePanelVisible,
     preferences.widthMode,
     preferences.clockLayout,
     preferences.extraTimeZones.length,
@@ -1735,7 +1820,7 @@ export function WidgetView() {
               repositionMirrors();
             }, 32);
           }
-          if (suppressPositionPersistenceRef.current) {
+          if (suppressPositionPersistenceRef.current || document.getElementById("root")?.inert) {
             return;
           }
           writeWidgetPreferences({ x: payload.x, y: payload.y });
@@ -1785,7 +1870,7 @@ export function WidgetView() {
 
   const beginWidgetResize = useCallback(
     (event: ReactPointerEvent<HTMLElement>, direction: WidgetResizeDirection) => {
-      if (event.button !== 0) {
+      if (preferences.widthMode === "vertical" || event.button !== 0) {
         return;
       }
       event.preventDefault();
@@ -1999,24 +2084,24 @@ export function WidgetView() {
   ]);
 
   const openAdvanced = async (focusTarget?: AdvancedFocusTarget) => {
+    if (auxiliaryOpeningRef.current.has("advanced")) return;
+    auxiliaryOpeningRef.current.add("advanced");
     try {
-      const existing = await WebviewWindow.getByLabel("advanced");
+      const existing = await findAuxiliaryWindow("advanced");
       if (existing) {
-        await existing.unminimize();
-        await existing.show();
-        await existing.setFocus();
+        await revealAuxiliaryWindow(existing);
         if (focusTarget) {
-          await emitTo<AdvancedFocusRequest>(
+          await withAuxiliaryWindowDeadline("advanced", () => emitTo<AdvancedFocusRequest>(
             "advanced",
             ADVANCED_FOCUS_EVENT,
             { target: focusTarget },
-          );
+          ));
         }
         clearWidgetNotice("advanced");
         return;
       }
 
-      const advanced = new WebviewWindow("advanced", {
+      const advanced = await createAuxiliaryWindow("advanced", {
         url: advancedWindowUrl(focusTarget),
         title: "Attention Hub - Advanced",
         width: 900,
@@ -2025,11 +2110,12 @@ export function WidgetView() {
         minHeight: 560,
         center: true,
       });
-      advanced.once("tauri://error", () => {
-        showWidgetNotice("advanced", "Advanced settings could not be opened.");
-      });
+      await revealAuxiliaryWindow(advanced);
+      clearWidgetNotice("advanced");
     } catch {
-      showWidgetNotice("advanced", "Advanced settings could not be opened.");
+      showWidgetNotice("advanced", auxiliaryWindowFailureMessage("advanced"));
+    } finally {
+      auxiliaryOpeningRef.current.delete("advanced");
     }
   };
 
@@ -2046,7 +2132,12 @@ export function WidgetView() {
         action: () => updateWidgetPreferences({ widthMode: "slim" }),
       },
       {
-        enabled: preferredCalendarWidth !== null,
+        checked: verticalMode,
+        text: "Vertical rail (58 px)",
+        action: () => updateWidgetPreferences({ widthMode: "vertical" }),
+      },
+      {
+        enabled: !verticalMode && preferredCalendarWidth !== null,
         text: "Reset width to automatic",
         action: () =>
           updateWidgetPreferences(
@@ -2118,7 +2209,7 @@ export function WidgetView() {
     const items: NonNullable<MenuOptions["items"]> = [
       {
         text: "Open Project Hub",
-        action: () => void openManagerWindow("projects"),
+        action: () => void openManagerWindow("projects").catch(() => undefined),
       },
       { text: "Size preset", items: sizePresetItems },
       { text: "Visible panels", items: visiblePanelItems },
@@ -2204,22 +2295,25 @@ export function WidgetView() {
   };
 
   const toggleCalendarDayPanel = async () => {
-    const existing = await WebviewWindow.getByLabel(TODAY_POPUP_WINDOW_LABEL);
-    if (existing) {
-      await existing.close();
-      setCalendarDayPanelOpen(false);
-      todayPopupPayloadRef.current = null;
-      return;
-    }
-
+    if (auxiliaryOpeningRef.current.has(TODAY_POPUP_WINDOW_LABEL)) return;
+    auxiliaryOpeningRef.current.add(TODAY_POPUP_WINDOW_LABEL);
     try {
-      const [position, size, anchor] = await Promise.all([
+      const existing = await findAuxiliaryWindow(TODAY_POPUP_WINDOW_LABEL);
+      if (existing) {
+        await withAuxiliaryWindowDeadline(TODAY_POPUP_WINDOW_LABEL, () => existing.close());
+        setCalendarDayPanelOpen(false);
+        todayPopupPayloadRef.current = null;
+        todayPopupReadyRef.current = false;
+        todayPopupPositionedRef.current = false;
+        return;
+      }
+      const [position, size, anchor] = await withAuxiliaryWindowDeadline(TODAY_POPUP_WINDOW_LABEL, () => Promise.all([
         widgetWindow.outerPosition(),
         widgetWindow.outerSize(),
         calendarPopupAnchor(),
-      ]);
+      ]));
       if (!anchor) throw new Error("Work-calendar position unavailable");
-      const placement = calendarDayPanelDirection(
+      const placement = verticalMode ? popupSidePlacement(anchor) : calendarDayPanelDirection(
         position.y,
         size.height,
         anchor.monitorTop,
@@ -2265,11 +2359,16 @@ export function WidgetView() {
           todayPopupReadyRef.current = false;
           todayPopupPositionedRef.current = false;
         },
-        () => showWidgetNotice("calendar", "Today popup could not be opened."),
+        () => showWidgetNotice("calendar", auxiliaryWindowFailureMessage(TODAY_POPUP_WINDOW_LABEL)),
       );
     } catch {
       setCalendarDayPanelOpen(false);
-      showWidgetNotice("calendar", "Today popup could not be opened.");
+      todayPopupPayloadRef.current = null;
+      todayPopupReadyRef.current = false;
+      todayPopupPositionedRef.current = false;
+      showWidgetNotice("calendar", auxiliaryWindowFailureMessage(TODAY_POPUP_WINDOW_LABEL));
+    } finally {
+      auxiliaryOpeningRef.current.delete(TODAY_POPUP_WINDOW_LABEL);
     }
   };
 
@@ -2406,24 +2505,26 @@ export function WidgetView() {
   };
 
   const openMedicinePanel = async (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (!hasActiveMedicineTreatment) {
-      await openMedicineManagerWindow();
-      return;
-    }
+    if (auxiliaryOpeningRef.current.has(MEDICINE_PANEL_WINDOW_LABEL)) return;
+    auxiliaryOpeningRef.current.add(MEDICINE_PANEL_WINDOW_LABEL);
     const button = event.currentTarget;
     try {
-      const existing = await WebviewWindow.getByLabel(MEDICINE_PANEL_WINDOW_LABEL);
+      if (!hasActiveMedicineTreatment) {
+        await openMedicineManagerWindow();
+        return;
+      }
+      const existing = await findAuxiliaryWindow(MEDICINE_PANEL_WINDOW_LABEL);
       if (existing) {
-        await existing.close();
+        await withAuxiliaryWindowDeadline(MEDICINE_PANEL_WINDOW_LABEL, () => existing.close());
         setMedicinePanelOpen(false);
         medicinePanelPayloadRef.current = null;
         medicinePanelReadyRef.current = false;
         medicinePanelPositionedRef.current = false;
         return;
       }
-      const [position, scaleFactor, monitors] = await Promise.all([
+      const [position, scaleFactor, monitors] = await withAuxiliaryWindowDeadline(MEDICINE_PANEL_WINDOW_LABEL, () => Promise.all([
         widgetWindow.outerPosition(), widgetWindow.scaleFactor(), availableMonitors(),
-      ]);
+      ]));
       const rect = button.getBoundingClientRect();
       const centerX = position.x + (rect.left + rect.width / 2) * scaleFactor;
       const centerY = position.y + (rect.top + rect.height / 2) * scaleFactor;
@@ -2443,7 +2544,7 @@ export function WidgetView() {
         monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
       };
       const height = Math.min(naturalHeight, Math.max(120, Math.floor((anchor.monitorBottom - anchor.monitorTop) / scaleFactor - 12)));
-      const placement = anchor.top - anchor.monitorTop >= anchor.monitorBottom - anchor.bottom ? "above" : "below";
+      const placement = verticalMode ? popupSidePlacement(anchor) : anchor.top - anchor.monitorTop >= anchor.monitorBottom - anchor.bottom ? "above" : "below";
       const payload: MedicinePanelPayload = { anchor, placement, width: MEDICINE_PANEL_WIDTH, height };
       medicinePanelPayloadRef.current = payload;
       medicinePanelReadyRef.current = false;
@@ -2451,21 +2552,83 @@ export function WidgetView() {
       setMedicinePanelOpen(true);
       await createMedicinePanelWindow(payload, () => { medicinePanelPositionedRef.current = true; publishMedicinePanel(); }, () => {
         setMedicinePanelOpen(false); medicinePanelPayloadRef.current = null; medicinePanelReadyRef.current = false; medicinePanelPositionedRef.current = false;
-      }, () => showWidgetNotice("medicine", "Medicine panel could not be opened."));
+      }, () => showWidgetNotice("medicine", auxiliaryWindowFailureMessage(MEDICINE_PANEL_WINDOW_LABEL)));
     } catch {
       setMedicinePanelOpen(false);
-      showWidgetNotice("medicine", "Medicine panel could not be opened.");
+      medicinePanelPayloadRef.current = null;
+      medicinePanelReadyRef.current = false;
+      medicinePanelPositionedRef.current = false;
+      showWidgetNotice("medicine", auxiliaryWindowFailureMessage(MEDICINE_PANEL_WINDOW_LABEL));
+    } finally {
+      auxiliaryOpeningRef.current.delete(MEDICINE_PANEL_WINDOW_LABEL);
+    }
+  };
+
+  const openTodoPopup = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (auxiliaryOpeningRef.current.has(TODO_POPUP_WINDOW_LABEL)) return;
+    auxiliaryOpeningRef.current.add(TODO_POPUP_WINDOW_LABEL);
+    const button = event.currentTarget;
+    try {
+      const existing = await findAuxiliaryWindow(TODO_POPUP_WINDOW_LABEL);
+      if (existing) {
+        await withAuxiliaryWindowDeadline(TODO_POPUP_WINDOW_LABEL, () => existing.close());
+        setTodoPopupOpen(false);
+        todoPopupPayloadRef.current = null;
+        todoPopupReadyRef.current = false;
+        todoPopupPositionedRef.current = false;
+        return;
+      }
+      const [position, scaleFactor, monitors] = await withAuxiliaryWindowDeadline(TODO_POPUP_WINDOW_LABEL, () => Promise.all([
+        widgetWindow.outerPosition(), widgetWindow.scaleFactor(), availableMonitors(),
+      ]));
+      const rect = button.getBoundingClientRect();
+      const centerX = position.x + (rect.left + rect.width / 2) * scaleFactor;
+      const centerY = position.y + (rect.top + rect.height / 2) * scaleFactor;
+      const monitor = monitors.find((item) => centerX >= item.position.x && centerX <= item.position.x + item.size.width && centerY >= item.position.y && centerY <= item.position.y + item.size.height) ?? monitors[0];
+      if (!monitor) throw new Error("Monitor unavailable");
+      const naturalHeight = 320;
+      const anchor: PopupAnchor = {
+        left: Math.round(position.x + rect.left * scaleFactor),
+        top: Math.round(position.y + rect.top * scaleFactor),
+        right: Math.round(position.x + rect.right * scaleFactor),
+        bottom: Math.round(position.y + rect.bottom * scaleFactor),
+        scaleFactor,
+        monitorLeft: monitor.workArea.position.x,
+        monitorTop: monitor.workArea.position.y,
+        monitorRight: monitor.workArea.position.x + monitor.workArea.size.width,
+        monitorBottom: monitor.workArea.position.y + monitor.workArea.size.height,
+      };
+      const height = Math.min(naturalHeight, Math.max(120, Math.floor((anchor.monitorBottom - anchor.monitorTop) / scaleFactor - 12)));
+      const placement = verticalMode ? popupSidePlacement(anchor) : anchor.top - anchor.monitorTop >= anchor.monitorBottom - anchor.bottom ? "above" : "below";
+      const payload: TodoPopupPayload = { anchor, placement, width: TODO_POPUP_WIDTH, height };
+      todoPopupPayloadRef.current = payload;
+      todoPopupReadyRef.current = false;
+      todoPopupPositionedRef.current = false;
+      setTodoPopupOpen(true);
+      await createTodoPopupWindow(payload, () => { todoPopupPositionedRef.current = true; publishTodoPopup(); }, () => {
+        setTodoPopupOpen(false); todoPopupPayloadRef.current = null; todoPopupReadyRef.current = false; todoPopupPositionedRef.current = false;
+      }, () => showWidgetNotice("todos", auxiliaryWindowFailureMessage(TODO_POPUP_WINDOW_LABEL)));
+    } catch {
+      setTodoPopupOpen(false);
+      todoPopupPayloadRef.current = null;
+      todoPopupReadyRef.current = false;
+      todoPopupPositionedRef.current = false;
+      showWidgetNotice("todos", auxiliaryWindowFailureMessage(TODO_POPUP_WINDOW_LABEL));
+    } finally {
+      auxiliaryOpeningRef.current.delete(TODO_POPUP_WINDOW_LABEL);
     }
   };
 
   const openStickyNote = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (auxiliaryOpeningRef.current.has("sticky-note")) return;
+    auxiliaryOpeningRef.current.add("sticky-note");
     const button = event.currentTarget;
     try {
-      const [position, scaleFactor, monitors] = await Promise.all([
+      const [position, scaleFactor, monitors] = await withAuxiliaryWindowDeadline("sticky-note", () => Promise.all([
         widgetWindow.outerPosition(),
         widgetWindow.scaleFactor(),
         availableMonitors(),
-      ]);
+      ]));
       const rect = button.getBoundingClientRect();
       const centerX = position.x + (rect.left + rect.width / 2) * scaleFactor;
       const centerY = position.y + (rect.top + rect.height / 2) * scaleFactor;
@@ -2489,12 +2652,14 @@ export function WidgetView() {
       await openStickyNoteWindow(
         anchor,
         () => setStickyNoteOpen(false),
-        () => showWidgetNotice("sticky-note", "Sticky note could not be opened."),
+        () => showWidgetNotice("sticky-note", auxiliaryWindowFailureMessage("sticky-note")),
       );
       clearWidgetNotice("sticky-note");
     } catch {
       setStickyNoteOpen(false);
-      showWidgetNotice("sticky-note", "Sticky note could not be opened.");
+      showWidgetNotice("sticky-note", auxiliaryWindowFailureMessage("sticky-note"));
+    } finally {
+      auxiliaryOpeningRef.current.delete("sticky-note");
     }
   };
 
@@ -2502,7 +2667,7 @@ export function WidgetView() {
     selection: WorkCalendarSelection,
   ) => {
     if (!selection.eventToken) return;
-    const anchor = await calendarPopupAnchor();
+    const anchor = await withAuxiliaryWindowDeadline("event-settings", calendarPopupAnchor).catch(() => null);
     if (!anchor) {
       showWidgetNotice("calendar", "Event settings could not be positioned.");
       return;
@@ -2510,7 +2675,7 @@ export function WidgetView() {
     await openEventSettingsWindow(
       { eventToken: selection.eventToken, anchor },
       (message) => showWidgetNotice("calendar", message),
-    );
+    ).catch(() => undefined);
   };
 
   const openCalendarProjectPanel = async (
@@ -2519,14 +2684,14 @@ export function WidgetView() {
     const projectId = selection.eventWorkspace?.projectId;
     const listId = selection.eventWorkspace?.listId;
     if (listId) {
-      await openManagerWindow("projects", undefined, listId);
+      await openManagerWindow("projects", undefined, listId).catch(() => undefined);
       return;
     }
     if (!projectId) {
       await openCalendarEventSettings(selection);
       return;
     }
-    const anchor = await calendarPopupAnchor();
+    const anchor = await withAuxiliaryWindowDeadline("project-panel", calendarPopupAnchor).catch(() => null);
     if (!anchor) {
       showWidgetNotice("calendar", "Project panel could not be positioned.");
       return;
@@ -2534,7 +2699,7 @@ export function WidgetView() {
     await openProjectPanelWindow(
       { projectId, anchor },
       (message) => showWidgetNotice("calendar", message),
-    );
+    ).catch(() => undefined);
   };
 
   const openCalendarEventLink = async (
@@ -2932,7 +3097,16 @@ export function WidgetView() {
       preferences.widthMode,
       showNextEvent,
     )}px`,
-    "--widget-height": `${widgetHeight(preferences.widthMode, preferences.clockLayout)}px`,
+    "--widget-height": `${verticalMode ? verticalRailHeight : widgetHeight(preferences.widthMode, preferences.clockLayout)}px`,
+    "--widget-vertical-app-height": `${WIDGET_VERTICAL_APP_HEIGHT}px`,
+    "--widget-vertical-clock-height": `${WIDGET_VERTICAL_CLOCK_HEIGHT}px`,
+    "--widget-vertical-calendar-height": `${WIDGET_VERTICAL_CALENDAR_HEIGHT}px`,
+    "--widget-vertical-destination-height": `${WIDGET_VERTICAL_DESTINATION_HEIGHT}px`,
+    "--widget-vertical-drag-height": `${WIDGET_VERTICAL_DRAG_HEIGHT}px`,
+    "--widget-vertical-utility-height": `${WIDGET_VERTICAL_UTILITY_HEIGHT}px`,
+    "--widget-vertical-apps-height": `${(appsPanelVisible ? appSlotCount : 0) * WIDGET_VERTICAL_APP_HEIGHT}px`,
+    "--widget-vertical-clocks-height": `${verticalClockPanelHeight}px`,
+    "--widget-vertical-destinations-height": `${destinationPanelCount * WIDGET_VERTICAL_DESTINATION_HEIGHT}px`,
     "--widget-calendar-day-panel-height": `${calendarDayPanelLogicalHeight}px`,
     "--widget-destinations-width": `${widgetDestinationsWidth(preferences.widthMode, todayPanelVisible, projectsPanelVisible, medicinePanelVisible, true)}px`,
     "--widget-zone-gap": `${widgetZoneGap(preferences.widthMode)}px`,
@@ -3110,7 +3284,7 @@ export function WidgetView() {
       onContextMenu={handleWidgetContextMenu}
       style={panelStyle}
     >
-      {(["West", "East", "North", "South"] as const).map((direction) => (
+      {!verticalMode && (["West", "East", "North", "South"] as const).map((direction) => (
         <div
           aria-hidden="true"
           className="widget-resize-edge"
@@ -3143,7 +3317,7 @@ export function WidgetView() {
           className="widget-zone widget-clock"
           aria-label="Current time"
           data-clock-count={visibleClockCount}
-          data-clock-layout={preferences.clockLayout}
+          data-clock-layout={verticalMode ? "vertical" : preferences.clockLayout}
           data-clock-mode={clockConversionSource ? "converter" : "live"}
           data-clock-conversion-source={clockConversionSource ?? undefined}
           data-tauri-drag-region
@@ -3430,14 +3604,31 @@ export function WidgetView() {
           event.preventDefault();
           void toggleCalendarDayPanel();
         }}
-        tabIndex={workCalendar?.configured ? 0 : undefined}
+        tabIndex={!verticalMode && workCalendar?.configured ? 0 : undefined}
         title={
           workCalendar?.configured
             ? vocabulary.openDayPanel
             : undefined
         }
       >
+        {verticalMode && <button type="button" className="widget-calendar__vertical-summary"
+          aria-label={`${workCalendar?.configured ? vocabulary.openDayPanel : "Set up work calendar"}: ${calendarTitle}. ${calendarDetail}`}
+          aria-expanded={workCalendar?.configured ? calendarDayPanelOpen : undefined}
+          title={`${calendarTitle}\n${calendarDetail}${calendarHealthNotice ? `\n${calendarHealthNotice.label}: ${calendarHealthNotice.detail}` : ""}`}
+          onClick={() => workCalendar?.configured ? void toggleCalendarDayPanel() : void openAdvanced("work-calendar")}>
+          <span className="widget-calendar__vertical-state">{calendarState}</span>
+          <strong className="widget-calendar__vertical-title">{calendarTitle}</strong>
+          {calendarSelection && Number.isFinite(Date.parse(calendarSelection.start)) && <small className="widget-calendar__vertical-when">
+            {new Intl.DateTimeFormat([], { weekday: "short", month: "short", day: "numeric" }).format(new Date(calendarSelection.start))}
+            <span>{calendarSelection.allDay ? "All day" : new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(calendarSelection.start))}</span>
+          </small>}
+          {calendarSelection && !calendarSelection.allDay && <small className="widget-calendar__vertical-countdown">
+            {formatCalendarCountdown(calendarSelection, now)}
+          </small>}
+          {calendarHealthNotice && <small className="widget-calendar__vertical-health">{calendarHealthNotice.label}</small>}
+        </button>}
         <div
+          hidden={verticalMode}
           className="widget-calendar__content"
           data-has-next={showNextEvent || undefined}
         >
@@ -3721,7 +3912,8 @@ export function WidgetView() {
           aria-label={`Open all to-dos, ${activeTodoCount} active${attentionTodoCount ? `, ${attentionTodoCount} need attention` : ""}`}
           className="widget-destinations__todos"
           data-due={attentionTodoCount > 0 || undefined}
-          onClick={() => void openManagerWindow("todos")}
+          aria-pressed={todoPopupOpen}
+          onClick={(event) => void openTodoPopup(event)}
         title="Open all to-dos"
         type="button"
       >

@@ -302,7 +302,7 @@ assert.match(widgetSource, /activate_zoom_meeting/);
 assert.match(widgetSource, /data-source="zoom"/);
 assert.match(widgetSource, /text: "Clock layout"/);
 assert.match(widgetSource, /text: "Time Focus"/);
-assert.match(widgetSource, /const timeFocusMode = preferences\.clockLayout === "timeFocus"/);
+assert.match(widgetSource, /const timeFocusMode = !verticalMode && preferences\.clockLayout === "timeFocus"/);
 assert.match(widgetSource, /calendarPanelVisible && <section/);
 assert.match(widgetSource, /className="widget-clock__focus"/);
 assert.match(widgetSource, /className="widget-focus-timer"/);
@@ -327,7 +327,7 @@ assert.match(
   /data-clock-conversion-source=\{clockConversionSource \?\? undefined\}/,
 );
 assert.doesNotMatch(widgetSource, /widget-clock__offset/);
-assert.match(widgetSource, /await existing\.unminimize\(\)/);
+assert.match(widgetSource, /await revealAuxiliaryWindow\(existing\)/);
 assert.match(widgetSource, /\? calendarDayPanelOpen/);
 assert.match(widgetSource, /data-day-summary=\{workCalendar\?\.configured \|\| undefined\}/);
 assert.match(widgetSource, /!workCalendar\?\.configured \|\|/);
@@ -336,7 +336,7 @@ assert.doesNotMatch(widgetSource, /calendarDayPanelOffsetLogicalHeight/);
 assert.match(todayPopupSource, /className="today-popup-shell widget-calendar-day-panel"/);
 assert.match(widgetSource, /width: todayPopupWidth\(/);
 assert.match(cssSource, /\.today-popup-shell \{\s*min-width: 300px;/);
-assert.match(todayPopupWindowSource, /new WebviewWindow\(TODAY_POPUP_WINDOW_LABEL/);
+assert.match(todayPopupWindowSource, /await createAuxiliaryWindow\(TODAY_POPUP_WINDOW_LABEL/);
 assert.match(capabilitiesSource, /"today"/);
 assert.doesNotMatch(rustSource, /transition_widget_panel_at_upper_edge/);
 assert.match(rustSource, /fn open_main_panel_devtools\(window: tauri::WebviewWindow\)/);
@@ -415,7 +415,7 @@ assert.match(slimStyleSource, /&\[data-first-zone="apps"\] > \.widget-left/);
 assert.match(widgetSource, /aria-label="Open Today"/);
 assert.match(widgetSource, /className="widget-destinations__todos"/);
 assert.doesNotMatch(widgetSource, /widget-destinations__projects/);
-assert.match(widgetSource, /openManagerWindow\("todos"\)/);
+assert.match(widgetSource, /openTodoPopup\(event\)/);
 assert.doesNotMatch(widgetSource, />Today<|>TODO<|>Meds</);
 for (const icon of ["📅", "✅", "💊"]) {
   assert.match(widgetSource, new RegExp(`className="widget-destinations__emoji">${icon}<\\/span>`));
@@ -559,3 +559,15 @@ assert.match(
 );
 
 console.log("responsive widget layout tests passed");
+
+assert.equal(layout.widgetWidth(7, "vertical", true, 5, "timeFocus", true, true, 500, 1500, true, true, true, true, true), 58);
+assert.equal(layout.widgetWidth(0, "vertical", false, 1, "horizontal", false, false, 0, null, false, false, false), 58);
+assert.equal(layout.widgetVerticalHeight(0, 0, false, 1), 66);
+assert.equal(layout.widgetVerticalHeight(7, 5, true, 4), 652);
+assert.equal(layout.widgetVerticalHeight(2, 2, true, 4) - layout.widgetVerticalHeight(0, 2, true, 4), 60);
+assert.equal(layout.popupSidePlacement({ left: 0, right: 64, monitorLeft: 0, monitorRight: 1920 }), "right");
+assert.equal(layout.popupSidePlacement({ left: 1856, right: 1920, monitorLeft: 0, monitorRight: 1920 }), "left");
+
+assert.match(cssSource, /body\[data-window="main"\][^{]*\{\s*min-width: 0;/);
+assert.match(cssSource, /\.widget-shell\[data-width-mode="vertical"\] \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+assert.match(cssSource, /\.widget-shell\[data-width-mode="vertical"\] \.widget-calendar__content\[hidden\] \{\s*display: none;/);

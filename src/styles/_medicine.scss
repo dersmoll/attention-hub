@@ -400,3 +400,25 @@
     &__progress i { background: Highlight; }
   }
 }
+
+// Reuse Medicine's popup chrome; task context takes the space used by dose metadata.
+.todo-popup {
+  --manager-text: var(--widget-panel-foreground);
+  --manager-quiet: var(--widget-panel-muted);
+  --manager-accent: var(--widget-panel-accent);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  .medicine-panel__toolbar { padding-right: 26px; }
+  &__body { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+  &__content { display: grid; gap: 6px; }
+  section { margin: 0; }
+  section > ol > li { grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 7px; padding: 5px; }
+  .medicine-panel__check { grid-column: 1; margin-top: 1px; }
+  li > .todo-content { grid-column: 2; }
+  .medicine-panel__error { position: static; margin: 4px 0; white-space: normal; overflow-wrap: anywhere; }
+  li[data-completed] .medicine-panel__check { color: var(--color-success) !important; border-color: var(--color-success); }
+  .todo-content { padding: 0; }
+  .todo-content__title { font-weight: 600; }
+  li small { white-space: normal; overflow: visible; }
+  .medicine-panel__footer { padding: 3px 0; font-size: 10px; }
+}

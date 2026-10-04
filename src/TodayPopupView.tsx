@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { withAuxiliaryWindowDeadline } from "./auxiliary-window";
 import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import {
   LogicalSize,
@@ -208,7 +209,7 @@ export function TodayPopupView() {
 
   const openEventSettings = async (selection: WorkCalendarDaySelection) => {
     if (!selection.eventToken) return;
-    const anchor = await currentPopupAnchor();
+    const anchor = await withAuxiliaryWindowDeadline("event-settings", currentPopupAnchor).catch(() => null);
     if (!anchor) {
       setActionError("Event settings could not be positioned.");
       return;
@@ -216,13 +217,13 @@ export function TodayPopupView() {
     await openEventSettingsWindow(
       { eventToken: selection.eventToken, anchor },
       (message) => setActionError(message),
-    );
+    ).catch(() => undefined);
   };
 
   const openProjectPanel = async (selection: WorkCalendarDaySelection, view: "project" | "notes" | "todos" = "project") => {
     const projectId = selection.eventWorkspace?.projectId;
     if (!projectId) return;
-    const anchor = await currentPopupAnchor();
+    const anchor = await withAuxiliaryWindowDeadline("project-panel", currentPopupAnchor).catch(() => null);
     if (!anchor) {
       setActionError("Project panel could not be positioned.");
       return;
@@ -230,18 +231,18 @@ export function TodayPopupView() {
     await openProjectPanelWindow(
       { projectId, view, anchor },
       (message) => setActionError(message),
-    );
+    ).catch(() => undefined);
   };
 
   const openTodoDetails = async (item: ActionItem) => {
-    const anchor = await currentPopupAnchor();
+    const anchor = await withAuxiliaryWindowDeadline("project-panel", currentPopupAnchor).catch(() => null);
     if (!anchor) { setActionError("To-do details could not be positioned."); return; }
     await openProjectPanelWindow({
       projectId: item.ownerKind === "project" ? item.ownerId : "",
       itemId: item.id,
       view: "todo",
       anchor,
-    }, (message) => setActionError(message));
+    }, (message) => setActionError(message)).catch(() => undefined);
   };
 
   const openEventLink = async (selection: WorkCalendarDaySelection) => {
@@ -324,7 +325,11 @@ export function TodayPopupView() {
    * than closing this window over. */
   const openHiddenDose = async () => {
     const target = hiddenDoseItems[0];
-    if (!target) { await openMedicineManagerWindow(); await close(); return; }
+    if (!target) {
+      try { await openMedicineManagerWindow(); await close(); }
+      catch { setActionError("Medicine could not be opened. Close and reopen Attention Hub if this continues."); }
+      return;
+    }
     const result = await openMedicineManagerAt({ treatmentId: target.treatment.id, doseKey: medicineDoseKey(target.dose) });
     if (result.applied) await close();
     else setActionError(result.reason ?? "Medicine could not be opened at that dose.");
@@ -463,7 +468,7 @@ export function TodayPopupView() {
                   onOpenLink={() => void openEventLink(selection)}
                   onOpenSettings={() => void openEventSettings(selection)}
                   onOpenNotes={() => void openProjectPanel(selection, "notes")}
-                  onOpenTodos={() => selection.eventWorkspace?.listId ? void openManagerWindow("projects", undefined, selection.eventWorkspace.listId) : void openProjectPanel(selection, "todos")}
+                  onOpenTodos={() => selection.eventWorkspace?.listId ? void openManagerWindow("projects", undefined, selection.eventWorkspace.listId).catch(() => undefined) : void openProjectPanel(selection, "todos")}
                   pendingTodoCount={pendingDestinationTodos(selection.eventWorkspace?.projectId, selection.eventWorkspace?.listId)}
                   subject={selection.subject}
                   workspace={selection.eventWorkspace}
@@ -486,7 +491,7 @@ export function TodayPopupView() {
           <button className="today-popup-todos__title" onClick={() => void openTodoDetails(item)} title={`Open details for ${item.title}`} type="button">{item.title}</button>
           <small>{ownerName(item.ownerKind, item.ownerId)}</small>
           {isToday && !item.completedAt && <button aria-label={`Move ${item.title} to tomorrow`} className="today-popup-todos__defer" onClick={() => void deferTodo(item)} title="Move to tomorrow" type="button"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2v3m-4.2-.8L5.9 6M2 8h3m7.5-3.5A5.5 5.5 0 1 1 5 12.9"/><path d="m3.7 11.1 1.5 2.2-2.6.4"/></svg><span>Not today</span></button>}
-        </li>)}{isToday && hasMoreTodos && <li className="today-popup-todos__more"><button onClick={() => void openManagerWindow("todos")} type="button">+{todayTodos.length - visibleTodos.length} more</button></li>}</ol>
+        </li>)}{isToday && hasMoreTodos && <li className="today-popup-todos__more"><button onClick={() => void openManagerWindow("todos").catch(() => undefined)} type="button">+{todayTodos.length - visibleTodos.length} more</button></li>}</ol>
       </section>}
       {carryover.length > 0 && <section className="today-popup-todos" aria-labelledby="day-carryover-heading">
         <header><strong id="day-carryover-heading">Still open from today</strong><span>{carryover.length} items</span></header>

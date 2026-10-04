@@ -1,12 +1,15 @@
 {
   "name": "attention-hub",
   "private": true,
-  "version": "0.6.0-beta.15",
+  "version": "0.6.0-beta.16",
   "license": "MIT",
   "packageManager": "pnpm@10.17.1",
   "type": "module",
   "scripts": {
-    "test": "pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:focus-timer && pnpm run test:medicine && pnpm run test:meeting-workspace && pnpm run test:preferences && pnpm run test:sticky-note && pnpm run test:time-zone && pnpm run test:update && pnpm run test:widget-layout && pnpm run test:work-calendar && pnpm run test:school-day && pnpm run test:workspace && pnpm run test:zoom-meeting",
+    "test:backup": "node scripts/test-backup-preferences.mjs",
+    "test": "pnpm run test:backup && pnpm run test:todo-popup && pnpm run test:auxiliary-window && pnpm run test:advanced-focus && pnpm run test:attention-model && pnpm run test:focus-timer && pnpm run test:medicine && pnpm run test:meeting-workspace && pnpm run test:preferences && pnpm run test:sticky-note && pnpm run test:time-zone && pnpm run test:update && pnpm run test:widget-layout && pnpm run test:work-calendar && pnpm run test:school-day && pnpm run test:workspace && pnpm run test:zoom-meeting",
+    "test:todo-popup": "node scripts/test-todo-popup.mjs",
+    "test:auxiliary-window": "node scripts/test-auxiliary-window.mjs",
     "test:advanced-focus": "node scripts/test-advanced-focus.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
@@ -22,7 +25,7 @@
     "test:school-day": "node scripts/test-school-day-model.mjs",
     "test:workspace": "node scripts/test-workspace-model.mjs && node scripts/test-day-plan-model.mjs",
     "test:zoom-meeting": "node scripts/test-zoom-meeting-model.mjs",
-    "test:widget-layout": "node scripts/test-widget-layout.mjs",
+    "test:widget-layout": "node scripts/test-widget-layout.mjs && node scripts/test-popup-placement.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "verify:release-version": "node scripts/verify-release-version.mjs"

@@ -194,7 +194,10 @@ export function MedicinePanelView() {
     } catch (cause) { setActionError(String(cause)); }
     finally { setPendingKey(null); pendingRef.current = null; releaseView(); }
   };
-  const openManager = async () => { await openMedicineManagerWindow(); await close(); };
+  const openManager = async () => {
+    try { await openMedicineManagerWindow(); await close(); }
+    catch { setActionError("Medicine could not be opened. Close and reopen Attention Hub if this continues."); }
+  };
   /* `+N more` names a specific dose the panel could not show, so it navigates to
    * that dose rather than dropping the user at whatever the manager happened to
    * have selected. The popup closes only once the manager confirms it moved —

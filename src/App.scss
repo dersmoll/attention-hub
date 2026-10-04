@@ -10,6 +10,7 @@
 @use "styles/advanced-settings";
 @use "styles/workspace";
 @use "styles/medicine";
+@use "styles/backup-restore";
 
 // Widget rail and its satellite panels
 @use "styles/widget-core";
@@ -20,3 +21,5 @@
 // Width-mode overrides, loaded last so they win on source order
 @use "styles/widget-standard";
 @use "styles/widget-slim";
+
+@use "styles/widget-vertical";

@@ -1,5 +1,5 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { createAuxiliaryWindow, findAuxiliaryWindow, revealAuxiliaryWindow, withAuxiliaryWindowDeadline } from "./auxiliary-window";
 import { LogicalSize } from "@tauri-apps/api/window";
 import { readStoredFloatingGeometry, reachableStoredPosition } from "./event-workspace-window";
 import {
@@ -24,17 +24,16 @@ let opening: Promise<void> | null = null;
 const wait = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 
 async function revealExistingMedicineManager() {
-  // `getByLabel` can briefly return a handle whose native window is already
-  // tearing down. Retrying gives Tauri time to remove that stale handle before
-  // deciding a new manager needs to be created.
+  // Retry a disappearing handle briefly, but propagate readiness failures for
+  // a still-registered window instead of multiplying the ten-second deadline.
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const existing = await WebviewWindow.getByLabel(MEDICINE_MANAGER_WINDOW_LABEL);
+    const existing = await findAuxiliaryWindow(MEDICINE_MANAGER_WINDOW_LABEL);
     if (!existing) return false;
     try {
-      await existing.show();
-      await existing.setFocus();
+      await revealAuxiliaryWindow(existing);
       return true;
-    } catch {
+    } catch (cause) {
+      if (await findAuxiliaryWindow(MEDICINE_MANAGER_WINDOW_LABEL)) throw cause;
       await wait(50);
     }
   }
@@ -46,7 +45,7 @@ export async function openMedicineManagerWindow() {
   opening = (async () => {
     if (await revealExistingMedicineManager()) return;
     const stored = readStoredFloatingGeometry(MEDICINE_MANAGER_WINDOW_LABEL);
-    const manager = new WebviewWindow(MEDICINE_MANAGER_WINDOW_LABEL, {
+    const manager = await createAuxiliaryWindow(MEDICINE_MANAGER_WINDOW_LABEL, {
       url: "/",
       title: "Attention Hub - Medicine",
       width: Math.max(MEDICINE_MANAGER_WINDOW_GEOMETRY.minWidth, stored.width ?? MEDICINE_MANAGER_WINDOW_GEOMETRY.width),
@@ -57,18 +56,11 @@ export async function openMedicineManagerWindow() {
       resizable: true,
       visible: false,
     });
-    await new Promise<void>((resolve, reject) => {
-      manager.once("tauri://created", () => {
-        void (async () => {
-          await manager.setMinSize(new LogicalSize(MEDICINE_MANAGER_WINDOW_GEOMETRY.minWidth, MEDICINE_MANAGER_WINDOW_GEOMETRY.minHeight));
-          const position = await reachableStoredPosition(stored);
-          if (position) await manager.setPosition(position).catch(() => undefined);
-          await manager.show();
-          await manager.setFocus();
-          resolve();
-        })().catch(reject);
-      });
-      manager.once("tauri://error", ({ payload: error }) => reject(new Error(String(error))));
+    await withAuxiliaryWindowDeadline(MEDICINE_MANAGER_WINDOW_LABEL, async () => {
+      await manager.setMinSize(new LogicalSize(MEDICINE_MANAGER_WINDOW_GEOMETRY.minWidth, MEDICINE_MANAGER_WINDOW_GEOMETRY.minHeight));
+      const position = await reachableStoredPosition(stored);
+      if (position) await manager.setPosition(position).catch(() => undefined);
+      await revealAuxiliaryWindow(manager);
     });
   })();
   try {
