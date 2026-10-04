@@ -480,3 +480,9 @@ assert.equal(explicitlyHidden.showMedicinePanel, false);
 assert.equal(preferences.readWidgetPreferences().showMedicinePanel, false);
 
 console.log("widget preference migration tests passed");
+
+const rail = preferences.normalizeWidgetPreferences({ widthMode: "vertical", recommendedCalendarWidth: 450, slimCalendarWidth: 550 });
+assert.equal(rail.widthMode, "vertical");
+assert.equal(rail.recommendedCalendarWidth, 450);
+assert.equal(rail.slimCalendarWidth, 550);
+assert.equal(preferences.normalizeWidgetPreferences(JSON.parse(JSON.stringify(rail))).widthMode, "vertical");

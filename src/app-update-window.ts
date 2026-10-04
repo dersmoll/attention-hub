@@ -1,4 +1,4 @@
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { createAuxiliaryWindow, findAuxiliaryWindow, revealAuxiliaryWindow } from "./auxiliary-window";
 import { check } from "@tauri-apps/plugin-updater";
 import {
   APP_UPDATE_PROMPT_STORAGE_KEY,
@@ -8,33 +8,28 @@ import {
 export const APP_UPDATE_WINDOW_LABEL = "update";
 
 export async function openAppUpdateWindow() {
-  const existing = await WebviewWindow.getByLabel(APP_UPDATE_WINDOW_LABEL);
+  const existing = await findAuxiliaryWindow(APP_UPDATE_WINDOW_LABEL);
   if (existing) {
-    await existing.unminimize();
-    await existing.show();
-    await existing.setFocus();
+    await revealAuxiliaryWindow(existing);
     return;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const updateWindow = new WebviewWindow(APP_UPDATE_WINDOW_LABEL, {
-      url: "/",
-      title: "Attention Hub update",
-      width: 420,
-      height: 240,
-      minWidth: 420,
-      minHeight: 240,
-      maxWidth: 420,
-      maxHeight: 240,
-      center: true,
-      focus: true,
-      resizable: false,
-      maximizable: false,
-      alwaysOnTop: true,
-    });
-    updateWindow.once("tauri://created", () => resolve());
-    updateWindow.once("tauri://error", (error) => reject(error));
+  const updateWindow = await createAuxiliaryWindow(APP_UPDATE_WINDOW_LABEL, {
+    url: "/",
+    title: "Attention Hub update",
+    width: 420,
+    height: 240,
+    minWidth: 420,
+    minHeight: 240,
+    maxWidth: 420,
+    maxHeight: 240,
+    center: true,
+    focus: true,
+    resizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
   });
+  await revealAuxiliaryWindow(updateWindow);
 }
 
 export async function checkAndOpenAppUpdate() {

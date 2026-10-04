@@ -19,7 +19,7 @@ export const MEDICINE_PANEL_FOOTER_HEIGHT = 36;
 
 export interface MedicinePanelPayload {
   anchor: PopupAnchor;
-  placement: "above" | "below";
+  placement: "above" | "below" | "left" | "right";
   width: number;
   height: number;
 }

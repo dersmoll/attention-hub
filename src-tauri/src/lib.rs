@@ -1,4 +1,6 @@
+mod app_backup;
 mod attention_signals;
+mod auxiliary_windows;
 mod external_url;
 mod local_store;
 mod medicine;
@@ -1300,7 +1302,20 @@ pub fn run() {
         .manage(StickyNoteState::new())
         .manage(TaskbarMirrorState::new())
         .manage(WorkCalendarState::new())
+        .manage(app_backup::AppBackupState::new())
+        .setup(|app| {
+            app_backup::recover_before_stores(app.handle()).map_err(std::io::Error::other)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            app_backup::export_app_backup,
+            app_backup::preview_app_backup,
+            app_backup::begin_app_backup_restore,
+            app_backup::finish_app_backup_restore,
+            app_backup::recover_app_backup_restore,
+            app_backup::get_app_backup_restore_status,
+            app_backup::ack_app_backup_restore,
+            auxiliary_windows::create_auxiliary_window,
             get_attention_signal_snapshot,
             get_workspace_snapshot,
             get_medicine_snapshot,

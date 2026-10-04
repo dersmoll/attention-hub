@@ -13,12 +13,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AttentionPanel } from "./AttentionPanel";
 import { WorkspaceDataPanel } from "./WorkspaceDataPanel";
 import { MedicineDataPanel } from "./MedicineDataPanel";
+import { BackupRestorePanel } from "./BackupRestorePanel";
+import { replaceBackupPreferences, type BackupPreferences } from "./backup-preferences";
 import { EventSettingsView } from "./EventSettingsView";
 import { ManagerView } from "./ManagerView";
 import { ProjectPanelWindow } from "./ProjectPanelWindow";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
 import { TodayPopupView } from "./TodayPopupView";
 import { MedicineManagerView } from "./MedicineManagerView";
+import { TodoPopupView } from "./TodoPopupView";
 import { MedicinePanelView } from "./MedicinePanelView";
 import { StickyNoteView } from "./StickyNoteView";
 import { WidgetView } from "./WidgetView";
@@ -61,6 +64,7 @@ import {
   readAdvancedFocusTarget,
   type AdvancedFocusRequest,
 } from "./advanced-focus";
+import { announceAuxiliaryWindowReady } from "./auxiliary-window";
 import "./App.scss";
 
 type AdvancedPage =
@@ -69,6 +73,7 @@ type AdvancedPage =
   | "apps"
   | "calendar"
   | "reminders"
+  | "backup"
   | "updates"
   | "diagnostics";
 
@@ -106,6 +111,11 @@ const ADVANCED_PAGES: Array<{
     id: "reminders",
     label: "Reminders",
     description: "Projects, to-do, and medicine storage controls.",
+  },
+  {
+    id: "backup",
+    label: "Backup & restore",
+    description: "Export everything, restore a backup, or transfer individual stores.",
   },
   {
     id: "updates",
@@ -636,7 +646,6 @@ function AdvancedView() {
   }, [focusWorkCalendarSetup]);
 
   useEffect(() => {
-    if (activePage !== "diagnostics") return;
     let disposed = false;
     let stopListening: (() => void) | undefined;
     void listen(WIDGET_PREFERENCES_CHANGED_EVENT, ({ payload }) => {
@@ -971,20 +980,23 @@ function AdvancedView() {
                 applyWidgetPreferences({
                   widthMode: event.target.value as
                     | "recommended"
-                    | "slim",
+                    | "slim"
+                    | "vertical",
                 })
               }
               value={widgetPreferences.widthMode}
             >
               <option value="recommended">Recommended</option>
               <option value="slim">Compact single-line</option>
+              <option value="vertical">Vertical rail (58 px)</option>
             </select>
             <small>
+              Vertical rail stacks shortcuts and clocks in a 58 px column.
               Recommended uses the dense two-line layout. Compact single-line
               uses a unified horizontal rail. Drag the widget's left or right
               edge to adjust the calendar width.
             </small>
-            {(widgetPreferences.widthMode === "recommended"
+            {widgetPreferences.widthMode !== "vertical" && (widgetPreferences.widthMode === "recommended"
               ? widgetPreferences.recommendedCalendarWidth
               : widgetPreferences.slimCalendarWidth) !== null && (
               <button
@@ -1067,7 +1079,7 @@ function AdvancedView() {
               />
               Show in widget
             </label>
-            <button onClick={() => void openMedicineManagerWindow()} type="button">
+            <button onClick={() => void openMedicineManagerWindow().catch(() => undefined)} type="button">
               Open Medicine
             </button>
             <small>
@@ -1437,6 +1449,8 @@ function AdvancedView() {
         <WorkspaceDataPanel />
         <MedicineDataPanel />
       </div>
+
+      {activePage === "backup" && <div className="advanced-page-body"><BackupRestorePanel /></div>}
 
       <section
         aria-live="polite"
@@ -1882,8 +1896,31 @@ function AdvancedView() {
   );
 }
 
+let backupRecovery: Promise<void> | undefined;
+function recoverBackupOnce() {
+  if (!backupRecovery) backupRecovery = (async () => {
+    const pending = await invoke<{ transactionId: string; preferences: BackupPreferences } | null>("recover_app_backup_restore");
+    if (pending) {
+      replaceBackupPreferences(pending.preferences);
+      await invoke("finish_app_backup_restore", { transactionId: pending.transactionId, commit: false });
+    }
+  })().catch(cause => { backupRecovery = undefined; throw cause; });
+  return backupRecovery;
+}
+
 function App() {
   const windowLabel = getCurrentWindow().label;
+  const [recoveryReady, setRecoveryReady] = useState(windowLabel !== "main");
+  const [recoveryError, setRecoveryError] = useState(false);
+  const recover = useCallback(async () => {
+    setRecoveryError(false);
+    try {
+      await recoverBackupOnce();
+      setRecoveryReady(true);
+    } catch { setRecoveryError(true); }
+  }, []);
+  useEffect(() => { if (windowLabel === "main") void recover(); }, [windowLabel, recover]);
+  useEffect(announceAuxiliaryWindowReady, [windowLabel]);
 
   useEffect(() => {
     document.documentElement.dataset.window = windowLabel;
@@ -1915,12 +1952,14 @@ function App() {
   if (windowLabel === "medicine") {
     return <MedicineManagerView />;
   }
+  if (windowLabel === "todo-popup") return <TodoPopupView />;
   if (windowLabel === "medicine-panel") {
     return <MedicinePanelView />;
   }
   if (windowLabel === "sticky-note") {
     return <StickyNoteView />;
   }
+  if (!recoveryReady) return <div role="status">{recoveryError ? <>Backup recovery needs another attempt. <button type="button" onClick={() => void recover()}>Retry recovery</button></> : "Checking backup recovery…"}</div>;
   return <WidgetView />;
 }
 

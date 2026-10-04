@@ -575,7 +575,7 @@
 }
 
 .manager-all-todos {
-  --manager-all-todos-columns: 24px minmax(130px, 1fr) 150px 110px 145px 78px;
+  --manager-all-todos-columns: 24px minmax(0, 1fr) minmax(100px, .45fr) 130px 64px;
 
   grid-column: 1 / -1;
 
@@ -662,13 +662,14 @@
   &__details { grid-template-columns: minmax(130px, .65fr) minmax(230px, 1.35fr); gap: 6px; }
   &__details label, &__details fieldset { gap: 3px; color: var(--manager-quiet); font-size: 10px; }
   &__details fieldset { grid-template-columns: 1fr 90px; }
-  &__notes textarea { min-height: 54px; }
+  &__notes { grid-column: 1 / -1; grid-row: 1; }
+  &__notes textarea { min-height: 130px; font-size: 13px; line-height: 1.5; }
 }
 
 .manager-todo-filters { justify-content: flex-start; margin: 14px 0 12px; }
 .manager-todo-columns {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 120px 155px 50px;
+  grid-template-columns: 24px minmax(0, 1fr) 130px 64px;
   gap: 5px;
   padding: 0 5px 4px;
   color: var(--manager-quiet);
@@ -735,7 +736,8 @@
 }
 .manager-todos li {
   display: grid;
-  grid-template-columns: 24px 29% 21% 14% 140px;
+  grid-template-columns: 24px minmax(0, 1fr) 130px 64px;
+  align-items: start;
   min-height: 32px;
   gap: 5px;
   padding: 3px 5px;
@@ -745,6 +747,7 @@
 
   + li { margin-top: 0; border-top: 1px solid var(--manager-border-soft); }
   &:hover { background: color-mix(in srgb, var(--manager-accent) 6%, var(--manager-sunken)); }
+  > button:first-child { margin-top: 3px; }
 }
 .manager-links li { min-height: 34px; gap: 6px; padding: 4px 6px; border-color: color-mix(in srgb, var(--manager-border) 75%, transparent); border-radius: var(--radius-pill); background: var(--manager-sunken); }
 .manager-todos li[data-actionable] { border-left: 2px solid var(--manager-accent); }
@@ -768,39 +771,19 @@
   }
 }
 
-/* The cross-owner overview uses the same six cells in its header and rows. */
+/* Header and rows share the same notes-first five-column contract. */
 .manager-todo-columns--all {
   span:last-child { text-align: center; }
 }
 
 .manager-todos--all li {
-  grid-template-rows: minmax(26px, auto);
-
-  > button:first-child { grid-column: 1; grid-row: 1; }
-  > span {
-    grid-column: 2; grid-row: 1;
-
-  }
-  > .manager-todo-owner {
-    display: block;
-    grid-column: 3;
-    grid-row: 1;
-    width: 100%;
-    min-width: 0;
-    height: 24px;
-    min-height: 24px !important;
-    place-items: initial;
-  }
-  > .manager-row-due { grid-column: 4; grid-row: 1; }
-  > .manager-row-reminder { grid-column: 5; grid-row: 1; }
-  > .manager-row-actions {
-    grid-column: 6;
-    grid-row: 1;
-    min-width: 78px;
-    flex-wrap: nowrap;
-    justify-content: center;
-  }
-  > .manager-todo-notes,
+  grid-template-columns: var(--manager-all-todos-columns);
+  align-items: start;
+  > button:first-child { grid-column: 1; grid-row: 1; margin-top: 3px; }
+  > .todo-content { grid-column: 2; grid-row: 1; }
+  > .manager-todo-owner { grid-column: 3; grid-row: 1; width: 100%; min-width: 0; height: auto; min-height: 24px; place-items: initial; }
+  > .manager-row-schedule { grid-column: 4; grid-row: 1; }
+  > .manager-row-actions { grid-column: 5; grid-row: 1; min-width: 54px; flex-wrap: nowrap; justify-content: center; }
   > .manager-todo-editor--inline { grid-column: 1 / -1; }
 }
 
@@ -815,29 +798,6 @@
 
   .manager-todo-editor__main { grid-template-columns: minmax(0, 1fr) auto auto; }
   .manager-todo-editor__main button:last-child { color: var(--manager-quiet); border-color: var(--manager-border); background: transparent; }
-}
-
-.manager-todo-notes {
-  grid-column: 2 / -1;
-  padding: 4px 6px;
-  margin: 0;
-  border-left: 2px solid var(--manager-accent);
-  color: var(--manager-quiet);
-  background: var(--manager-sunken);
-  font-size: 10px;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-
-  button {
-    display: inline;
-    min-height: 0;
-    padding: 0;
-    border: 0;
-    color: var(--manager-accent);
-    background: transparent;
-    text-decoration: underline;
-  }
 }
 
 .manager-notes { gap: 6px; }
@@ -875,10 +835,48 @@
   .manager-todo-editor__notes { grid-column: 1 / -1; }
   .manager-todo-columns { display: none; }
   .manager-todos li { grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; }
-  .manager-row-due,
-  .manager-row-reminder { grid-column: 2; }
-  .manager-row-actions { grid-column: 3; grid-row: 1 / span 3; }
+  .manager-row-schedule { grid-column: 2; grid-row: 2; }
+  .manager-row-actions { grid-column: 3; grid-row: 1; }
   .manager-todo-editor--inline { grid-column: 1 / -1; grid-row: auto; }
+}
+
+// Shared task context for the themed popup and Project Hub.
+.todo-content {
+  min-width: 0;
+  color: var(--manager-text);
+  &__heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
+  &__title, &__preview, &__link, &__notes button {
+    min-height: 0; padding: 2px 0; border: 0; border-radius: var(--radius-pill); color: var(--manager-text); background: transparent; text-align: left;
+    &:hover:not(:disabled) { color: var(--manager-accent); background: transparent; text-decoration: underline; }
+    &:focus-visible { outline: 2px solid var(--manager-accent); outline-offset: 2px; }
+  }
+  &__title { min-width: 0; max-width: 100%; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  &[data-completed] &__title { color: var(--manager-quiet); text-decoration: line-through; }
+  &__preview { display: block; width: 100%; color: var(--manager-quiet); font-size: 12px; @include truncate; }
+  &__link { max-width: 100%; color: var(--manager-accent); font-size: 11px; @include truncate; }
+  &__details { padding: 6px 0; }
+  &__details[hidden] { display: none; }
+  &__notes { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+  &__notes button { display: inline; color: var(--manager-accent); font-size: inherit; text-decoration: underline; }
+  &__schedule { margin: 8px 0 0; color: var(--manager-quiet); font-size: 10px; }
+  &__error { margin: 4px 0; color: var(--color-danger); font-size: 12px; }
+  @include forced-colors { &__title:focus-visible, &__link:focus-visible, &__notes button:focus-visible { outline-color: Highlight; } }
+}
+
+.manager-row-schedule {
+  display: grid; align-content: start; gap: 2px; padding-top: 4px; min-width: 0;
+  small { overflow-wrap: anywhere; white-space: normal; font-size: 10px; }
+}
+.manager-row-actions .manager-icon-action {
+  &:hover:not(:disabled) { color: var(--manager-accent); background: var(--manager-hover); }
+  &.is-danger:hover:not(:disabled) { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, var(--manager-surface)); }
+}
+.manager-todos li > .manager-row-actions[data-confirming] {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .project-quick-view {
@@ -971,9 +969,9 @@
       display: grid;
       min-height: 34px;
       grid-template-columns: 22px minmax(0, 1fr);
-      align-items: center;
+      align-items: start;
       gap: 6px;
-      padding: 4px 2px;
+      padding: 3px 2px;
       border-bottom: 1px solid panel-border-wash(45%);
       background: transparent;
 
@@ -983,13 +981,12 @@
     li > button {
       @include icon-button(20px, 5px);
       border: 1px solid var(--manager-border);
-      color: var(--color-success);
+      color: var(--manager-text);
       background: transparent;
+      &:hover:not(:disabled) { border-color: var(--manager-accent); background: var(--manager-hover); }
     }
 
-    li > div { display: grid; min-width: 0; gap: 1px; }
-    li span { font-size: 12px; @include truncate; }
-    li small { color: var(--manager-quiet); font-size: 9px; @include truncate; }
+    li > .todo-content { min-width: 0; }
   }
 
   &__empty { display: block !important; padding: 12px 2px !important; border: 0 !important; color: var(--manager-quiet); font-size: 11px; }
@@ -1011,10 +1008,12 @@
   }
 
   &__notes {
-    padding-top: 10px;
+    padding: 0 0 14px;
 
     > strong { color: var(--manager-quiet); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
-    p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--manager-text); font-size: 11px; line-height: 1.45; }
+    p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--manager-text); font-size: 13px; line-height: 1.5; }
     button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--manager-accent); background: transparent; text-align: left; text-decoration: underline; }
+    button:hover:not(:disabled) { color: var(--manager-accent); background: var(--manager-hover); }
+    button:focus-visible { outline: 2px solid var(--manager-accent); outline-offset: 2px; }
   }
 }

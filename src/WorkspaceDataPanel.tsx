@@ -2,12 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { emit } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { openManagerWindow } from "./manager-window";
 import { type DeleteImpact, type WorkspaceImportPreview, type WorkspaceSnapshot, WORKSPACE_CHANGED_EVENT } from "./workspace-model";
 import { TODO_PREFERENCES_CHANGED_EVENT, readTodoPreferences, writeTodoPreferences } from "./todo-preferences";
 
-export function WorkspaceDataPanel() {
+export function WorkspaceDataPanel({ transfers = false }: { transfers?: boolean } = {}) {
+  const headingId = useId();
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [impact, setImpact] = useState<DeleteImpact | null>(null);
   const [pending, setPending] = useState(false);
@@ -31,6 +32,15 @@ export function WorkspaceDataPanel() {
     void listen(WORKSPACE_CHANGED_EVENT, () => void refresh()).then((next) => { if (disposed) next(); else unlisten = next; });
     return () => { disposed = true; unlisten?.(); };
   }, [refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen(TODO_PREFERENCES_CHANGED_EVENT, () => {
+      setNotificationsEnabled(readTodoPreferences().dueNotificationsEnabled);
+    }).then((next) => { if (disposed) next(); else unlisten = next; }).catch(() => undefined);
+    return () => { disposed = true; unlisten?.(); };
+  }, []);
 
   const deleteCompleted = async () => {
     setPending(true);
@@ -126,22 +136,27 @@ export function WorkspaceDataPanel() {
     [impact.counts.bindings, "calendar bindings"],
   ] as const).filter(([count]) => count !== null).map(([count, label]) => `${count} ${label}`) : [];
 
-  return <section aria-labelledby="workspace-data-heading" className="workspace-data-panel">
-    <h2 id="workspace-data-heading">Workspace storage and data</h2>
+  return <section aria-labelledby={headingId} className="workspace-data-panel">
+    <h2 id={headingId}>{transfers ? "Workspace transfers" : "Workspace storage and data"}</h2>
     <p>{openCount} open and {completedCount} completed to-dos across Projects and Personal lists.</p>
     <div className="workspace-data-card">
-      <p>Projects, notes, links, to-dos, personal lists, and calendar bindings share one local versioned store with one previous valid backup. No cloud sync is used.</p>
-      {snapshot?.storagePath && <p>Data file: <code>{snapshot.storagePath}</code></p>}
+      {transfers
+        ? <p>Transfer projects, notes, links, to-dos, personal lists, and calendar bindings in one workspace JSON file.</p>
+        : <><p>Projects, notes, links, to-dos, personal lists, and calendar bindings share one local versioned store with one previous valid backup. No cloud sync is used.</p>
+          {snapshot?.storagePath && <p>Data file: <code>{snapshot.storagePath}</code></p>}</>}
       {snapshot?.recoveredFromBackup && <p className="workspace-recovery" role="status">The previous valid backup is currently being shown.</p>}
-      <label className="workspace-notification-setting"><input checked={notificationsEnabled} onChange={(event) => { const next = writeTodoPreferences({ dueNotificationsEnabled: event.target.checked }); setNotificationsEnabled(next.dueNotificationsEnabled); void emit(TODO_PREFERENCES_CHANGED_EVENT, next); }} type="checkbox"/> Show Windows notifications when a to-do reminder is reached</label>
+      {!transfers && <label className="workspace-notification-setting"><input checked={notificationsEnabled} onChange={(event) => { const next = writeTodoPreferences({ dueNotificationsEnabled: event.target.checked }); setNotificationsEnabled(next.dueNotificationsEnabled); void emit(TODO_PREFERENCES_CHANGED_EVENT, next); }} type="checkbox"/> Show Windows notifications when a to-do reminder is reached</label>}
       <div className="actions">
-        <button onClick={() => void openManagerWindow("todos")} type="button">Open To-dos</button>
-        <button disabled={transferPending !== null} onClick={() => void exportWorkspace()} type="button">{transferPending === "export" ? "Exporting…" : "Export workspace…"}</button>
-        <button disabled={transferPending !== null} onClick={() => void chooseWorkspaceImport()} type="button">{transferPending === "preview" ? "Reading…" : "Import workspace…"}</button>
-        <button disabled={pending || completedCount === 0} onClick={() => void deleteCompleted()} type="button">Delete completed to-dos</button>
-        {!impact ? <button disabled={pending || !snapshot || totalOwned === 0} onClick={() => void prepareDeleteAll()} type="button">Delete all workspace data…</button> : <span className="workspace-delete-confirm" role="group" aria-label="Confirm deletion"><span>{impactParts.join(", ")} will be removed.</span><button autoFocus disabled={pending} onClick={() => void deleteAll()} type="button">Permanently delete all</button><button onClick={() => setImpact(null)} type="button">Cancel</button></span>}
+        {transfers ? <>
+          <button disabled={transferPending !== null} onClick={() => void exportWorkspace()} type="button">{transferPending === "export" ? "Exporting…" : "Export workspace…"}</button>
+          <button disabled={transferPending !== null} onClick={() => void chooseWorkspaceImport()} type="button">{transferPending === "preview" ? "Reading…" : "Import workspace…"}</button>
+        </> : <>
+          <button onClick={() => void openManagerWindow("todos").catch(() => undefined)} type="button">Open To-dos</button>
+          <button disabled={pending || completedCount === 0} onClick={() => void deleteCompleted()} type="button">Delete completed to-dos</button>
+          {!impact ? <button disabled={pending || !snapshot || totalOwned === 0} onClick={() => void prepareDeleteAll()} type="button">Delete all workspace data…</button> : <span className="workspace-delete-confirm" role="group" aria-label="Confirm deletion"><span>{impactParts.join(", ")} will be removed.</span><button autoFocus disabled={pending} onClick={() => void deleteAll()} type="button">Permanently delete all</button><button onClick={() => setImpact(null)} type="button">Cancel</button></span>}
+        </>}
       </div>
-      {importSelection && <div aria-label="Confirm workspace import" className="workspace-import-confirm" role="group">
+      {transfers && importSelection && <div aria-label="Confirm workspace import" className="workspace-import-confirm" role="group">
         <strong>Replace the current workspace?</strong>
         <span>{[
           `${importSelection.preview.counts.projects} projects`,
@@ -157,7 +172,7 @@ export function WorkspaceDataPanel() {
           <button disabled={transferPending !== null} onClick={() => setImportSelection(null)} type="button">Cancel</button>
         </div>
       </div>}
-      {transferStatus && <p className="workspace-transfer-status" role="status">{transferStatus}</p>}
+      {transfers && transferStatus && <p className="workspace-transfer-status" role="status">{transferStatus}</p>}
     </div>
     {error && <p className="error" role="alert">Workspace: {error}</p>}
   </section>;

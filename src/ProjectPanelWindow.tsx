@@ -6,6 +6,7 @@ import {
   PROJECT_PANEL_OPEN_EVENT,
   type ProjectPanelOpenPayload,
 } from "./event-workspace-model";
+import { TodoContent } from "./TodoContent";
 import { HubCloseIcon } from "./HubCloseIcon";
 import { ManagerView } from "./ManagerView";
 import { projectPanelGeometryLabel, writeStoredFloatingGeometry } from "./event-workspace-window";
@@ -66,6 +67,11 @@ function TodoDetailView({ itemId }: { itemId: string }) {
     </header>
     {item ? <section className="todo-detail-view__body">
       <h1 data-completed={item.completedAt !== null || undefined}>{item.title}</h1>
+      <div className="todo-detail-view__notes"><strong>Notes</strong>{item.notes.length
+        ? <p>{item.notes.map((segment, index) => segment.href
+          ? <button key={`${segment.href}-${index}`} onClick={() => void openNoteUrl(segment.href!)} type="button">{segment.text}</button>
+          : <span key={`text-${index}`}>{segment.text}</span>)}</p>
+        : <p>No notes.</p>}</div>
       <dl>
         <div><dt>Status</dt><dd>{item.completedAt ? "Completed" : "Open"}</dd></div>
         <div><dt>Project / list</dt><dd>{owner ?? "Unknown"}</dd></div>
@@ -73,11 +79,7 @@ function TodoDetailView({ itemId }: { itemId: string }) {
         <div><dt>Reminder</dt><dd>{item.remindAt ? new Date(item.remindAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Not set"}</dd></div>
         {item.completedAt && <div><dt>Completed</dt><dd>{new Date(item.completedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</dd></div>}
       </dl>
-      <div className="todo-detail-view__notes"><strong>Notes</strong>{item.notes.length
-        ? <p>{item.notes.map((segment, index) => segment.href
-          ? <button key={`${segment.href}-${index}`} onClick={() => void openNoteUrl(segment.href!)} type="button">{segment.text}</button>
-          : <span key={`text-${index}`}>{segment.text}</span>)}</p>
-        : <p>No notes.</p>}</div>
+
     </section> : <p className="project-quick-view__empty">This to-do is no longer available.</p>}
     {error && <p className="project-quick-view__error" role="status">{error}</p>}
   </main>;
@@ -108,6 +110,7 @@ function ProjectQuickView({ projectId, view }: { projectId: string; view: "notes
     return () => { disposed = true; unlisten?.(); };
   }, [refresh]);
 
+  const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
   const project = snapshot?.projects.find((item) => item.id === projectId) ?? null;
   const todos = useMemo(() => sortActionItems(
     snapshot?.actionItems.filter((item) => item.ownerKind === "project" && item.ownerId === projectId && item.completedAt === null) ?? [],
@@ -150,11 +153,8 @@ function ProjectQuickView({ projectId, view }: { projectId: string; view: "notes
         : <p className="project-quick-view__empty">No project notes.</p>}
     </section> : <ol className="project-quick-view__todos">
       {todos.length ? todos.map((item) => <li key={item.id}>
-        <button aria-label={`Complete ${item.title}`} onClick={() => void completeTodo(item.id)} type="button">✓</button>
-        <div><span>{item.title}</span>{(item.dueOn || item.remindAt) && <small>{[
-          item.dueOn ? `Due ${item.dueOn}` : null,
-          item.remindAt ? `Reminder ${new Date(item.remindAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}` : null,
-        ].filter(Boolean).join(" · ")}</small>}</div>
+        <button aria-checked={false} aria-label={`Complete ${item.title}`} className="todo-completion" onClick={() => void completeTodo(item.id)} role="checkbox" type="button"/>
+        <TodoContent item={item} expanded={expandedTodoId === item.id} onToggle={() => setExpandedTodoId((value) => value === item.id ? null : item.id)} showSchedule/>
       </li>) : <li className="project-quick-view__empty">No pending to-dos.</li>}
     </ol>}
     {error && <p className="project-quick-view__error" role="status">{error}</p>}

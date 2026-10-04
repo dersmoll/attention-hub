@@ -1,4 +1,4 @@
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { createAuxiliaryWindow, findAuxiliaryWindow, revealAuxiliaryWindow, withAuxiliaryWindowDeadline } from "./auxiliary-window";
 import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/window";
 import type { PopupAnchor } from "./event-workspace-model";
 import {
@@ -47,46 +47,43 @@ export async function openStickyNoteWindow(
   onClosed: () => void,
   onError?: (message: string) => void,
 ) {
-  const existing = await WebviewWindow.getByLabel(STICKY_NOTE_WINDOW_LABEL);
-  if (existing) {
-    await existing.unminimize();
-    await existing.show();
-    await existing.setFocus();
-    return;
-  }
+  try {
+    const existing = await findAuxiliaryWindow(STICKY_NOTE_WINDOW_LABEL);
+    if (existing) {
+      await revealAuxiliaryWindow(existing);
+      return;
+    }
 
-  const size = restoredSize();
-  const stored = readStoredFloatingGeometry(STICKY_NOTE_GEOMETRY_LABEL);
-  const position = await reachableStoredPosition(stored)
-    ?? fallbackPosition(anchor, size.width, size.height);
-  const noteWindow = new WebviewWindow(STICKY_NOTE_WINDOW_LABEL, {
-    url: "/?window=sticky-note",
-    title: "Attention Hub - Sticky note",
-    ...size,
-    minWidth: STICKY_NOTE_WINDOW_GEOMETRY.minWidth,
-    minHeight: STICKY_NOTE_WINDOW_GEOMETRY.minHeight,
-    decorations: false,
-    resizable: true,
-    transparent: true,
-    shadow: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    visible: false,
-  });
-  noteWindow.once("tauri://created", () => {
-    void (async () => {
+    const size = restoredSize();
+    const stored = readStoredFloatingGeometry(STICKY_NOTE_GEOMETRY_LABEL);
+    const position = await withAuxiliaryWindowDeadline(STICKY_NOTE_WINDOW_LABEL, () => reachableStoredPosition(stored))
+      ?? fallbackPosition(anchor, size.width, size.height);
+    const noteWindow = await createAuxiliaryWindow(STICKY_NOTE_WINDOW_LABEL, {
+      url: "/?window=sticky-note",
+      title: "Attention Hub - Sticky note",
+      ...size,
+      minWidth: STICKY_NOTE_WINDOW_GEOMETRY.minWidth,
+      minHeight: STICKY_NOTE_WINDOW_GEOMETRY.minHeight,
+      decorations: false,
+      resizable: true,
+      transparent: true,
+      shadow: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      visible: false,
+    });
+    await withAuxiliaryWindowDeadline(STICKY_NOTE_WINDOW_LABEL, async () => {
+      await noteWindow.once("tauri://destroyed", onClosed);
       await noteWindow.setMinSize(new LogicalSize(
         STICKY_NOTE_WINDOW_GEOMETRY.minWidth,
         STICKY_NOTE_WINDOW_GEOMETRY.minHeight,
       ));
       await noteWindow.setPosition(position);
-      await noteWindow.show();
-      await noteWindow.setFocus();
-    })().catch((cause) => onError?.(`Sticky note could not be shown: ${String(cause)}`));
-  });
-  noteWindow.once("tauri://destroyed", onClosed);
-  noteWindow.once("tauri://error", ({ payload }) => {
+      await revealAuxiliaryWindow(noteWindow);
+    });
+  } catch (cause) {
     onClosed();
-    onError?.(`Sticky-note window failed: ${String(payload)}`);
-  });
+    onError?.(cause instanceof Error ? cause.message : "Sticky note could not be opened.");
+    throw cause;
+  }
 }

@@ -8,7 +8,7 @@ export const TODAY_POPUP_CLOSED_EVENT = "today-popup-closed";
 
 export interface TodayPopupPayload {
   anchor: PopupAnchor;
-  placement: "above" | "below";
+  placement: "above" | "below" | "left" | "right";
   width: number;
   height: number;
   maxHeight: number;

@@ -1,0 +1,179 @@
+@use "mixins" as *;
+
+// Descendant selectors deliberately override the shared horizontal rail geometry.
+.widget-shell[data-width-mode="vertical"] {
+  --widget-app-slot-size: 28px;
+  --widget-app-surface-size: 26px;
+  --widget-app-icon-size: 22px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+
+  > .widget-zone, > .widget-utility, > .widget-drag-handle {
+    width: 100%;
+    min-height: 0;
+    border-left: 0;
+    border-top: 1px solid var(--widget-panel-border);
+    &:first-child { border-top: 0; }
+  }
+
+  // Keep foreground contrast: panel-accent-hover() is a glyph colour, not a fill.
+  .widget-app-slot:hover:not(:disabled),
+  .widget-clock__time-button:hover:not(:disabled),
+  .widget-calendar__vertical-summary:hover:not(:disabled),
+  .widget-destinations button:hover:not(:disabled),
+  .widget-destinations button:focus-visible,
+  .widget-destinations button[aria-pressed="true"] {
+    color: var(--widget-panel-foreground);
+    background: panel-tint(8%);
+  }
+
+  .widget-left { height: var(--widget-vertical-apps-height); }
+  .widget-apps {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: var(--widget-vertical-app-height);
+    justify-items: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    gap: 0;
+    transform: none;
+  }
+
+  .widget-clock[data-clock-layout] {
+    height: var(--widget-vertical-clocks-height);
+    padding: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: var(--widget-vertical-clock-height);
+    gap: 0;
+    > div:not(.widget-clock-converter) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 22px 12px;
+      padding: 0 2px;
+      gap: 0;
+      border-left: 0;
+    }
+    .widget-clock__label {
+      grid-column: 1;
+      grid-row: 2;
+      justify-content: center;
+      text-align: center;
+      font-size: 9px;
+    }
+    .widget-clock__short-label { padding: 0; text-align: center; }
+    .widget-clock__time-button, .widget-clock__time-display {
+      grid-column: 1;
+      grid-row: 1;
+      width: 100%;
+      max-width: none;
+      justify-items: center;
+      text-align: center;
+      padding: 0;
+      font-size: 17px;
+    }
+    time { font-size: 17px; }
+    .widget-clock__seconds, .widget-clock__day { display: none; }
+  }
+
+  .widget-clock[data-clock-mode="converter"] {
+    position: relative;
+    display: block;
+    padding-top: 16px;
+    .widget-clock-converter {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 16px 28px 44px;
+      width: 100%;
+      height: auto;
+      &::after { display: none; }
+      label { grid-column: 1; grid-row: 1; height: 16px; font-size: 9px; }
+      input { grid-column: 1; grid-row: 2; height: 28px; font-size: 15px; padding: 0; }
+      output { grid-column: 1; grid-row: 3; grid-template-rows: 16px 28px; }
+      &__time { font-size: 17px; }
+      &__close { top: 0; right: 0; }
+    }
+  }
+
+  .widget-calendar {
+    height: var(--widget-vertical-calendar-height);
+    padding: 0;
+    &__content[hidden] { display: none; }
+    &__vertical-state {
+      max-width: 100%;
+      color: var(--widget-panel-accent);
+      font-size: 8px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-transform: uppercase;
+      overflow-wrap: anywhere;
+    }
+    &__vertical-title {
+      display: -webkit-box;
+      max-width: 100%;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 4;
+      color: var(--widget-panel-foreground);
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 1.2;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    &__vertical-when {
+      line-height: 1.2;
+      span { display: block; font-variant-numeric: tabular-nums; }
+    }
+    &__vertical-countdown { color: var(--widget-panel-accent); font-weight: 650; }
+    &__vertical-health { color: var(--widget-panel-muted); line-height: 1.2; }
+
+    &__vertical-summary {
+      display: grid;
+      width: 100%;
+      height: 100%;
+      align-content: center;
+      justify-items: center;
+      gap: 3px;
+      padding: 4px 3px;
+      border: 0;
+      border-radius: 0;
+      color: var(--widget-panel-foreground);
+      background: transparent;
+      text-align: center;
+      small { max-width: 100%; font-size: 10px; white-space: normal; }
+      &:hover, &[aria-expanded="true"] { background: panel-tint(8%); }
+      &:focus-visible { @include widget-focus-ring; }
+    }
+  }
+
+  .widget-destinations[data-segments] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: var(--widget-vertical-destination-height);
+    height: var(--widget-vertical-destinations-height);
+    button + button { border-left: 0; border-top: 1px solid var(--widget-panel-border); }
+  }
+  .widget-drag-handle {
+    height: var(--widget-vertical-drag-height);
+    &::before { width: 20px; height: 8px; }
+  }
+  .widget-utility {
+    height: var(--widget-vertical-utility-height);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+    // Override the shared utility's forced hover colour in this narrow mode.
+    button:hover:not(:disabled), button:focus-visible {
+      color: var(--widget-panel-foreground) !important;
+      background: panel-tint(8%) !important;
+      .widget-utility__surface {
+        color: var(--widget-panel-foreground) !important;
+        background: transparent !important;
+      }
+    }
+  }
+}

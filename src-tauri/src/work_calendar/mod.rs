@@ -552,6 +552,10 @@ where
     F: FnOnce(&[(String, String)]) -> Result<usize, String> + Send,
 {
     let _guard = state.request_gate.lock().await;
+    if crate::app_backup::restore_is_pending() {
+        zero_string(&mut published_url);
+        return busy_snapshot(get_configuration());
+    }
     let source_scope = calendar_source_scope(&published_url);
 
     // Read the outgoing source *inside the gate*, immediately before the
@@ -908,6 +912,12 @@ fn busy_snapshot(configuration: WorkCalendarConfiguration) -> WorkCalendarSnapsh
 
 pub async fn remove_source(state: &WorkCalendarState) -> WorkCalendarConfiguration {
     let _guard = state.request_gate.lock().await;
+    if crate::app_backup::restore_is_pending() {
+        let mut configuration = get_configuration();
+        configuration.diagnostics =
+            vec!["Finish backup recovery before changing the calendar connection.".into()];
+        return configuration;
+    }
     state.clear_join_targets();
     match credential_store::delete() {
         Ok(()) => WorkCalendarConfiguration {
@@ -1189,6 +1199,231 @@ fn now_unix_ms() -> u64 {
 
 fn zero_string(value: &mut str) {
     unsafe { value.as_bytes_mut() }.fill(0);
+}
+
+// These helpers are native-only. Neither a saved publication URL nor the
+// Credential Manager rollback slots are included in an IPC response.
+pub(crate) struct BackupSession<'a> {
+    _guard: tokio::sync::MutexGuard<'a, ()>,
+    state: &'a WorkCalendarState,
+}
+pub(crate) async fn backup_session(state: &WorkCalendarState) -> Result<BackupSession<'_>, String> {
+    let guard = tokio::time::timeout(Duration::from_secs(20), state.request_gate.lock())
+        .await
+        .map_err(|_| {
+            "The calendar is busy. Wait for its refresh and try the backup action again.".to_owned()
+        })?;
+    Ok(BackupSession {
+        _guard: guard,
+        state,
+    })
+}
+pub(crate) fn backup_source_scope(url: &str) -> String {
+    calendar_source_scope(url)
+}
+pub(crate) fn erase_backup_secret(value: &mut str) {
+    zero_string(value);
+}
+pub(crate) fn validate_backup_connection(url: &str) -> Result<(), String> {
+    if url.is_empty() || url.len() > 5 * 512 {
+        return Err("The backup calendar connection exceeds its supported limit.".into());
+    }
+    published_ics::validate_backup_url(url)
+}
+impl BackupSession<'_> {
+    pub(crate) fn connection(&self) -> Result<Option<String>, String> {
+        credential_store::read().map_err(|_| {
+            "Windows Credential Manager could not read the calendar connection for this backup."
+                .into()
+        })
+    }
+    pub(crate) fn scope(&self) -> Result<Option<String>, String> {
+        let mut source = self.connection()?;
+        let scope = source.as_deref().map(calendar_source_scope);
+        if let Some(value) = source.as_mut() {
+            zero_string(value);
+        }
+        Ok(scope)
+    }
+    pub(crate) async fn verify_connection(&self, url: &str) -> Result<(), String> {
+        validate_backup_connection(url)?;
+        let probe = published_ics::get_semantic_probe_with_deadline(url.to_owned(), true).await;
+        if matches!(probe.status, PublishedIcsProbeStatus::Observed)
+            && probe.semantic_extraction_allowed
+        {
+            Ok(())
+        } else {
+            Err("The backup calendar connection could not be verified. Retry when it is reachable, or restore without the calendar connection.".into())
+        }
+    }
+    pub(crate) fn stage_connection(&self, url: &str) -> Result<bool, String> {
+        validate_backup_connection(url)?;
+        let mut previous = self.connection()?;
+        let existed = previous.is_some();
+        let previous_result = match previous.as_deref() {
+            Some(value) => backup_credential_slots::write(false, value),
+            None => backup_credential_slots::delete(false),
+        };
+        if let Some(value) = previous.as_mut() {
+            zero_string(value);
+        }
+        previous_result?;
+        backup_credential_slots::write(true, url)?;
+        Ok(existed)
+    }
+    pub(crate) fn commit_connection(&self) -> Result<(), String> {
+        let mut candidate = backup_credential_slots::read(true)?.ok_or_else(|| {
+            "The staged calendar connection is unavailable. Restore was not committed.".to_owned()
+        })?;
+        let result = validate_backup_connection(&candidate).and_then(|_| {
+            credential_store::write(&candidate).map_err(|_| {
+                "Windows Credential Manager could not restore the calendar connection.".to_owned()
+            })
+        });
+        zero_string(&mut candidate);
+        if result.is_ok() {
+            self.state.clear_join_targets();
+            if let Ok(mut cache) = self.state.day_cache.lock() {
+                cache.clear();
+            }
+        }
+        result
+    }
+    pub(crate) fn invalidate_on_restore(&self) {
+        self.state.clear_join_targets();
+        if let Ok(mut cache) = self.state.day_cache.lock() {
+            cache.clear();
+        }
+    }
+}
+pub(crate) fn recover_backup_calendar(previous_existed: bool) -> Result<(), String> {
+    if previous_existed {
+        let mut previous = backup_credential_slots::read(false)?
+            .ok_or_else(|| "The previous calendar connection could not be recovered. Restart to retry recovery.".to_owned())?;
+        let result = credential_store::write(&previous).map_err(|_| {
+            "Windows Credential Manager could not recover the previous calendar connection."
+                .to_owned()
+        });
+        zero_string(&mut previous);
+        result
+    } else {
+        credential_store::delete().map_err(|_| {
+            "Windows Credential Manager could not recover the previous calendar state.".into()
+        })
+    }
+}
+pub(crate) fn cleanup_backup_calendar() -> Result<(), String> {
+    let previous = backup_credential_slots::delete(false);
+    let candidate = backup_credential_slots::delete(true);
+    previous?;
+    candidate
+}
+
+#[cfg(target_os = "windows")]
+mod backup_credential_slots {
+    use std::{ffi::c_void, ptr::null_mut, slice};
+    use windows::{
+        core::{HRESULT, PCWSTR, PWSTR},
+        Win32::{
+            Foundation::ERROR_NOT_FOUND,
+            Security::Credentials::{
+                CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW,
+                CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+            },
+        },
+    };
+    fn target(candidate: bool) -> Vec<u16> {
+        let profile = if cfg!(debug_assertions) {
+            "AttentionHub/PublishedWorkCalendar-dev"
+        } else {
+            "AttentionHub/PublishedWorkCalendar"
+        };
+        let slot = if candidate {
+            "backup-restore-candidate"
+        } else {
+            "backup-restore-previous"
+        };
+        format!("{profile}/{slot}")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect()
+    }
+    fn failure() -> String {
+        "Windows Credential Manager could not stage or recover the calendar connection.".into()
+    }
+    pub(super) fn read(candidate: bool) -> Result<Option<String>, String> {
+        let target = target(candidate);
+        let mut pointer = null_mut::<CREDENTIALW>();
+        if let Err(error) = unsafe {
+            CredReadW(
+                PCWSTR(target.as_ptr()),
+                CRED_TYPE_GENERIC,
+                None,
+                &mut pointer,
+            )
+        } {
+            return if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) {
+                Ok(None)
+            } else {
+                Err(failure())
+            };
+        }
+        if pointer.is_null() {
+            return Err(failure());
+        }
+        let credential = unsafe { &*pointer };
+        let length = credential.CredentialBlobSize as usize;
+        if length == 0 || length > 5 * 512 || credential.CredentialBlob.is_null() {
+            unsafe { CredFree(pointer.cast::<c_void>()) };
+            return Err(failure());
+        }
+        let bytes = unsafe { slice::from_raw_parts(credential.CredentialBlob, length) }.to_vec();
+        unsafe { slice::from_raw_parts_mut(credential.CredentialBlob, length) }.fill(0);
+        unsafe { CredFree(pointer.cast::<c_void>()) };
+        String::from_utf8(bytes).map(Some).map_err(|error| {
+            let mut bytes = error.into_bytes();
+            bytes.fill(0);
+            failure()
+        })
+    }
+    pub(super) fn write(candidate: bool, value: &str) -> Result<(), String> {
+        if value.is_empty() || value.len() > 5 * 512 {
+            return Err(failure());
+        }
+        let mut target = target(candidate);
+        let mut bytes = value.as_bytes().to_vec();
+        let credential = CREDENTIALW {
+            Type: CRED_TYPE_GENERIC,
+            TargetName: PWSTR(target.as_mut_ptr()),
+            CredentialBlobSize: bytes.len() as u32,
+            CredentialBlob: bytes.as_mut_ptr(),
+            Persist: CRED_PERSIST_LOCAL_MACHINE,
+            ..Default::default()
+        };
+        let result = unsafe { CredWriteW(&credential, 0) }.map_err(|_| failure());
+        bytes.fill(0);
+        result
+    }
+    pub(super) fn delete(candidate: bool) -> Result<(), String> {
+        let target = target(candidate);
+        match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
+            Ok(()) => Ok(()),
+            Err(error) if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) => Ok(()),
+            Err(_) => Err(failure()),
+        }
+    }
+}
+#[cfg(not(target_os = "windows"))]
+mod backup_credential_slots {
+    pub(super) fn read(_: bool) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    pub(super) fn write(_: bool, _: &str) -> Result<(), String> {
+        Err("Calendar connection restore requires Windows Credential Manager.".into())
+    }
+    pub(super) fn delete(_: bool) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "windows")]

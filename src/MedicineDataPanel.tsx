@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { openMedicineManagerWindow } from "./medicine-manager-window";
 import {
   MAX_MEDICINE_GRACE_MINUTES,
@@ -19,7 +19,8 @@ import {
 
 /** Separate from `<WorkspaceDataPanel>` on purpose: the two own different
  * snapshots and subscribe to different change events. */
-export function MedicineDataPanel() {
+export function MedicineDataPanel({ transfers = false }: { transfers?: boolean } = {}) {
+  const headingId = useId();
   const [snapshot, setSnapshot] = useState<MedicineSnapshot | null>(null);
   const [impact, setImpact] = useState<MedicineDeleteImpact | null>(null);
   const [pending, setPending] = useState(false);
@@ -43,6 +44,17 @@ export function MedicineDataPanel() {
     void listen("medicine-changed", () => void refresh()).then((next) => { if (disposed) next(); else unlisten = next; });
     return () => { disposed = true; unlisten?.(); };
   }, [refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen(MEDICINE_PREFERENCES_CHANGED_EVENT, () => {
+      const next = readMedicinePreferences();
+      setPreferences(next);
+      setGraceDraft(`${next.graceMinutes}`);
+    }).then((next) => { if (disposed) next(); else unlisten = next; }).catch(() => undefined);
+    return () => { disposed = true; unlisten?.(); };
+  }, []);
 
   const applyPreferences = (update: Parameters<typeof writeMedicinePreferences>[0]) => {
     const next = writeMedicinePreferences(update);
@@ -139,11 +151,11 @@ export function MedicineDataPanel() {
       .map(([count, label]) => `${count} ${label}`)
     : [];
 
-  return <section aria-labelledby="medicine-data-heading" className="workspace-data-panel">
-    <h2 id="medicine-data-heading">Medicine storage and data</h2>
+  return <section aria-labelledby={headingId} className="workspace-data-panel">
+    <h2 id={headingId}>{transfers ? "Medicine transfers" : "Medicine storage and data"}</h2>
     <p>{treatments} treatment{treatments === 1 ? "" : "s"}, {medicines} medicine{medicines === 1 ? "" : "s"}, and {doses} planned dose{doses === 1 ? "" : "s"} ({recorded} recorded).</p>
     <div className="workspace-data-card">
-      <p>
+      {!transfers && <><p>
         Treatments, medicines, and dose records are stored in their own local
         versioned file with one previous valid backup. They are kept out of the
         workspace export, so exporting Projects and to-dos never includes
@@ -157,10 +169,11 @@ export function MedicineDataPanel() {
         whatever disk encryption this PC already uses. Anyone who can read your
         Windows profile can read it.
       </p>
-      {snapshot?.storagePath && <p>Data file: <code>{snapshot.storagePath}</code></p>}
+      {snapshot?.storagePath && <p>Data file: <code>{snapshot.storagePath}</code></p>}</>}
+      {transfers && <p className="workspace-plaintext-disclosure">Medicine exports include treatment names, schedules, notes, and dose history as unencrypted plain text.</p>}
       {snapshot?.recoveredFromBackup && <p className="workspace-recovery" role="status">The previous valid backup is currently being shown.</p>}
-      {snapshot?.storageWarning && <div className="workspace-storage-warning" role="alert"><p className="error">{snapshot.storageWarning}</p><button disabled={pending} onClick={() => void retryBackupCleanup()} type="button">Remove retained backup</button></div>}
-      <label className="workspace-notification-setting">
+      {!transfers && snapshot?.storageWarning && <div className="workspace-storage-warning" role="alert"><p className="error">{snapshot.storageWarning}</p><button disabled={pending} onClick={() => void retryBackupCleanup()} type="button">Remove retained backup</button></div>}
+      {!transfers && <><label className="workspace-notification-setting">
         <input
           checked={preferences.doseNotificationsEnabled}
           onChange={(event) => applyPreferences({ doseNotificationsEnabled: event.target.checked })}
@@ -191,20 +204,23 @@ export function MedicineDataPanel() {
         How long a dose stays due after its time before it counts as missed,
         from {MIN_MEDICINE_GRACE_MINUTES} to {MAX_MEDICINE_GRACE_MINUTES} minutes.
         The same window decides when a reminder can still be raised.
-      </p>
+      </p></>}
       <div className="actions">
-        <button onClick={() => void openMedicineManagerWindow()} type="button">Open Medicine</button>
-        <button disabled={transferPending !== null} onClick={() => setExportDisclosureOpen(true)} type="button">Export Medicine…</button>
-        <button disabled={transferPending !== null} onClick={() => void chooseMedicineImport()} type="button">Import Medicine…</button>
-        {!impact
+        {transfers ? <>
+          <button disabled={transferPending !== null} onClick={() => setExportDisclosureOpen(true)} type="button">Export Medicine…</button>
+          <button disabled={transferPending !== null} onClick={() => void chooseMedicineImport()} type="button">Import Medicine…</button>
+        </> : <>
+          <button onClick={() => void openMedicineManagerWindow().catch(() => undefined)} type="button">Open Medicine</button>
+          {!impact
           ? <button disabled={pending || !snapshot || (treatments === 0 && medicines === 0 && doses === 0)} onClick={() => void prepareDeleteAll()} type="button">Delete all medicine data…</button>
           : <span aria-label="Confirm deletion" className="workspace-delete-confirm" role="group">
             <span>{impactParts.length ? `${impactParts.join(", ")} will be removed, along with the previous local backup.` : "The active store is empty. Any previous local backup will be removed."}</span>
             <button autoFocus disabled={pending} onClick={() => void deleteAll()} type="button">Permanently delete all</button>
             <button onClick={() => setImpact(null)} type="button">Cancel</button>
           </span>}
+        </>}
       </div>
-      {exportDisclosureOpen && <div aria-label="Confirm Medicine export" className="workspace-import-confirm" role="group">
+      {transfers && exportDisclosureOpen && <div aria-label="Confirm Medicine export" className="workspace-import-confirm" role="group">
         <strong>Export unencrypted Medicine data?</strong>
         <span>This JSON file includes treatment names, medicine schedules, notes, and dose history in plain text. Store it only where people you trust can read it.</span>
         <div>
@@ -212,7 +228,7 @@ export function MedicineDataPanel() {
           <button disabled={transferPending !== null} onClick={() => setExportDisclosureOpen(false)} type="button">Cancel</button>
         </div>
       </div>}
-      {importSelection && <div aria-label="Confirm Medicine import" className="workspace-import-confirm" role="group">
+      {transfers && importSelection && <div aria-label="Confirm Medicine import" className="workspace-import-confirm" role="group">
         <strong>Replace the current Medicine data?</strong>
         <span>{`${importSelection.preview.counts.treatments} treatments, ${importSelection.preview.counts.medicines} medicines, and ${importSelection.preview.counts.doses} dose records`}</span>
         <small>Exported {new Date(importSelection.preview.exportedAt).toLocaleString()}. This replaces all local Medicine data; the current valid store becomes the local backup.</small>
@@ -221,7 +237,7 @@ export function MedicineDataPanel() {
           <button disabled={transferPending !== null} onClick={() => setImportSelection(null)} type="button">Cancel</button>
         </div>
       </div>}
-      {transferStatus && <p className="workspace-transfer-status" role="status">{transferStatus}</p>}
+      {transfers && transferStatus && <p className="workspace-transfer-status" role="status">{transferStatus}</p>}
     </div>
     {error && <p className="error" role="alert">Medicine: {error}</p>}
   </section>;

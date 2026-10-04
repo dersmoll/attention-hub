@@ -37,12 +37,32 @@ export const TODAY_DOSE_ROW_HEIGHT = 30;
 export const TODAY_DOSE_MAX_ITEMS = 8;
 export const TODAY_POPUP_MIN_WIDTH = 300;
 
-export type WidgetWidthMode = "recommended" | "slim";
+export type WidgetWidthMode = "recommended" | "slim" | "vertical";
+export const WIDGET_VERTICAL_WIDTH = 58;
+export const WIDGET_VERTICAL_APP_HEIGHT = 30;
+export const WIDGET_VERTICAL_CLOCK_HEIGHT = 36;
+export const WIDGET_VERTICAL_CALENDAR_HEIGHT = 112;
+export const WIDGET_VERTICAL_DESTINATION_HEIGHT = 28;
+export const WIDGET_VERTICAL_DRAG_HEIGHT = 12;
+export const WIDGET_VERTICAL_UTILITY_HEIGHT = 24;
+
+export function widgetVerticalHeight(appCount = 0, clockCount = 0, showCalendar = true, destinationCount = 1) {
+  return 2 + Math.min(7, Math.max(0, appCount)) * WIDGET_VERTICAL_APP_HEIGHT
+    + Math.min(5, Math.max(0, clockCount)) * WIDGET_VERTICAL_CLOCK_HEIGHT
+    + Number(showCalendar) * WIDGET_VERTICAL_CALENDAR_HEIGHT
+    + Math.min(4, Math.max(0, destinationCount)) * WIDGET_VERTICAL_DESTINATION_HEIGHT
+    + WIDGET_VERTICAL_DRAG_HEIGHT + WIDGET_VERTICAL_UTILITY_HEIGHT;
+}
+
+export function popupSidePlacement(anchor: { left: number; right: number; monitorLeft: number; monitorRight: number }) {
+  return anchor.monitorRight - anchor.right >= anchor.left - anchor.monitorLeft ? "right" : "left";
+}
 
 export function widgetCalendarMinimumWidth(
   widthMode: WidgetWidthMode,
   showsNextEvent: boolean,
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   if (widthMode === "slim") {
     return showsNextEvent
       ? WIDGET_SLIM_CALENDAR_DUAL_WIDTH
@@ -57,6 +77,7 @@ export function widgetHeight(
   widthMode: WidgetWidthMode = "recommended",
   clockLayout: "horizontal" | "vertical" | "timeFocus" = "horizontal",
 ) {
+  if (widthMode === "vertical") return widgetVerticalHeight();
   if (clockLayout === "timeFocus") {
     return WIDGET_TIME_FOCUS_HEIGHT;
   }
@@ -117,6 +138,7 @@ export function widgetClockPanelWidth(
   clockCount = 2,
   clockLayout: "horizontal" | "vertical" | "timeFocus" = "horizontal",
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   if (clockLayout === "timeFocus") {
     return widthMode === "slim"
       ? WIDGET_SLIM_TIME_FOCUS_CLOCK_WIDTH
@@ -146,6 +168,7 @@ export function widgetLeftWidth(
   visibleSourceCount: number,
   widthMode: WidgetWidthMode = "recommended",
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   const boundedCount = Math.min(7, Math.max(0, Math.trunc(visibleSourceCount)));
   if (widthMode === "slim") {
     if (boundedCount === 0) {
@@ -168,6 +191,7 @@ export function widgetCalendarWidth(
   contentLength = 0,
   preferredWidth: number | null = null,
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   const minimumWidth = widgetCalendarMinimumWidth(widthMode, showsNextEvent);
   if (preferredWidth !== null && Number.isFinite(preferredWidth)) {
     return Math.max(minimumWidth, Math.round(preferredWidth));
@@ -214,6 +238,7 @@ export function widgetFixedWidth(
   showMedicinePanel = false,
   showStickyNotePanel = false,
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   const segmentWidths = [
     showAppsPanel && visibleSourceCount > 0
       ? widgetLeftWidth(visibleSourceCount, widthMode)
@@ -244,6 +269,7 @@ export function widgetDestinationsWidth(
   showMedicinePanel = false,
   showStickyNotePanel = false,
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   const segmentCount =
     Number(showTodayPanel) +
     Number(showProjectsPanel) +
@@ -263,6 +289,7 @@ export function todayPopupWidth(anchorWidth: number) {
 export function widgetUtilityWidth(
   widthMode: WidgetWidthMode = "recommended",
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   if (widthMode === "slim") {
     return WIDGET_SLIM_UTILITY_WIDTH;
   }
@@ -285,6 +312,7 @@ export function widgetWidth(
   showMedicinePanel = false,
   showStickyNotePanel = false,
 ) {
+  if (widthMode === "vertical") return WIDGET_VERTICAL_WIDTH;
   return (
     widgetFixedWidth(
       visibleSourceCount,
