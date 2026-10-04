@@ -1,7 +1,8 @@
 # Attention Hub 0.6.0-beta.16
 
 - Prepared: 2026-10-04
-- Status: release candidate
+- Released: 2026-10-04
+- Status: public beta
 - Platform: Windows x64
 - Tag: `v0.6.0-beta.16`
 
@@ -48,10 +49,31 @@
 - The complete frontend suite and production TypeScript/Vite build passed.
 - Rust all-target tests passed: 143 passed, 1 ignored reporting helper.
 - Strict all-target/all-feature Clippy, formatting and synchronized version
-  checks passed. Packaging and remote artifact/feed verification are recorded
-  during publication.
+  checks passed. Local optimized NSIS packaging and the tagged GitHub release
+  workflow passed, as did PR and post-merge validation.
 - Installed upgrade/uninstall and an actual signed in-app update are separate
   acceptance checks; they are not implied by a passing build.
 
 The public release includes signed updater artifacts produced in the protected
 GitHub release environment. The Windows installer remains Authenticode-unsigned.
+
+## Published artifacts
+
+- Release: <https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.16>
+- Merge commit: `47f0c171b776879ab2b724be3e5bce4b13503023`
+- Release workflow: <https://github.com/dersmoll/attention-hub/actions/runs/37219047228>
+- Installer: `Attention.Hub_0.6.0-beta.16_x64-setup.exe`
+- Size: 5,747,737 bytes
+- SHA-256: `2647E2C46834976FCEA530A6E6B0A400613E43FBC4507D383BFC07F2512CC7D7`
+
+The downloaded installer, detached signature and manifest match GitHub's
+published asset digests. Both Windows updater entries verify with the public key
+embedded in the application, including the Minisign trusted-comment signature.
+The deployed `updater-feed/latest-beta.json` matches the release's `latest.json`
+byte-for-byte. An anonymous download using the updater's octet-stream request
+header returned the same verified installer bytes.
+
+The verified public installer is also available locally as
+`Attention-Hub_0.6.0-beta.16_x64-setup.exe` in the canonical project folder.
+Actual installed updater replacement/restart and uninstall remain human
+acceptance checks; download/signature verification does not claim these passed.

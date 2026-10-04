@@ -11,9 +11,9 @@ credentials.
 
 ## Current beta
 
-Version `0.6.0-beta.15` is the current public beta.
+Version `0.6.0-beta.16` is the current public beta.
 
-[Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.15)
+[Download the Windows beta](https://github.com/dersmoll/attention-hub/releases/tag/v0.6.0-beta.16)
 
 Windows SmartScreen may warn because this beta is not code-signed. The release
 page publishes the exact installer checksum for verification. Attention Hub's
@@ -66,12 +66,12 @@ updates.
   app is running. A top-level **All To-dos** view provides one chronological
   list across every project and personal list with owner context and inline
   actions. Today includes overdue, due-today, and reminder-relevant items.
-  Advanced settings can manually export the complete workspace to a portable
-  JSON file and replace the local workspace from a validated export after a
-  count preview and explicit confirmation.
+  Task titles reveal notes, and saved work links are available directly from
+  the task context. Advanced / Backup & restore supports individual workspace
+  transfers and full backups, with previews and explicit replacement choices.
 - Keeps close, pin, and Advanced in a compact right-side utility rail. A narrow
-  destination panel after the calendar opens Today, Projects, or the flat
-  All To-dos view without competing with source and calendar actions. Today
+  destination panel after the calendar opens Today, Projects, or a styled
+  all-To-dos popup grouped by project/list. Today
   reports meetings and relevant to-dos left; All To-dos shows the active count. Pinning is an
   Appearance preference and native context-menu action.
 - App shortcuts, clocks, Today, and Projects/To-dos can be hidden independently
@@ -83,10 +83,18 @@ updates.
   surfaces, inline time-and-city pairs, a one-line calendar, and horizontal
   utility controls. Its persisted value is `slim`. Legacy Compact, Auto, Wide,
   and Larger preferences all migrate safely to Recommended.
-  Native DWM mirrors remain synchronized with the selected geometry.
+  **Vertical** provides a narrow stacked column with application icons, clocks,
+  meaningful calendar context and destination controls. Native DWM mirrors
+  remain synchronized with the selected geometry.
 - Organizes Advanced into a PowerToys-inspired two-column layout with a fixed
   navigation sidebar and focused General, Clocks, Apps, Calendar, Reminders,
-  and Diagnostics pages. Controls share a compact, consistent visual scale.
+  Backup & restore, Updates and Diagnostics pages. Controls share a compact,
+  consistent visual scale.
+- Exports a full unencrypted backup of settings, calendar choices, projects,
+  notes, links, to-dos, Medicine, dose history and the sticky note. Selective
+  restore saves a previous-data backup and supports interrupted-restore
+  recovery. Including the private calendar connection is optional and off by
+  default; cached events and temporary meeting tokens are excluded.
 - Preserves position, pinning, appearance, source order, calendar selection,
   and unified Project Hub/to-do workspace data locally.
 
@@ -105,6 +113,8 @@ updates.
   synthetic count.
 - The calendar publication URL is stored in Windows Credential Manager and is
   never written to the WebView, logs, fixtures, or documentation.
+  An explicitly selected full-backup option writes it directly to the private
+  backup file through native code.
 - Meeting URLs remain in Rust process memory behind short-lived tokens and open
   only after the user clicks **Join**.
 - Raw calendar recurrence UIDs remain native. The Today summary receives only
@@ -119,7 +129,7 @@ updates.
 See [Privacy](docs/privacy.md), [Architecture](docs/architecture.md), and
 [Stable decisions](docs/decisions/README.md) for the public technical boundary.
 The current artifact and validation record is in
-[the 0.6.0-beta.15 release notes](docs/releases/attention-hub-0.6.0-beta.15.md).
+[the 0.6.0-beta.16 release notes](docs/releases/attention-hub-0.6.0-beta.16.md).
 
 ## Development
 
